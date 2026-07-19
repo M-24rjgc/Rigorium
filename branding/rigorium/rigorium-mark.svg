@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Rigorium app icon</title>
+  <desc id="desc">A research trace shaped as the letter R with connected evidence nodes.</desc>
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="#171B1E"/>
+  <path
+    d="M306 782V292c0-54 44-98 98-98h166c110 0 198 88 198 198s-88 198-198 198H306"
+    fill="none"
+    stroke="#F4F1EA"
+    stroke-width="92"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M548 590 758 794"
+    fill="none"
+    stroke="#36B59F"
+    stroke-width="92"
+    stroke-linecap="round"
+  />
+  <circle cx="570" cy="194" r="44" fill="#E8875C"/>
+  <circle cx="548" cy="590" r="35" fill="#171B1E" stroke="#36B59F" stroke-width="22"/>
+  <circle cx="758" cy="794" r="44" fill="#E8875C"/>
+</svg>

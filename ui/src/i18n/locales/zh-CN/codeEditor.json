@@ -1,0 +1,86 @@
+{
+  "toolbar": {
+    "changes": "个更改",
+    "previousChange": "上一个更改",
+    "nextChange": "下一个更改",
+    "hideDiff": "隐藏差异高亮",
+    "showDiff": "显示差异高亮",
+    "settings": "编辑器设置",
+    "collapse": "折叠编辑器",
+    "expand": "展开编辑器到全宽"
+  },
+  "loading": "正在加载 {{fileName}}...",
+  "loadError": {
+    "title": "无法加载该文件",
+    "description": "未能从磁盘读取 \"{{fileName}}\"。在文件成功重新加载之前，保存已被禁用，以避免把错误内容写回磁盘覆盖你的真实文件。",
+    "retry": "重试"
+  },
+  "header": {
+    "showingChanges": "显示更改"
+  },
+  "tabs": {
+    "tabList": "已打开的文件",
+    "closeTab": "关闭 {{fileName}}",
+    "modified": "已修改",
+    "unsavedConfirm": "关闭 {{fileName}} 并放弃未保存的更改吗？"
+  },
+  "actions": {
+    "download": "下载文件",
+    "save": "保存",
+    "saving": "保存中...",
+    "saved": "已保存！",
+    "exitFullscreen": "退出全屏",
+    "fullscreen": "全屏",
+    "expand": "展开为全宽",
+    "collapse": "收起为分栏视图",
+    "close": "关闭",
+    "goBack": "返回",
+    "previewMarkdown": "预览 Markdown",
+    "editMarkdown": "编辑 Markdown"
+  },
+  "footer": {
+    "lines": "行数：",
+    "characters": "字符数：",
+    "shortcuts": "按 Ctrl+S 保存 • Esc 返回或关闭"
+  },
+  "binaryFile": {
+    "title": "二进制文件",
+    "message": "文件 \"{{fileName}}\" 无法在文本编辑器中显示，因为它是二进制文件。"
+  },
+  "officePreview": {
+    "checkingService": "正在检查 Office 预览服务...",
+    "converting": "正在加载...",
+    "refreshing": "文件已更新，正在刷新预览...",
+    "refresh": "刷新预览",
+    "configureService": "配置 Office 预览服务",
+    "disabledTitle": "无法预览二进制文件",
+    "disabledMessage": "当前未配置 Office 文件预览服务。请前往设置配置 Office 文件预览服务，或下载文件后在本地打开。",
+    "libreOfficeUnavailableTitle": "LibreOffice 不可用",
+    "libreOfficeUnavailableMessage": "该格式需要 LibreOffice 才能预览。请安装 LibreOffice，或在设置中将 Office 文件预览服务切换为“无”。",
+    "failedMessage": "未能生成 Office 文件预览。"
+  },
+  "pdfToolbar": {
+    "zoomOut": "缩小",
+    "zoomIn": "放大",
+    "zoomPercent": "缩放百分比",
+    "fitWidth": "适合宽度",
+    "fitPage": "适合页面",
+    "rotateCounterClockwise": "逆时针旋转",
+    "rotateClockwise": "顺时针旋转",
+    "pageNumber": "页码",
+    "goToPage": "跳转页码",
+    "pageOf": "/ {{total}}"
+  },
+  "fileTypes": {
+    "word": "Word 文档",
+    "excel": "Excel 表格",
+    "powerpoint": "PowerPoint 演示文稿",
+    "pdf": "PDF 文件",
+    "image": "图片文件",
+    "file": "文件"
+  },
+  "selection": {
+    "chatInPilotDeck": "在 Rigorium 中对话",
+    "noSelectableText": "当前预览不包含可选择文本。"
+  }
+}

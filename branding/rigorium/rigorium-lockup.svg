@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 480" role="img" aria-labelledby="title desc">
+  <title id="title">Rigorium logo</title>
+  <desc id="desc">Rigorium icon and wordmark for a personal research workspace.</desc>
+  <g transform="translate(28 28) scale(.4140625)">
+    <rect x="64" y="64" width="896" height="896" rx="208" fill="#171B1E"/>
+    <path
+      d="M306 782V292c0-54 44-98 98-98h166c110 0 198 88 198 198s-88 198-198 198H306"
+      fill="none"
+      stroke="#F4F1EA"
+      stroke-width="92"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path d="M548 590 758 794" fill="none" stroke="#36B59F" stroke-width="92" stroke-linecap="round"/>
+    <circle cx="570" cy="194" r="44" fill="#E8875C"/>
+    <circle cx="548" cy="590" r="35" fill="#171B1E" stroke="#36B59F" stroke-width="22"/>
+    <circle cx="758" cy="794" r="44" fill="#E8875C"/>
+  </g>
+  <text x="500" y="253" fill="#171B1E" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="154" font-weight="700">Rigorium</text>
+  <text x="510" y="330" fill="#5F686D" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="36" font-weight="500">Personal research workspace</text>
+</svg>
