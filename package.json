@@ -4,6 +4,7 @@
   "description": "Rigorium personal research workspace",
   "private": true,
   "type": "module",
+  "main": "desktop/main.mjs",
   "engines": {
     "node": ">=22.13.0 <23"
   },
@@ -22,6 +23,11 @@
     "server": "npm run check:runtime && tsx src/cli/pilotdeck.ts server",
     "server:built": "npm run check:runtime && node dist/src/cli/pilotdeck.js server",
     "skills:migrate": "tsx src/cli/pilotdeck.ts skills migrate",
+    "desktop:prepare-icon": "node desktop/build-icon.mjs",
+    "desktop:start": "electron .",
+    "desktop:smoke": "electron . --smoke-test",
+    "desktop:pack": "pnpm run desktop:prepare-icon && electron-builder --dir --win --x64",
+    "desktop:build": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && electron-builder --win nsis --x64",
     "predev": "npm run check:runtime && node scripts/bootstrap-pilotdeck-config.mjs",
     "dev": "node scripts/dev-launcher.mjs",
     "test": "npm run build && node --test --test-force-exit --test-timeout 60000 \"dist/tests/**/*.test.js\" \"dist/tests/**/*.spec.js\"",
@@ -30,35 +36,104 @@
   "devDependencies": {
     "@types/node": "^25.0.0",
     "@types/ws": "^8.18.1",
+    "electron": "^37.10.3",
+    "electron-builder": "^26.15.7",
     "ink-testing-library": "^4.0.0",
-    "tsx": "^4.21.0",
+    "png-to-ico": "^3.0.2",
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "@google/genai": "^2.10.0",
     "@larksuiteoapi/node-sdk": "^1.65.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@octokit/rest": "^22.0.0",
     "@types/react": "^19.2.14",
     "@types/turndown": "^5.0.6",
     "@vscode/ripgrep": "^1.18.0",
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.6.2",
+    "chokidar": "^4.0.3",
+    "cors": "^2.8.5",
     "csv-parse": "^7.0.0",
     "edgeclaw-memory-core": "file:src/context/memory/edgeclaw-memory-core",
+    "express": "^4.18.2",
+    "gray-matter": "^4.0.3",
     "ink": "^7.0.2",
     "ink-text-input": "^6.0.0",
     "js-tiktoken": "^1.0.21",
+    "jsonwebtoken": "^9.0.1",
     "jsonrepair": "^3.14.0",
+    "jszip": "^3.10.1",
+    "mime-types": "^3.0.1",
+    "multer": "^2.0.1",
     "mupdf": "^1.27.0",
+    "node-fetch": "^2.7.0",
+    "node-pty": "^1.1.0-beta34",
     "parse5": "^8.0.1",
     "react": "^19.2.6",
     "sharp": "^0.34.5",
+    "shell-quote": "^1.8.3",
     "slice-ansi": "^9.0.0",
     "string-width": "^8.2.1",
     "strip-ansi": "^7.2.0",
+    "tsx": "^4.21.0",
     "turndown": "^7.2.4",
     "undici": "^8.2.0",
+    "web-push": "^3.6.7",
     "weixin-ilink": "^0.1.0",
     "ws": "^8.21.0",
     "yaml": "^2.8.4"
   },
-  "packageManager": "pnpm@10.32.1"
+  "packageManager": "pnpm@10.32.1",
+  "build": {
+    "appId": "com.rigorium.desktop",
+    "productName": "Rigorium",
+    "electronDist": "node_modules/electron/dist",
+    "artifactName": "${productName}-Setup-${version}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "branding/rigorium"
+    },
+    "files": [
+      "desktop/**/*",
+      "dist/**/*",
+      "src/**/*",
+      "ui/dist/**/*",
+      "ui/server/**/*",
+      "ui/shared/**/*",
+      "skills/**/*",
+      "branding/rigorium/**/*",
+      "package.json",
+      "!ui/node_modules/**/*",
+      "!**/*.map"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node",
+      "node_modules/@img/**/*",
+      "node_modules/mupdf/**/*",
+      "node_modules/node-pty/**/*",
+      "node_modules/sharp/**/*"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "branding/rigorium/rigorium-mark.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Rigorium",
+      "deleteAppDataOnUninstall": false
+    }
+  }
 }
