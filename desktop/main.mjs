@@ -123,6 +123,8 @@ async function startServices() {
     {
       HOST: LOCAL_HOST,
       SERVER_PORT: '0',
+      PILOTDECK_DESKTOP: '1',
+      PILOTDECK_SKIP_BROWSER_OPEN: '1',
       PILOTDECK_GATEWAY_PORT: String(gatewayPort),
       PILOTDECK_GATEWAY_URL: `ws://${LOCAL_HOST}:${gatewayPort}/ws`,
     },
