@@ -110,7 +110,9 @@
     "asar": true,
     "asarUnpack": [
       "**/*.node",
+      "node_modules/@esbuild/**/*",
       "node_modules/@img/**/*",
+      "node_modules/esbuild/**/*",
       "node_modules/mupdf/**/*",
       "node_modules/node-pty/**/*",
       "node_modules/sharp/**/*"
