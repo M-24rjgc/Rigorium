@@ -191,6 +191,77 @@ export type ZoteroLibraryItem = {
   identity: PaperIdentity;
 };
 
+/**
+ * A child record is intentionally only a small, path-free summary. Attachment
+ * file locations are local-machine data and must never be returned merely by
+ * opening an item's details.
+ */
+export type ZoteroChild = {
+  key: string;
+  itemType: string;
+  title: string;
+  parentItem?: string;
+};
+
+export type ZoteroAttachment = ZoteroChild & {
+  itemType: "attachment";
+  contentType?: string;
+  linkMode?: string;
+  filename?: string;
+  dateModified?: string;
+};
+
+export type ZoteroNote = ZoteroChild & {
+  itemType: "note";
+  html: string;
+  text: string;
+};
+
+export type ZoteroItemDetail = {
+  /** A normalized summary suitable for matching and listing. */
+  item: ZoteroLibraryItem;
+  /** Kept at the detail root for simple rendering and backwards compatibility. */
+  tags: string[];
+  /**
+   * The item's original bibliographic fields, after local-path fields have
+   * been removed. This keeps the detail view useful for fields outside the
+   * compact library-list schema without exposing attachment locations.
+   */
+  data: Record<string, unknown>;
+  children: ZoteroChild[];
+  attachments: ZoteroAttachment[];
+  notes: ZoteroNote[];
+};
+
+export type ZoteroAttachmentFullText = {
+  attachmentKey: string;
+  content: string;
+  /** True when the explicit full-text response exceeded the provider cap. */
+  truncated: boolean;
+  indexedPages?: number;
+  totalPages?: number;
+  indexedChars?: number;
+  /** Character count before the provider applies its response cap. */
+  totalChars: number;
+  version?: number;
+};
+
+export type ZoteroCitationStyle = "apa" | "chicago-author-date" | "ieee" | "mla";
+
+export type ZoteroItemExportFormat = "bibtex" | "csl-json";
+
+export type ZoteroItemExport = {
+  itemKey: string;
+  format: ZoteroItemExportFormat;
+  style: ZoteroCitationStyle;
+  /** Official Local API export response: BibTeX or formatted CSL-JSON text. */
+  content: string;
+  /** Official CSL-formatted in-text citation, when supported by the style. */
+  citation?: string;
+  /** Official CSL-formatted bibliography entry, when supported by the style. */
+  bibliography?: string;
+};
+
 export type ZoteroCollectionsResult = {
   collections: ZoteroCollectionTarget[];
   total: number;
@@ -246,6 +317,13 @@ export interface LibraryProvider {
   getSelectedCollection(): Promise<ZoteroCollectionTarget | undefined>;
   listCollections(): Promise<ZoteroCollectionsResult>;
   listItems(input?: ZoteroListItemsInput): Promise<ZoteroItemsResult>;
+  getItemDetails(itemKey: string): Promise<ZoteroItemDetail>;
+  getAttachmentFullText(attachmentKey: string): Promise<ZoteroAttachmentFullText>;
+  exportItem(input: {
+    itemKey: string;
+    format: ZoteroItemExportFormat;
+    style: ZoteroCitationStyle;
+  }): Promise<ZoteroItemExport>;
   matchPapers(input: { papers: ResearchPaper[]; collectionKey?: string }): Promise<ZoteroPaperMatch[]>;
   importPapers(input: { papers: ResearchPaper[]; confirmed: boolean }): Promise<LibraryImportResult>;
 }

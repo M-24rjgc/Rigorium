@@ -171,3 +171,163 @@ test("Zotero matches a single item response by Zotero item key", async () => {
   assert.equal(match?.matched, true);
   assert.deepEqual(match?.reasons, ["zotero_key"]);
 });
+
+test("Zotero item details return children, notes, and attachment metadata without local paths", async () => {
+  const calls: string[] = [];
+  const localPath = "C:\\Users\\Ada\\Zotero\\storage\\ATTACH01\\paper.pdf";
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes("/items/ITEM1234?format=json")) {
+      return new Response(JSON.stringify({
+        key: "ITEM1234",
+        data: {
+          key: "ITEM1234",
+          itemType: "journalArticle",
+          title: paper.title,
+          creators: [{ firstName: "Ada", lastName: "Lovelace" }],
+          date: "2025",
+          DOI: paper.doi,
+          url: "https://doi.org/10.1000/test",
+          tags: [{ tag: "core" }],
+          collections: ["COLL1234"],
+          abstractNote: "A stored abstract.",
+          path: localPath,
+          file: localPath,
+          view: "http://127.0.0.1:23119/api/users/0/items/ATTACH01/file/view/url",
+        },
+      }), { headers: { "Content-Type": "application/json" } });
+    }
+    if (url.includes("/items/ITEM1234/children?format=json")) {
+      return new Response(JSON.stringify([
+        {
+          key: "ATTACH01",
+          data: {
+            key: "ATTACH01",
+            itemType: "attachment",
+            title: "paper.pdf",
+            parentItem: "ITEM1234",
+            contentType: "application/pdf",
+            linkMode: "imported_file",
+            filename: "paper.pdf",
+            path: localPath,
+            url: "http://127.0.0.1:23119/api/users/0/items/ATTACH01/file/view/url",
+          },
+        },
+        {
+          key: "NOTE0001",
+          data: {
+            key: "NOTE0001",
+            itemType: "note",
+            parentItem: "ITEM1234",
+            note: "<p>Research <strong>note</strong></p>",
+          },
+        },
+        {
+          key: "ANNOT001",
+          data: {
+            key: "ANNOT001",
+            itemType: "annotation",
+            parentItem: "ITEM1234",
+            annotationText: "Important result",
+          },
+        },
+      ]), { headers: { "Content-Type": "application/json" } });
+    }
+    if (url.includes("/fulltext")) throw new Error("Item details must not request attachment full text.");
+    return new Response("missing", { status: 404 });
+  };
+  const provider = createZoteroLibraryProvider({ fetchImpl });
+  const detail = await provider.getItemDetails("item1234");
+  const serialized = JSON.stringify(detail);
+
+  assert.equal(detail.item.url, "https://doi.org/10.1000/test");
+  assert.deepEqual(detail.tags, ["core"]);
+  assert.equal(detail.attachments[0]?.key, "ATTACH01");
+  assert.equal(detail.attachments[0]?.contentType, "application/pdf");
+  assert.equal(detail.notes[0]?.text, "Research note");
+  assert.equal(detail.children.length, 3);
+  assert.equal(Object.hasOwn(detail.data, "path"), false);
+  assert.equal(Object.hasOwn(detail.data, "file"), false);
+  assert.equal(Object.hasOwn(detail.data, "view"), false);
+  assert.equal(serialized.includes(localPath), false);
+  assert.equal(serialized.includes("/file/view/"), false);
+  assert.equal(calls.some((url) => url.includes("/fulltext")), false);
+});
+
+test("Zotero attachment full text is explicit, capped, and reports original size", async () => {
+  const calls: string[] = [];
+  const sourceContent = "x".repeat(1_000_001);
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes("/items/ATTACH01?format=json")) {
+      return new Response(JSON.stringify({
+        key: "ATTACH01",
+        data: {
+          key: "ATTACH01",
+          itemType: "attachment",
+          title: "paper.pdf",
+          parentItem: "ITEM1234",
+          contentType: "application/pdf",
+          path: "C:\\Users\\Ada\\Zotero\\storage\\ATTACH01\\paper.pdf",
+        },
+      }), { headers: { "Content-Type": "application/json" } });
+    }
+    if (url.includes("/items/ATTACH01/fulltext")) {
+      return new Response(JSON.stringify({
+        content: sourceContent,
+        indexedPages: 12,
+        totalPages: 12,
+        indexedChars: sourceContent.length,
+      }), { headers: { "Content-Type": "application/json" } });
+    }
+    return new Response("missing", { status: 404 });
+  };
+  const provider = createZoteroLibraryProvider({ fetchImpl });
+  const result = await provider.getAttachmentFullText("attach01");
+
+  assert.equal(result.attachmentKey, "ATTACH01");
+  assert.equal(result.content.length, 1_000_000);
+  assert.equal(result.truncated, true);
+  assert.equal(result.totalChars, 1_000_001);
+  assert.equal(result.indexedPages, 12);
+  assert.equal(calls.filter((url) => url.includes("/fulltext")).length, 1);
+  assert.equal(calls.some((url) => url.includes("/file/view") || url.includes("/file/view/url")), false);
+});
+
+test("Zotero item export uses official BibTeX and CSL JSON formats with rendered CSL output", async () => {
+  const calls: string[] = [];
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes("format=bibtex")) {
+      return new Response("@article{lovelace2025, title = {A useful research paper}}");
+    }
+    if (url.includes("format=csljson")) {
+      return new Response(JSON.stringify([{ id: "ITEM1234", title: paper.title }]), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (url.includes("include=data%2Ccitation%2Cbib")) {
+      return new Response(JSON.stringify([{
+        key: "ITEM1234",
+        citation: "(Lovelace, 2025)",
+        bib: "<div class=\"csl-entry\">Lovelace (2025).</div>",
+      }]), { headers: { "Content-Type": "application/json" } });
+    }
+    return new Response("missing", { status: 404 });
+  };
+  const provider = createZoteroLibraryProvider({ fetchImpl });
+  const bibtex = await provider.exportItem({ itemKey: "item1234", format: "bibtex", style: "ieee" });
+  const csl = await provider.exportItem({ itemKey: "ITEM1234", format: "csl-json", style: "ieee" });
+
+  assert.match(bibtex.content, /@article/);
+  assert.equal(bibtex.citation, "(Lovelace, 2025)");
+  assert.match(bibtex.bibliography ?? "", /csl-entry/);
+  assert.match(csl.content, /"title": "A useful research paper"/);
+  assert.equal(csl.format, "csl-json");
+  assert.ok(calls.some((url) => url.includes("format=bibtex") && url.includes("itemKey=ITEM1234")));
+  assert.ok(calls.some((url) => url.includes("format=csljson") && url.includes("itemKey=ITEM1234")));
+  assert.ok(calls.some((url) => url.includes("include=data%2Ccitation%2Cbib") && url.includes("style=ieee")));
+});

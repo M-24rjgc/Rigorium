@@ -4,11 +4,19 @@ import type {
   LibraryProvider,
   LibraryProviderStatus,
   ResearchPaper,
+  ZoteroAttachment,
+  ZoteroAttachmentFullText,
+  ZoteroCitationStyle,
   ZoteroCollectionsResult,
   ZoteroCollectionTarget,
+  ZoteroChild,
+  ZoteroItemDetail,
+  ZoteroItemExport,
+  ZoteroItemExportFormat,
   ZoteroItemsResult,
   ZoteroLibraryItem,
   ZoteroListItemsInput,
+  ZoteroNote,
   ZoteroPaperMatch,
   ZoteroPaperMatchReason,
 } from "../types.js";
@@ -19,6 +27,7 @@ const MAX_COLLECTIONS = 1_000;
 const MAX_ITEM_LIMIT = 100;
 const MAX_MATCH_PAPERS = 50;
 const MATCH_CONCURRENCY = 4;
+const MAX_ATTACHMENT_FULL_TEXT_CHARS = 1_000_000;
 const CONNECTOR_HEADERS = { "X-Zotero-Connector-API-Version": "3" } as const;
 
 export type CreateZoteroLibraryProviderOptions = {
@@ -46,16 +55,19 @@ export function createZoteroLibraryProvider(
     }
   };
 
-  const requestLocalApi = async (path: string): Promise<LocalApiResponse> => {
+  const requestLocalApi = async (
+    path: string,
+    options: { accept?: string } = {},
+  ): Promise<LocalApiResponse> => {
     const response = await request(path, {
       headers: {
-        Accept: "application/json",
+        Accept: options.accept ?? "application/json",
         "Zotero-API-Version": "3",
       },
     });
     const body = await readResponseBody(response);
     if (!response.ok) {
-      throw new ZoteroHttpError(
+      throw new ZoteroLocalApiError(
         `Zotero Local API returned HTTP ${response.status}: ${responseText(body)}`,
         response.status,
       );
@@ -177,6 +189,93 @@ export function createZoteroLibraryProvider(
         total: page.total ?? items.length,
         truncated: page.total !== undefined ? page.total > rawItems.length : rawItems.length >= limit,
         ...(queryText ? { query: queryText } : {}),
+      };
+    },
+    async getItemDetails(itemKey: string): Promise<ZoteroItemDetail> {
+      const key = requireZoteroItemKey(itemKey);
+      const itemResult = await requestLocalApi(`${LOCAL_API_ROOT}/items/${encodeURIComponent(key)}?format=json`);
+      const rawItem = singleResponse(itemResult.body);
+      const item = rawItem ? normalizeZoteroItem(rawItem) : undefined;
+      if (!item) {
+        throw new ZoteroInputError("The requested Zotero item is not a bibliographic library item.");
+      }
+
+      const childrenResult = await requestLocalApi(
+        `${LOCAL_API_ROOT}/items/${encodeURIComponent(key)}/children?format=json`,
+      );
+      const rawChildren = arrayResponse(childrenResult.body);
+      const children = rawChildren
+        .map(normalizeZoteroChild)
+        .filter((child): child is ZoteroChild => child !== undefined);
+      const attachments = rawChildren
+        .map(normalizeZoteroAttachment)
+        .filter((attachment): attachment is ZoteroAttachment => attachment !== undefined);
+      const notes = rawChildren
+        .map(normalizeZoteroNote)
+        .filter((note): note is ZoteroNote => note !== undefined);
+
+      return {
+        item,
+        tags: item.tags,
+        data: sanitizeZoteroData(itemData(rawItem)),
+        children,
+        attachments,
+        notes,
+      };
+    },
+    async getAttachmentFullText(attachmentKey: string): Promise<ZoteroAttachmentFullText> {
+      const key = requireZoteroItemKey(attachmentKey);
+      const attachmentResult = await requestLocalApi(`${LOCAL_API_ROOT}/items/${encodeURIComponent(key)}?format=json`);
+      const rawAttachment = singleResponse(attachmentResult.body);
+      const attachment = rawAttachment ? normalizeZoteroAttachment(rawAttachment) : undefined;
+      if (!attachment) {
+        throw new ZoteroInputError("Full text can only be requested for a Zotero attachment.");
+      }
+
+      // This is deliberately a separate method and route from item details.
+      // The Local API's file URL endpoint is never used here.
+      const fullTextResult = await requestLocalApi(
+        `${LOCAL_API_ROOT}/items/${encodeURIComponent(key)}/fulltext`,
+      );
+      return normalizeAttachmentFullText(key, fullTextResult.body);
+    },
+    async exportItem(input): Promise<ZoteroItemExport> {
+      const itemKey = requireZoteroItemKey(input.itemKey);
+      const format = requireExportFormat(input.format);
+      const style = requireCitationStyle(input.style);
+      const officialFormat = format === "csl-json" ? "csljson" : format;
+      const exportQuery = new URLSearchParams({
+        itemKey,
+        format: officialFormat,
+        limit: "1",
+      });
+      const renderedQuery = new URLSearchParams({
+        itemKey,
+        format: "json",
+        include: "data,citation,bib",
+        style,
+        limit: "1",
+      });
+      const [exportResult, renderedResult] = await Promise.all([
+        requestLocalApi(
+          `${LOCAL_API_ROOT}/items?${exportQuery.toString()}`,
+          { accept: format === "bibtex" ? "text/plain, */*;q=0.8" : "application/json" },
+        ),
+        requestLocalApi(`${LOCAL_API_ROOT}/items?${renderedQuery.toString()}`),
+      ]);
+      const rendered = singleResponse(renderedResult.body);
+      const citation = formattedOutput(rendered, "citation");
+      const bibliography = formattedOutput(rendered, "bibliography");
+
+      return {
+        itemKey,
+        format,
+        style,
+        content: format === "bibtex"
+          ? exportText(exportResult.body)
+          : exportCslJsonText(exportResult.body),
+        ...(citation ? { citation } : {}),
+        ...(bibliography ? { bibliography } : {}),
       };
     },
     async matchPapers(input): Promise<ZoteroPaperMatch[]> {
@@ -323,11 +422,218 @@ type LocalApiResponse = {
 
 type LocalApiRequester = (path: string) => Promise<LocalApiResponse>;
 
-class ZoteroHttpError extends Error {
+export class ZoteroLocalApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
-    this.name = "ZoteroHttpError";
+    this.name = "ZoteroLocalApiError";
   }
+}
+
+export class ZoteroInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ZoteroInputError";
+  }
+}
+
+function singleResponse(value: unknown): Record<string, unknown> | undefined {
+  if (Array.isArray(value)) return value.find(isRecord);
+  if (isRecord(value) && Array.isArray(value.items)) return value.items.find(isRecord);
+  return isRecord(value) ? value : undefined;
+}
+
+function itemData(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  return isRecord(value.data) ? value.data : value;
+}
+
+function normalizeZoteroChild(value: unknown): ZoteroChild | undefined {
+  if (!isRecord(value)) return undefined;
+  const data = itemData(value);
+  const key = normalizeZoteroKey(data.key) ?? normalizeZoteroKey(value.key);
+  if (!key) return undefined;
+  const itemType = stringValue(data.itemType) ?? "item";
+  const note = stringValue(data.note);
+  const annotationText = stringValue(data.annotationText);
+  const title = safeDisplayString(data.title)
+    ?? safeDisplayString(data.filename)
+    ?? notePreview(note)
+    ?? annotationText
+    ?? itemType;
+  const parentItem = normalizeZoteroKey(data.parentItem);
+  return {
+    key,
+    itemType,
+    title,
+    ...(parentItem ? { parentItem } : {}),
+  };
+}
+
+function normalizeZoteroAttachment(value: unknown): ZoteroAttachment | undefined {
+  const child = normalizeZoteroChild(value);
+  if (!child || child.itemType !== "attachment") return undefined;
+  const data = itemData(value);
+  const contentType = stringValue(data.contentType);
+  const linkMode = stringValue(data.linkMode);
+  const filename = safeDisplayString(data.filename);
+  const dateModified = stringValue(data.dateModified);
+  return {
+    ...child,
+    itemType: "attachment",
+    ...(contentType ? { contentType } : {}),
+    ...(linkMode ? { linkMode } : {}),
+    ...(filename ? { filename } : {}),
+    ...(dateModified ? { dateModified } : {}),
+  };
+}
+
+function normalizeZoteroNote(value: unknown): ZoteroNote | undefined {
+  const child = normalizeZoteroChild(value);
+  if (!child || child.itemType !== "note") return undefined;
+  const html = stringValue(itemData(value).note) ?? "";
+  return {
+    ...child,
+    itemType: "note",
+    html,
+    text: htmlToText(html),
+  };
+}
+
+function normalizeAttachmentFullText(attachmentKey: string, value: unknown): ZoteroAttachmentFullText {
+  const data = isRecord(value) ? value : {};
+  const sourceContent = typeof data.content === "string"
+    ? data.content
+    : typeof value === "string"
+      ? value
+      : "";
+  const truncated = sourceContent.length > MAX_ATTACHMENT_FULL_TEXT_CHARS;
+  const content = truncated ? sourceContent.slice(0, MAX_ATTACHMENT_FULL_TEXT_CHARS) : sourceContent;
+  const indexedPages = countValue(data.indexedPages);
+  const totalPages = countValue(data.totalPages);
+  const indexedChars = countValue(data.indexedChars);
+  const version = countValue(data.version);
+  return {
+    attachmentKey,
+    content,
+    truncated,
+    ...(indexedPages !== undefined ? { indexedPages } : {}),
+    ...(totalPages !== undefined ? { totalPages } : {}),
+    ...(indexedChars !== undefined ? { indexedChars } : {}),
+    totalChars: sourceContent.length,
+    ...(version !== undefined ? { version } : {}),
+  };
+}
+
+function sanitizeZoteroData(value: Record<string, unknown>): Record<string, unknown> {
+  const safe: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (isLocalPathField(key)) continue;
+    const sanitized = sanitizeZoteroValue(raw);
+    if (sanitized !== undefined) safe[key] = sanitized;
+  }
+  return safe;
+}
+
+function sanitizeZoteroValue(value: unknown): unknown {
+  if (typeof value === "string") return isLocalFileReference(value) ? undefined : value;
+  if (Array.isArray(value)) {
+    return value
+      .map(sanitizeZoteroValue)
+      .filter((entry): entry is Exclude<typeof entry, undefined> => entry !== undefined);
+  }
+  if (isRecord(value)) return sanitizeZoteroData(value);
+  if (value === null || typeof value === "boolean" || typeof value === "number") return value;
+  return undefined;
+}
+
+function isLocalPathField(value: string): boolean {
+  return ["path", "filepath", "localpath", "fileurl", "file", "view", "fileview", "fileviewurl"]
+    .includes(value.replace(/[^A-Za-z]/gu, "").toLowerCase());
+}
+
+function isLocalFileReference(value: string): boolean {
+  const trimmed = value.trim();
+  if (/^file:/iu.test(trimmed)
+    || /^[A-Za-z]:[\\/]/u.test(trimmed)
+    || /^\\\\[^\\]/u.test(trimmed)) {
+    return true;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    return ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname.toLowerCase())
+      && /\/(?:file|view)(?:\/|$)/iu.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function safeDisplayString(value: unknown): string | undefined {
+  const text = stringValue(value);
+  return text && !isLocalFileReference(text) ? text : undefined;
+}
+
+function notePreview(value: string | undefined): string | undefined {
+  const text = value ? htmlToText(value) : "";
+  return text ? text.slice(0, 160) : undefined;
+}
+
+function htmlToText(value: string): string {
+  return value
+    .replace(/<br\s*\/?\s*>/giu, "\n")
+    .replace(/<\/p\s*>/giu, "\n")
+    .replace(/<[^>]*>/gu, " ")
+    .replace(/&nbsp;/giu, " ")
+    .replace(/&amp;/giu, "&")
+    .replace(/&lt;/giu, "<")
+    .replace(/&gt;/giu, ">")
+    .replace(/[ \t]+\n/gu, "\n")
+    .replace(/\n{3,}/gu, "\n\n")
+    .replace(/[ \t]{2,}/gu, " ")
+    .trim();
+}
+
+function requireZoteroItemKey(value: unknown): string {
+  const key = normalizeZoteroKey(value);
+  if (!key) throw new ZoteroInputError("Zotero item keys must contain only letters and numbers.");
+  return key;
+}
+
+function requireExportFormat(value: unknown): ZoteroItemExportFormat {
+  if (value === "bibtex" || value === "csl-json") return value;
+  throw new ZoteroInputError("format must be \"bibtex\" or \"csl-json\".");
+}
+
+function requireCitationStyle(value: unknown): ZoteroCitationStyle {
+  if (value === "apa" || value === "chicago-author-date" || value === "ieee" || value === "mla") {
+    return value;
+  }
+  throw new ZoteroInputError("Unsupported Zotero citation style.");
+}
+
+function exportText(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function exportCslJsonText(value: unknown): string {
+  if (Array.isArray(value) || isRecord(value)) return JSON.stringify(value, null, 2);
+  throw new ZoteroLocalApiError("Zotero Local API returned invalid CSL-JSON export data.", 502);
+}
+
+function formattedOutput(
+  value: Record<string, unknown> | undefined,
+  kind: "citation" | "bibliography",
+): string | undefined {
+  if (!value) return undefined;
+  const keys = kind === "citation" ? ["citation"] : ["bibliography", "bib"];
+  const records = [value, isRecord(value.meta) ? value.meta : undefined, isRecord(value.data) ? value.data : undefined]
+    .filter((entry): entry is Record<string, unknown> => entry !== undefined);
+  for (const record of records) {
+    for (const key of keys) {
+      const formatted = stringValue(record[key]);
+      if (formatted) return formatted;
+    }
+  }
+  return undefined;
 }
 
 function normalizeZoteroItem(value: unknown): ZoteroLibraryItem | undefined {
@@ -338,8 +644,9 @@ function normalizeZoteroItem(value: unknown): ZoteroLibraryItem | undefined {
   const itemType = stringValue(data.itemType) ?? "item";
   if (["attachment", "note", "annotation"].includes(itemType)) return undefined;
 
-  const title = stringValue(data.title) ?? "";
+  const title = safeDisplayString(data.title) ?? "";
   const date = stringValue(data.date);
+  const url = safeDisplayString(data.url);
   const doi = firstDefined(
     normalizeDoi(data.DOI),
     normalizeDoi(data.doi),
@@ -386,7 +693,7 @@ function normalizeZoteroItem(value: unknown): ZoteroLibraryItem | undefined {
     ...(doi ? { doi } : {}),
     ...(arxiv ? { arxiv } : {}),
     ...(pmid ? { pmid } : {}),
-    ...(stringValue(data.url) ? { url: stringValue(data.url) } : {}),
+    ...(url ? { url } : {}),
     tags,
     collectionKeys,
     identity,
@@ -405,7 +712,7 @@ async function findPaperCandidates(
       );
       return uniqueItems(itemResponse(result.body));
     } catch (error) {
-      if (error instanceof ZoteroHttpError && error.status === 404) {
+      if (error instanceof ZoteroLocalApiError && error.status === 404) {
         // A stale Zotero key should not prevent DOI/arXiv/PMID fallback matching.
       } else {
         throw error;

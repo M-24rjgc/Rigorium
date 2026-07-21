@@ -4,10 +4,16 @@ import {
   ArrowUpRight,
   BookOpen,
   Check,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Download,
   ExternalLink,
+  FileText,
   FolderTree,
   Library,
   Network,
+  Paperclip,
   RefreshCw,
   Search,
   Star,
@@ -17,13 +23,25 @@ import { useTranslation } from 'react-i18next';
 import { authenticatedFetch } from '../utils/api';
 import { cn } from '../lib/utils';
 import { useResearchPanel } from '../contexts/ResearchPanelContext';
+import {
+  copyZoteroExportText,
+  downloadZoteroExportText,
+  getZoteroAttachmentFullText,
+  getZoteroItemDetails,
+  getZoteroItemExport,
+} from './zoteroItemApi';
 import type {
   ResearchArtifact,
   ResearchPaper,
   ResearchRelationEdge,
   ResearchSettingsSnapshot,
+  ZoteroAttachmentFullTextResult,
+  ZoteroExportFormat,
+  ZoteroItemDetailsResult,
   ZoteroItemsResult,
+  ZoteroLibraryAttachment,
   ZoteroLibraryItem,
+  ZoteroLibraryNote,
   ZoteroPaperMatch,
   ZoteroStatus,
 } from './types';
@@ -317,6 +335,7 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
             result={collectionItems}
             loading={collectionLoading}
             error={collectionError}
+            projectPath={projectPath}
             query={collectionQuery}
             onQueryChange={setCollectionQuery}
             onSearch={() => void loadCollectionItems(collectionQuery)}
@@ -588,6 +607,7 @@ function CollectionLibrary({
   result,
   loading,
   error,
+  projectPath,
   query,
   onQueryChange,
   onSearch,
@@ -597,6 +617,7 @@ function CollectionLibrary({
   result: ZoteroItemsResult | null;
   loading: boolean;
   error: string | null;
+  projectPath?: string;
   query: string;
   onQueryChange: (value: string) => void;
   onSearch: () => void;
@@ -685,7 +706,9 @@ function CollectionLibrary({
         </div>
       ) : result?.items.length ? (
         <div className="divide-y divide-neutral-200 dark:divide-neutral-800">
-          {result.items.map((item) => <CollectionItemRow key={item.key} item={item} />)}
+          {result.items.map((item) => (
+            <CollectionItemRow key={item.key} item={item} projectPath={projectPath} />
+          ))}
         </div>
       ) : (
         <div className="flex min-h-40 flex-col items-center justify-center gap-2 px-4 text-center">
@@ -705,36 +728,423 @@ function CollectionLibrary({
   );
 }
 
-function CollectionItemRow({ item }: { item: ZoteroLibraryItem }) {
+type ZoteroItemDetailsState = {
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  data?: ZoteroItemDetailsResult;
+  error?: string;
+};
+
+type ZoteroAttachmentTextState = {
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  data?: ZoteroAttachmentFullTextResult;
+  error?: string;
+  visible?: boolean;
+};
+
+type ZoteroExportAction = `${ZoteroExportFormat}:${'copy' | 'download'}`;
+
+function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; projectPath?: string }) {
   const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const [detailsState, setDetailsState] = useState<ZoteroItemDetailsState>({ status: 'idle' });
+  const [attachmentTextByKey, setAttachmentTextByKey] = useState<Record<string, ZoteroAttachmentTextState>>({});
+  const [exportAction, setExportAction] = useState<ZoteroExportAction | null>(null);
+  const [exportMessage, setExportMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const url = safeExternalUrl(item.url);
+  const itemTitle = item.title || t('researchPanel.untitledItem', { defaultValue: 'Untitled item' });
+  const detail = detailsState.data?.detail;
+  const detailItem = detail?.item ?? item;
+  const detailTags = detail?.tags ?? detailItem.tags ?? item.tags;
+  const detailNotes = detail?.notes ?? [];
+  const detailAttachments = detail?.attachments ?? [];
+
+  const toggleDetails = useCallback(() => {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+
+    setExpanded(true);
+    if (detailsState.status === 'loading' || detailsState.status === 'ready') return;
+
+    setDetailsState({ status: 'loading' });
+    void getZoteroItemDetails(item.key, { projectPath })
+      .then((data) => {
+        if (!data.detail) throw new Error('Zotero returned no item detail.');
+        setDetailsState({ status: 'ready', data });
+      })
+      .catch((error) => {
+        setDetailsState({
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }, [detailsState.status, expanded, item.key, projectPath]);
+
+  const readAttachmentText = useCallback((attachment: ZoteroLibraryAttachment) => {
+    const current = attachmentTextByKey[attachment.key];
+    if (current?.status === 'loading') return;
+    if (current?.status === 'ready') {
+      setAttachmentTextByKey((previous) => ({
+        ...previous,
+        [attachment.key]: { ...current, visible: !current.visible },
+      }));
+      return;
+    }
+
+    setAttachmentTextByKey((previous) => ({
+      ...previous,
+      [attachment.key]: { status: 'loading' },
+    }));
+    void getZoteroAttachmentFullText(attachment.key, { projectPath })
+      .then((data) => {
+        if (!data.content?.trim()) {
+          throw new Error(data.error || 'No indexed full text is available for this attachment.');
+        }
+        setAttachmentTextByKey((previous) => ({
+          ...previous,
+          [attachment.key]: { status: 'ready', data, visible: true },
+        }));
+      })
+      .catch((error) => {
+        setAttachmentTextByKey((previous) => ({
+          ...previous,
+          [attachment.key]: {
+            status: 'error',
+            error: error instanceof Error ? error.message : String(error),
+          },
+        }));
+      });
+  }, [attachmentTextByKey, projectPath]);
+
+  const runExport = useCallback((format: ZoteroExportFormat, action: 'copy' | 'download') => {
+    const activeAction: ZoteroExportAction = `${format}:${action}`;
+    setExportAction(activeAction);
+    setExportMessage(null);
+    void getZoteroItemExport(item.key, format, { projectPath })
+      .then(async (data) => {
+        if (!data.content?.trim()) throw new Error(data.error || 'Zotero returned an empty export.');
+        if (action === 'copy') {
+          await copyZoteroExportText(data.content);
+        } else {
+          downloadZoteroExportText(data.content, exportFilename(item, format));
+        }
+        setExportMessage({
+          kind: 'success',
+          text: action === 'copy'
+            ? t('researchPanel.exportCopied', { defaultValue: '{{format}} copied.', format: exportFormatName(format) })
+            : t('researchPanel.exportDownloaded', { defaultValue: '{{format}} downloaded.', format: exportFormatName(format) }),
+        });
+      })
+      .catch((error) => {
+        setExportMessage({
+          kind: 'error',
+          text: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => setExportAction(null));
+  }, [item, projectPath, t]);
+
   return (
-    <div className="flex min-w-0 items-start gap-2.5 px-3 py-3">
-      <Library className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" />
-      <div className="min-w-0 flex-1">
-        <p className="line-clamp-2 text-[12px] font-medium leading-4 text-neutral-800 dark:text-neutral-200">
-          {item.title || t('researchPanel.untitledItem', { defaultValue: 'Untitled item' })}
-        </p>
-        <p className="mt-1 line-clamp-1 text-[10px] text-neutral-500 dark:text-neutral-400">
-          {[item.creators.slice(0, 2).join(', '), item.year, item.itemType].filter(Boolean).join(' · ')}
-        </p>
-        {item.tags.length > 0 ? (
-          <p className="mt-1 line-clamp-1 text-[10px] text-neutral-400">{item.tags.slice(0, 4).join(' · ')}</p>
+    <div className="min-w-0 bg-white dark:bg-neutral-950">
+      <div className="flex min-w-0 items-start gap-1.5 px-3 py-3">
+        <button
+          type="button"
+          onClick={toggleDetails}
+          aria-expanded={expanded}
+          aria-controls={`zotero-item-details-${item.key}`}
+          aria-label={expanded
+            ? t('researchPanel.hideCollectionItemDetails', { defaultValue: 'Hide details for {{title}}', title: itemTitle })
+            : t('researchPanel.showCollectionItemDetails', { defaultValue: 'Show details for {{title}}', title: itemTitle })}
+          className="flex min-w-0 flex-1 items-start gap-2.5 text-left"
+        >
+          {expanded ? <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" /> : <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />}
+          <Library className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" />
+          <span className="min-w-0 flex-1">
+            <span className="line-clamp-2 block text-[12px] font-medium leading-4 text-neutral-800 dark:text-neutral-200">
+              {itemTitle}
+            </span>
+            <span className="mt-1 line-clamp-1 block text-[10px] text-neutral-500 dark:text-neutral-400">
+              {[item.creators.slice(0, 2).join(', '), item.year, item.itemType].filter(Boolean).join(' · ')}
+            </span>
+            {item.tags.length > 0 ? (
+              <span className="mt-1 line-clamp-1 block text-[10px] text-neutral-400">{item.tags.slice(0, 4).join(' · ')}</span>
+            ) : null}
+          </span>
+        </button>
+        {url ? (
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+            aria-label={t('researchPanel.openCollectionItem', { defaultValue: 'Open {{title}}', title: itemTitle })}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
         ) : null}
       </div>
-      {url ? (
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-          aria-label={t('researchPanel.openCollectionItem', { defaultValue: 'Open {{title}}', title: item.title })}
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-        </a>
+
+      {expanded ? (
+        <div id={`zotero-item-details-${item.key}`} className="border-t border-neutral-100 px-3 pb-3 pt-2.5 dark:border-neutral-800">
+          {detailsState.status === 'loading' ? (
+            <div className="flex items-center gap-2 py-2 text-[10px] text-neutral-500">
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              {t('researchPanel.loadingItemDetails', { defaultValue: 'Loading item details…' })}
+            </div>
+          ) : null}
+          {detailsState.error ? (
+            <div className="mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] leading-4 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+              {detailsState.error}
+            </div>
+          ) : null}
+          {detailsState.status !== 'loading' ? (
+            <div className="space-y-3">
+              <ZoteroItemMetadata item={detailItem} />
+              <ZoteroItemTags tags={detailTags} />
+              <ZoteroItemNotes notes={detailNotes} />
+              <ZoteroItemAttachments
+                attachments={detailAttachments}
+                states={attachmentTextByKey}
+                onReadFullText={readAttachmentText}
+              />
+              <ZoteroItemExports
+                busyAction={exportAction}
+                message={exportMessage}
+                onExport={runExport}
+              />
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
+}
+
+function ZoteroItemMetadata({ item }: { item: ZoteroLibraryItem }) {
+  const { t } = useTranslation();
+  const entries = [
+    [t('researchPanel.zoteroMetadataType', { defaultValue: 'Type' }), item.itemType],
+    [t('researchPanel.zoteroMetadataAuthors', { defaultValue: 'Authors' }), item.creators.join(', ')],
+    [t('researchPanel.zoteroMetadataDate', { defaultValue: 'Date' }), item.date || item.year?.toString()],
+    [t('researchPanel.zoteroMetadataDoi', { defaultValue: 'DOI' }), item.doi],
+    [t('researchPanel.zoteroMetadataArxiv', { defaultValue: 'arXiv' }), item.arxiv],
+    [t('researchPanel.zoteroMetadataPmid', { defaultValue: 'PMID' }), item.pmid],
+    [t('researchPanel.zoteroMetadataUrl', { defaultValue: 'URL' }), item.url],
+    [t('researchPanel.zoteroMetadataKey', { defaultValue: 'Zotero key' }), item.key],
+  ].filter((entry): entry is [string, string] => typeof entry[1] === 'string' && Boolean(entry[1].trim()));
+
+  return (
+    <section>
+      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+        {t('researchPanel.zoteroMetadata', { defaultValue: 'Metadata' })}
+      </h4>
+      <dl className="mt-1.5 grid gap-x-2 gap-y-1 text-[10px] leading-4">
+        {entries.map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[72px_minmax(0,1fr)] gap-2">
+            <dt className="text-neutral-400">{label}</dt>
+            <dd className="break-words text-neutral-600 dark:text-neutral-300">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function ZoteroItemTags({ tags }: { tags: string[] }) {
+  const { t } = useTranslation();
+  return (
+    <section>
+      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+        {t('researchPanel.zoteroTags', { defaultValue: 'Tags' })}
+      </h4>
+      {tags.length > 0 ? (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {tags.map((tag) => (
+            <span key={tag} className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-1 text-[10px] text-neutral-400">{t('researchPanel.noZoteroTags', { defaultValue: 'No tags.' })}</p>
+      )}
+    </section>
+  );
+}
+
+function ZoteroItemNotes({ notes }: { notes: ZoteroLibraryNote[] }) {
+  const { t } = useTranslation();
+  return (
+    <section>
+      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+        {t('researchPanel.zoteroNotes', { defaultValue: 'Notes' })}
+      </h4>
+      {notes.length > 0 ? (
+        <div className="mt-1.5 space-y-1.5">
+          {notes.map((note) => {
+            const noteText = plainNoteText(note);
+            return (
+              <details key={note.key} className="rounded-md border border-neutral-200 px-2 py-1.5 text-[10px] dark:border-neutral-800">
+                <summary className="cursor-pointer font-medium text-neutral-600 dark:text-neutral-300">
+                  {note.title || noteText || t('researchPanel.untitledNote', { defaultValue: 'Untitled note' })}
+                </summary>
+                <p className="mt-1 whitespace-pre-wrap break-words leading-4 text-neutral-500 dark:text-neutral-400">
+                  {noteText || t('researchPanel.emptyNote', { defaultValue: 'This note is empty.' })}
+                </p>
+              </details>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="mt-1 text-[10px] text-neutral-400">{t('researchPanel.noZoteroNotes', { defaultValue: 'No notes.' })}</p>
+      )}
+    </section>
+  );
+}
+
+function ZoteroItemAttachments({
+  attachments,
+  states,
+  onReadFullText,
+}: {
+  attachments: ZoteroLibraryAttachment[];
+  states: Record<string, ZoteroAttachmentTextState>;
+  onReadFullText: (attachment: ZoteroLibraryAttachment) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <section>
+      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+        {t('researchPanel.zoteroAttachments', { defaultValue: 'Attachments' })}
+      </h4>
+      {attachments.length > 0 ? (
+        <div className="mt-1.5 space-y-1.5">
+          {attachments.map((attachment) => {
+            const state = states[attachment.key] ?? { status: 'idle' };
+            return (
+              <div key={attachment.key} className="rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+                <div className="flex min-w-0 items-start gap-1.5">
+                  <Paperclip className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[10px] font-medium text-neutral-700 dark:text-neutral-200">{attachment.title || attachment.key}</p>
+                    <p className="mt-0.5 text-[10px] text-neutral-400">
+                      {[attachment.contentType, attachment.linkMode].filter(Boolean).join(' · ') || t('researchPanel.zoteroAttachment', { defaultValue: 'Attachment' })}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onReadFullText(attachment)}
+                    disabled={state.status === 'loading'}
+                    className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-neutral-200 px-1.5 text-[10px] font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-900"
+                    aria-label={state.status === 'ready' && state.visible
+                      ? t('researchPanel.hideAttachmentFullText', { defaultValue: 'Hide full text for {{title}}', title: attachment.title || attachment.key })
+                      : t('researchPanel.readAttachmentFullText', { defaultValue: 'Read full text for {{title}}', title: attachment.title || attachment.key })}
+                  >
+                    {state.status === 'loading' ? <RefreshCw className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+                    {state.status === 'ready' && state.visible
+                      ? t('researchPanel.hideFullText', { defaultValue: 'Hide text' })
+                      : t('researchPanel.readFullText', { defaultValue: 'Read text' })}
+                  </button>
+                </div>
+                {state.error ? (
+                  <p className="mt-1.5 text-[10px] leading-4 text-amber-700 dark:text-amber-300">{state.error}</p>
+                ) : null}
+                {state.status === 'ready' && state.visible && state.data?.content ? (
+                  <div className="mt-2 rounded-md bg-neutral-50 p-2 dark:bg-neutral-900">
+                    <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-sans text-[10px] leading-4 text-neutral-600 dark:text-neutral-300">
+                      {state.data.content}
+                    </pre>
+                    {state.data.truncated ? (
+                      <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                        {t('researchPanel.fullTextTruncated', { defaultValue: 'Only indexed text currently available is shown.' })}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="mt-1 text-[10px] text-neutral-400">{t('researchPanel.noZoteroAttachments', { defaultValue: 'No attachments.' })}</p>
+      )}
+    </section>
+  );
+}
+
+function ZoteroItemExports({
+  busyAction,
+  message,
+  onExport,
+}: {
+  busyAction: ZoteroExportAction | null;
+  message: { kind: 'success' | 'error'; text: string } | null;
+  onExport: (format: ZoteroExportFormat, action: 'copy' | 'download') => void;
+}) {
+  const { t } = useTranslation();
+  const buttons: Array<{ format: ZoteroExportFormat; action: 'copy' | 'download'; label: string }> = [
+    { format: 'bibtex', action: 'copy', label: t('researchPanel.copyBibtex', { defaultValue: 'Copy BibTeX' }) },
+    { format: 'bibtex', action: 'download', label: t('researchPanel.downloadBibtex', { defaultValue: 'Download BibTeX' }) },
+    { format: 'csl-json', action: 'copy', label: t('researchPanel.copyCslJson', { defaultValue: 'Copy CSL-JSON' }) },
+    { format: 'csl-json', action: 'download', label: t('researchPanel.downloadCslJson', { defaultValue: 'Download CSL-JSON' }) },
+  ];
+
+  return (
+    <section>
+      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+        {t('researchPanel.zoteroExports', { defaultValue: 'Citation export' })}
+      </h4>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {buttons.map((button) => {
+          const action = `${button.format}:${button.action}` as ZoteroExportAction;
+          const loading = busyAction === action;
+          return (
+            <button
+              key={action}
+              type="button"
+              onClick={() => onExport(button.format, button.action)}
+              disabled={busyAction !== null}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-neutral-200 px-2 text-[10px] font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-900"
+            >
+              {loading ? <RefreshCw className="h-3 w-3 animate-spin" /> : button.action === 'copy' ? <Copy className="h-3 w-3" /> : <Download className="h-3 w-3" />}
+              {button.label}
+            </button>
+          );
+        })}
+      </div>
+      {message ? (
+        <p className={cn(
+          'mt-1.5 text-[10px] leading-4',
+          message.kind === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300',
+        )} role="status">
+          {message.text}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function plainNoteText(note: ZoteroLibraryNote): string {
+  const source = note.text || note.html || '';
+  return source
+    .replace(/<[^>]*>/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
+function exportFormatName(format: ZoteroExportFormat): string {
+  return format === 'bibtex' ? 'BibTeX' : 'CSL-JSON';
+}
+
+function exportFilename(item: ZoteroLibraryItem, format: ZoteroExportFormat): string {
+  const extension = format === 'bibtex' ? 'bib' : 'json';
+  const stem = (item.title || item.key)
+    .replace(/[<>:"/\\|?*]+/gu, '-')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 80) || item.key;
+  return `${stem}.${extension}`;
 }
 
 function PaperStatusBadge({ match }: { match: ZoteroPaperMatch }) {

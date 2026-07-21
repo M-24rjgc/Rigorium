@@ -40,6 +40,147 @@ try {
 
   await page.getByRole('button', { name: /Close settings|关闭设置|Close/u }).first().click();
   await page.locator('.modal-backdrop').waitFor({ state: 'detached', timeout: 30_000 });
+  const observedResearchRequests = [];
+  await page.route('**/api/research/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    observedResearchRequests.push(`${request.method()} ${url.pathname}${url.search}`);
+
+    if (url.pathname === '/api/research/settings') {
+      const settings = {
+        schemaVersion: 1,
+        literature: {
+          enabled: true,
+          sources: { openalex: { enabled: true, mailto: '' } },
+          search: { defaultLimit: 12, fromYear: null, toYear: null, sort: 'relevance' },
+          budget: { maxResultsPerSearch: 25, requestTimeoutMs: 20_000 },
+          map: { autoOpen: true, autoUpdate: true, showTopicEdges: true },
+        },
+        zotero: {
+          enabled: true,
+          baseUrl: 'http://127.0.0.1:23119',
+          useSelectedCollection: false,
+          collectionKey: 'VERIFYCOLL',
+          collectionName: 'Verification Collection',
+        },
+        citation: { style: 'apa', includeDoi: true },
+        privacy: { allowRemoteMetadataSearch: true, allowRemoteFullText: false },
+      };
+      return fulfillJson(route, {
+        global: settings,
+        effective: settings,
+        projectOverride: null,
+        paths: { global: 'verification-settings.json' },
+      });
+    }
+    if (url.pathname === '/api/research/zotero/status') {
+      return fulfillJson(route, {
+        provider: 'zotero',
+        available: true,
+        apiReady: true,
+        connectorReady: true,
+        checkedAt: new Date().toISOString(),
+        selectedCollection: { key: 'VERIFYCOLL', name: 'Verification Collection' },
+      });
+    }
+    if (url.pathname === '/api/research/zotero/match') {
+      return fulfillJson(route, {
+        provider: 'zotero',
+        available: true,
+        collectionKey: 'VERIFYCOLL',
+        matches: [{
+          paperId: 'verification-paper',
+          matched: false,
+          confidence: 'none',
+          reasons: [],
+          inCollection: false,
+        }],
+      });
+    }
+    if (url.pathname === '/api/research/zotero/items/VERIFY01/fulltext') {
+      return fulfillJson(route, {
+        provider: 'zotero',
+        available: true,
+        attachmentKey: 'VERIFY01',
+        content: 'Indexed verification text loaded only after an explicit click.',
+        indexedPages: 1,
+        totalPages: 1,
+        indexedChars: 61,
+        totalChars: 61,
+        truncated: false,
+      });
+    }
+    if (url.pathname === '/api/research/zotero/items/VERIFYITEM/export') {
+      return fulfillJson(route, {
+        provider: 'zotero',
+        available: true,
+        itemKey: 'VERIFYITEM',
+        format: url.searchParams.get('format'),
+        style: 'apa',
+        content: '@article{rigorium2026verification, title = {Packaged Zotero item}}',
+      });
+    }
+    if (url.pathname === '/api/research/zotero/items/VERIFYITEM') {
+      return fulfillJson(route, {
+        provider: 'zotero',
+        available: true,
+        itemKey: 'VERIFYITEM',
+        detail: {
+          item: {
+            key: 'VERIFYITEM',
+            itemType: 'journalArticle',
+            title: 'Packaged Zotero item',
+            creators: ['Rigorium Verification'],
+            date: '2026',
+            year: 2026,
+            doi: '10.1000/packaged-verification',
+            tags: ['verified'],
+            collectionKeys: ['VERIFYCOLL'],
+            identity: { zoteroKey: 'VERIFYITEM' },
+          },
+          data: {},
+          tags: ['verified'],
+          children: [],
+          notes: [{
+            key: 'VERIFYNOTE',
+            itemType: 'note',
+            title: 'Verification note',
+            text: 'Packaged note content.',
+            parentItem: 'VERIFYITEM',
+          }],
+          attachments: [{
+            key: 'VERIFY01',
+            itemType: 'attachment',
+            title: 'verification.pdf',
+            contentType: 'application/pdf',
+            linkMode: 'imported_file',
+            parentItem: 'VERIFYITEM',
+          }],
+        },
+      });
+    }
+    if (url.pathname === '/api/research/zotero/items') {
+      return fulfillJson(route, {
+        provider: 'zotero',
+        available: true,
+        collectionKey: 'VERIFYCOLL',
+        collectionName: 'Verification Collection',
+        items: [{
+          key: 'VERIFYITEM',
+          itemType: 'journalArticle',
+          title: 'Packaged Zotero item',
+          creators: ['Rigorium Verification'],
+          year: 2026,
+          tags: ['verified'],
+          collectionKeys: ['VERIFYCOLL'],
+          identity: { zoteroKey: 'VERIFYITEM' },
+        }],
+        total: 1,
+        truncated: false,
+      });
+    }
+    return fulfillJson(route, { error: `Unhandled verification request: ${url.pathname}` }, 500);
+  });
   const query = 'packaged research verification';
   await page.evaluate((artifactQuery) => {
     const paper = {
@@ -80,7 +221,27 @@ try {
   }, query);
   await page.getByText(query, { exact: true }).waitFor({ timeout: 30_000 });
   await page.getByRole('button', { name: /Collection|文献库/u }).click();
-  await page.getByText(/No Zotero collection is bound|Zotero.*not running|Zotero.*unavailable|尚未绑定.*Zotero|Zotero.*未运行|Zotero.*不可用/u).first().waitFor({ timeout: 30_000 });
+  await page.getByText('Packaged Zotero item', { exact: true }).waitFor({ timeout: 30_000 });
+  await page.getByRole('button', { name: /Show details for Packaged Zotero item|展开.*Packaged Zotero item/u }).click();
+  await page.getByText('10.1000/packaged-verification', { exact: true }).waitFor({ timeout: 30_000 });
+  await page.getByText('Verification note', { exact: true }).waitFor({ timeout: 30_000 });
+  await page.getByRole('button', { name: /Read full text for verification.pdf|读取.*verification.pdf/u }).click();
+  await page.getByText('Indexed verification text loaded only after an explicit click.', { exact: true }).waitFor({ timeout: 30_000 });
+  await Promise.all([
+    page.waitForRequest((request) => request.url().includes('/api/research/zotero/items/VERIFYITEM/export')
+      && request.url().includes('format=bibtex')),
+    page.getByRole('button', { name: /Copy BibTeX|复制 BibTeX/u }).click(),
+  ]);
+
+  for (const expectedRequest of [
+    'GET /api/research/zotero/items/VERIFYITEM',
+    'GET /api/research/zotero/items/VERIFY01/fulltext',
+    'GET /api/research/zotero/items/VERIFYITEM/export',
+  ]) {
+    if (!observedResearchRequests.some((request) => request.startsWith(expectedRequest))) {
+      throw new Error(`Packaged research verification missed ${expectedRequest}.`);
+    }
+  }
 
   await page.setViewportSize({ width: 390, height: 800 });
   const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -117,5 +278,13 @@ async function countProcesses(name) {
     child.stdout.on('data', (chunk) => { output += String(chunk); });
     child.once('error', reject);
     child.once('exit', () => resolve(Number.parseInt(output.trim(), 10) || 0));
+  });
+}
+
+async function fulfillJson(route, body, status = 200) {
+  await route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: JSON.stringify(body),
   });
 }

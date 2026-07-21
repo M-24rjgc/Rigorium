@@ -145,6 +145,72 @@ export type ZoteroLibraryItem = {
   identity: Record<string, unknown>;
 };
 
+export type ZoteroLibraryNote = {
+  key: string;
+  itemType?: string;
+  title?: string;
+  html?: string;
+  text?: string;
+  parentItem?: string;
+};
+
+export type ZoteroLibraryAttachment = {
+  key: string;
+  itemType?: string;
+  title: string;
+  contentType?: string;
+  linkMode?: string;
+  filename?: string;
+  dateModified?: string;
+  parentItem?: string;
+};
+
+export type ZoteroItemDetailsResult = {
+  provider?: 'zotero';
+  available?: boolean;
+  disabled?: boolean;
+  error?: string;
+  itemKey?: string;
+  detail?: {
+    item?: ZoteroLibraryItem;
+    data?: Record<string, unknown>;
+    tags?: string[];
+    notes?: ZoteroLibraryNote[];
+    attachments?: ZoteroLibraryAttachment[];
+    children?: Array<ZoteroLibraryAttachment | ZoteroLibraryNote | Record<string, unknown>>;
+  };
+};
+
+export type ZoteroAttachmentFullTextResult = {
+  provider?: 'zotero';
+  available?: boolean;
+  disabled?: boolean;
+  error?: string;
+  attachmentKey?: string;
+  content?: string;
+  truncated?: boolean;
+  indexedPages?: number;
+  totalPages?: number;
+  indexedChars?: number;
+  totalChars?: number;
+  version?: number;
+};
+
+export type ZoteroExportFormat = 'bibtex' | 'csl-json';
+
+export type ZoteroItemExportResult = {
+  provider?: 'zotero';
+  available?: boolean;
+  disabled?: boolean;
+  error?: string;
+  itemKey?: string;
+  format?: ZoteroExportFormat;
+  style?: 'apa' | 'chicago-author-date' | 'ieee' | 'mla';
+  content?: string;
+  citation?: string;
+  bibliography?: string;
+};
+
 export type ZoteroItemsResult = {
   provider?: 'zotero';
   available?: boolean;

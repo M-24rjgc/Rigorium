@@ -137,6 +137,66 @@ function installFetchMock(
         truncated: false,
       });
     }
+    if (url.startsWith('/api/research/zotero/items/ATTACHMENT1/fulltext')) {
+      return jsonResponse({
+        provider: 'zotero',
+        available: true,
+        attachmentKey: 'ATTACHMENT1',
+        content: 'Indexed full text from the local Zotero attachment.',
+        indexedPages: 1,
+        totalPages: 1,
+        indexedChars: 52,
+      });
+    }
+    if (url.startsWith('/api/research/zotero/items/ATTACHMENT2/fulltext')) {
+      return jsonResponse({
+        provider: 'zotero',
+        available: true,
+        attachmentKey: 'ATTACHMENT2',
+        content: '',
+      });
+    }
+    if (url.startsWith('/api/research/zotero/items/ZITEM1/export')) {
+      const format = new URL(`https://example.test${url}`).searchParams.get('format');
+      return jsonResponse({
+        provider: 'zotero',
+        available: true,
+        format,
+        content: format === 'csl-json'
+          ? '[{"id":"ZITEM1","title":"Saved collection paper"}]'
+          : '@article{johnson2023saved,\n  title = {Saved collection paper}\n}',
+        citation: 'Johnson (2023)',
+        bibliography: 'Johnson. Saved collection paper. 2023.',
+      });
+    }
+    if (url.startsWith('/api/research/zotero/items/ZITEM1')) {
+      return jsonResponse({
+        provider: 'zotero',
+        available: true,
+        itemKey: 'ZITEM1',
+        detail: {
+          item: {
+            key: 'ZITEM1',
+            itemType: 'journalArticle',
+            title: 'Saved collection paper',
+            creators: ['Katherine Johnson'],
+            date: '2023-04-20',
+            year: 2023,
+            doi: '10.1000/example',
+            tags: ['Methods'],
+            collectionKeys: ['COLL1'],
+            identity: { zoteroKey: 'ZITEM1' },
+          },
+          tags: ['Methods', 'Research'],
+          attachments: [
+            { key: 'ATTACHMENT1', itemType: 'attachment', title: 'article.pdf', contentType: 'application/pdf', linkMode: 'imported_file', parentItem: 'ZITEM1' },
+            { key: 'ATTACHMENT2', itemType: 'attachment', title: 'scan.pdf', contentType: 'application/pdf', linkMode: 'imported_file', parentItem: 'ZITEM1' },
+          ],
+          notes: [{ key: 'NOTE1', itemType: 'note', title: 'Reading note', text: 'Local annotation retained in Zotero.', parentItem: 'ZITEM1' }],
+          children: [],
+        },
+      });
+    }
     if (url === '/api/research/zotero/import') return jsonResponse({ importedCount: 1 });
     return jsonResponse({ error: `Unexpected request: ${url}` }, 500);
   });
@@ -273,5 +333,69 @@ describe('ResearchPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
     expect(await screen.findByText(/No Zotero collection is bound|尚未绑定 Zotero Collection/i)).not.toBeNull();
     expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).startsWith('/api/research/zotero/items?'))).toBe(false);
+  });
+
+  it('loads Zotero details, full text, and citation exports only from explicit collection actions', async () => {
+    const clipboardWriteText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: clipboardWriteText },
+    });
+
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={artifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    await screen.findByText('Saved collection paper');
+    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/fulltext'))).toBe(false);
+    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/export'))).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Show details for Saved collection paper/i }));
+    expect(await screen.findByText('Metadata')).not.toBeNull();
+    expect(screen.getByText('10.1000/example')).not.toBeNull();
+    expect(screen.getByText('Research')).not.toBeNull();
+    expect(screen.getByText('Reading note')).not.toBeNull();
+    expect(screen.getByText('article.pdf')).not.toBeNull();
+    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).startsWith('/api/research/zotero/items/ZITEM1?'))).toBe(true);
+    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/fulltext'))).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Read full text for article.pdf/i }));
+    expect(await screen.findByText('Indexed full text from the local Zotero attachment.')).not.toBeNull();
+    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => (
+      String(url).startsWith('/api/research/zotero/items/ATTACHMENT1/fulltext?')
+      && String(url).includes('projectPath=D%3A%2Fproject')
+    ))).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy BibTeX' }));
+    await waitFor(() => expect(clipboardWriteText).toHaveBeenCalledWith(expect.stringContaining('@article{johnson2023saved')));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy CSL-JSON' }));
+    await waitFor(() => expect(clipboardWriteText).toHaveBeenCalledWith(expect.stringContaining('"id":"ZITEM1"')));
+    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/export?') && String(url).includes('format=bibtex'))).toBe(true);
+    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/export?') && String(url).includes('format=csl-json'))).toBe(true);
+  });
+
+  it('keeps item metadata and other Zotero detail data visible when an attachment has no indexed full text', async () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={artifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    await screen.findByText('Saved collection paper');
+    fireEvent.click(screen.getByRole('button', { name: /Show details for Saved collection paper/i }));
+    await screen.findByText('scan.pdf');
+
+    fireEvent.click(screen.getByRole('button', { name: /Read full text for scan.pdf/i }));
+    expect(await screen.findByText('No indexed full text is available for this attachment.')).not.toBeNull();
+    expect(screen.getByText('10.1000/example')).not.toBeNull();
+    expect(screen.getByText('Local annotation retained in Zotero.')).not.toBeNull();
   });
 });

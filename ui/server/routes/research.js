@@ -5,6 +5,8 @@ import {
   createZoteroLibraryProvider,
   readResearchSettings,
   writeResearchSettings,
+  ZoteroInputError,
+  ZoteroLocalApiError,
 } from '../../../src/research/index.ts';
 
 const router = express.Router();
@@ -118,6 +120,62 @@ router.get('/zotero/items', async (req, res) => {
   }
 });
 
+router.get('/zotero/items/:itemKey/fulltext', async (req, res) => {
+  try {
+    const itemKey = requestZoteroItemKey(req.params.itemKey);
+    const context = await zoteroContext(req.query.projectPath);
+    if (!context.enabled) {
+      return res.json(disabledZoteroPayload({ itemKey, attachmentKey: itemKey, content: '' }));
+    }
+    try {
+      const fullText = await context.provider.getAttachmentFullText(itemKey);
+      return res.json({ provider: 'zotero', available: true, ...fullText });
+    } catch (error) {
+      return respondZoteroReadFailure(res, error, { itemKey, attachmentKey: itemKey, content: '' });
+    }
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
+router.get('/zotero/items/:itemKey/export', async (req, res) => {
+  try {
+    const itemKey = requestZoteroItemKey(req.params.itemKey);
+    const context = await zoteroContext(req.query.projectPath);
+    const format = requestZoteroExportFormat(req.query.format);
+    const style = requestCitationStyle(req.query.style, context.citationStyle);
+    if (!context.enabled) {
+      return res.json(disabledZoteroPayload({ itemKey, format, style, content: '' }));
+    }
+    try {
+      const exportResult = await context.provider.exportItem({ itemKey, format, style });
+      return res.json({ provider: 'zotero', available: true, ...exportResult });
+    } catch (error) {
+      return respondZoteroReadFailure(res, error, { itemKey, format, style, content: '' });
+    }
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
+router.get('/zotero/items/:itemKey', async (req, res) => {
+  try {
+    const itemKey = requestZoteroItemKey(req.params.itemKey);
+    const context = await zoteroContext(req.query.projectPath);
+    if (!context.enabled) {
+      return res.json(disabledZoteroPayload({ itemKey, detail: null }));
+    }
+    try {
+      const detail = await context.provider.getItemDetails(itemKey);
+      return res.json({ provider: 'zotero', available: true, itemKey, detail });
+    } catch (error) {
+      return respondZoteroReadFailure(res, error, { itemKey, detail: null });
+    }
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
 router.post('/zotero/match', async (req, res) => {
   try {
     const context = await zoteroContext(req.body?.projectPath);
@@ -192,6 +250,7 @@ async function zoteroContext(projectPath) {
   return {
     enabled: snapshot.effective.zotero.enabled,
     settings: snapshot.effective.zotero,
+    citationStyle: snapshot.effective.citation.style,
     provider: createZoteroLibraryProvider({
       baseUrl: snapshot.effective.zotero.baseUrl,
       fetchImpl: fetch,
@@ -231,6 +290,26 @@ function unavailableZoteroPayload(error, extra) {
   };
 }
 
+function respondZoteroReadFailure(res, error, extra) {
+  if (error instanceof ZoteroInputError) {
+    return res.status(400).json({
+      provider: 'zotero',
+      available: true,
+      error: error.message,
+      ...extra,
+    });
+  }
+  if (error instanceof ZoteroLocalApiError && error.status === 404) {
+    return res.status(404).json({
+      provider: 'zotero',
+      available: true,
+      error: error.message,
+      ...extra,
+    });
+  }
+  return res.json(unavailableZoteroPayload(error, extra));
+}
+
 function unmatchedPaper(paperId, collectionKey) {
   return {
     paperId,
@@ -254,6 +333,31 @@ function requestCollectionKey(value) {
     throw error;
   }
   return key;
+}
+
+function requestZoteroItemKey(value) {
+  const key = queryString(value);
+  if (!key || !/^[A-Za-z0-9]{1,32}$/u.test(key)) {
+    const error = new Error('Invalid Zotero item key.');
+    error.statusCode = 400;
+    throw error;
+  }
+  return key.toUpperCase();
+}
+
+function requestZoteroExportFormat(value) {
+  if (value === 'bibtex' || value === 'csl-json') return value;
+  const error = new Error('format must be "bibtex" or "csl-json".');
+  error.statusCode = 400;
+  throw error;
+}
+
+function requestCitationStyle(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (value === 'apa' || value === 'chicago-author-date' || value === 'ieee' || value === 'mla') return value;
+  const error = new Error('Unsupported Zotero citation style.');
+  error.statusCode = 400;
+  throw error;
 }
 
 function positiveInteger(value, fallback, max) {
