@@ -528,5 +528,29 @@
       "updateAvailable": "有可用更新",
       "closeSidebar": "关闭侧边栏"
     }
+  },
+  "researchPanel": {
+    "title": "科研",
+    "shortTitle": "科研",
+    "close": "关闭科研面板",
+    "resize": "调整科研面板宽度",
+    "expand": "展开科研面板",
+    "collapse": "恢复科研面板宽度",
+    "reopen": "打开科研面板",
+    "map": "地图",
+    "papers": "文献",
+    "resultSummary": "{{papers}} 篇文献 · {{edges}} 条关系",
+    "sources": "来源与覆盖状态",
+    "openPaper": "打开原文",
+    "saveToZotero": "收藏到 Zotero",
+    "refreshZotero": "刷新 Zotero 状态",
+    "zoteroTarget": "写入目标：{{name}}",
+    "zoteroUnavailable": "启动 Zotero 后即可收藏。",
+    "importSuccess": "已收藏到 Zotero。",
+    "confirmImportTitle": "确认写入 Zotero？",
+    "confirmImportTarget": "此操作将修改 {{name}}。",
+    "cancel": "取消",
+    "confirm": "确认写入",
+    "noPapers": "没有返回可用文献。"
   }
 }

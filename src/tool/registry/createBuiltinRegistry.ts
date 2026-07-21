@@ -9,6 +9,10 @@ import { createGlobTool } from "../builtin/glob.js";
 import { createGrepTool } from "../builtin/grep.js";
 import { createGetCurrentTimeTool } from "../builtin/getCurrentTime.js";
 import { createReadFileTool } from "../builtin/readFile.js";
+import {
+  createLiteratureSearchTool,
+  type CreateLiteratureSearchToolOptions,
+} from "../builtin/literatureSearch.js";
 import { createSendAttachmentTool } from "../builtin/sendAttachment.js";
 import { createEnterPlanModeTool, createExitPlanModeTool } from "../builtin/planMode.js";
 import { createStructuredOutputTool } from "../builtin/structuredOutput.js";
@@ -80,6 +84,8 @@ export type CreateBuiltinRegistryOptions = {
    * names for the "not found" diagnostic message.
    */
   readSkill?: ReadSkillDeps | false;
+  /** Rigorium academic metadata search. Registered by default. */
+  literatureSearch?: CreateLiteratureSearchToolOptions | false;
   /**
    * `enter_plan_mode` / `exit_plan_mode` builtins. Registered by default —
    * these lightweight skeleton tools let the model request a permission-mode
@@ -105,6 +111,9 @@ export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): T
   }
   if (options?.webFetch !== false) {
     registry.register(createWebFetchTool(options?.webFetch));
+  }
+  if (options?.literatureSearch !== false) {
+    registry.register(createLiteratureSearchTool(options?.literatureSearch));
   }
   if (options?.agent !== false) {
     const agentOpts = options?.agent === true || options?.agent === undefined ? undefined : options.agent;

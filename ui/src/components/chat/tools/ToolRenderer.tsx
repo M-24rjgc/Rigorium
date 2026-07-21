@@ -1,4 +1,6 @@
-import React, { memo, useMemo, useCallback } from 'react';
+import React, { memo, useMemo, useCallback, useEffect } from 'react';
+import { useResearchPanel } from '../../../contexts/ResearchPanelContext';
+import { isResearchArtifact, type ResearchArtifact } from '../../../research/types';
 import type { Project } from '../../../types/app';
 import type { SubagentChildTool } from '../types/types';
 import { getCanonicalToolName, getToolConfig } from './configs/toolConfigs';
@@ -132,6 +134,7 @@ const ToolRendererInner: React.FC<ToolRendererProps> = ({
   isSubagentContainer,
   subagentState
 }) => {
+  const { ingestArtifact } = useResearchPanel();
   const canonicalToolName = getCanonicalToolName(toolName);
   const config = getToolConfig(toolName);
   const displayConfig: any = mode === 'input' ? config.input : config.result;
@@ -144,6 +147,17 @@ const ToolRendererInner: React.FC<ToolRendererProps> = ({
       return mode === 'input' ? toolInput : toolResult;
     }
   }, [mode, toolInput, toolResult]);
+
+  const researchArtifact = useMemo<ResearchArtifact | null>(() => {
+    if (mode !== 'result' || canonicalToolName.toLowerCase() !== 'literature_search') return null;
+    const candidate = toolResult?.toolUseResult ?? parsedData?.toolUseResult ?? parsedData;
+    return isResearchArtifact(candidate) ? candidate : null;
+  }, [canonicalToolName, mode, parsedData, toolResult]);
+
+  useEffect(() => {
+    if (!researchArtifact) return;
+    ingestArtifact(researchArtifact, selectedProject?.fullPath || selectedProject?.path || null);
+  }, [ingestArtifact, researchArtifact, selectedProject?.fullPath, selectedProject?.path]);
 
   const handleAction = useCallback(() => {
     if (displayConfig?.action === 'open-file' && onFileOpen) {

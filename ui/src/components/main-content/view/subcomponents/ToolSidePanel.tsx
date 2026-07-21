@@ -1,6 +1,6 @@
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { X } from 'lucide-react';
+import { Maximize2, Minimize2, X } from 'lucide-react';
 
 type ToolSidePanelProps = {
   title: string;
@@ -14,6 +14,10 @@ type ToolSidePanelProps = {
   onClose: () => void;
   onResizeStart: (event: MouseEvent<HTMLDivElement>) => void;
   onResizeBy: (delta: number) => void;
+  isExpanded?: boolean;
+  expandLabel?: string;
+  collapseLabel?: string;
+  onToggleExpanded?: () => void;
   children: ReactNode;
 };
 
@@ -29,6 +33,10 @@ export default function ToolSidePanel({
   onClose,
   onResizeStart,
   onResizeBy,
+  isExpanded = false,
+  expandLabel,
+  collapseLabel,
+  onToggleExpanded,
   children,
 }: ToolSidePanelProps) {
   const handleResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -71,6 +79,17 @@ export default function ToolSidePanel({
           <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-neutral-900 dark:text-neutral-100">
             {title}
           </h2>
+          {onToggleExpanded ? (
+            <button
+              type="button"
+              onClick={onToggleExpanded}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+              aria-label={isExpanded ? collapseLabel : expandLabel}
+              title={isExpanded ? collapseLabel : expandLabel}
+            >
+              {isExpanded ? <Minimize2 className="h-4 w-4" strokeWidth={1.75} /> : <Maximize2 className="h-4 w-4" strokeWidth={1.75} />}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onClose}

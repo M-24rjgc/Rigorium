@@ -23,7 +23,7 @@ const REPO_ROOT = process.cwd();
 
 function isSearchToolName(name) {
   const normalized = String(name || '').toLowerCase();
-  return normalized === 'grep' || normalized === 'glob';
+  return normalized === 'grep' || normalized === 'glob' || normalized === 'literature_search';
 }
 
 router.get('/:sessionId/messages', async (req, res) => {

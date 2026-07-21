@@ -1,0 +1,14 @@
+{
+  "name": "rigorium-zotero",
+  "version": "0.1.0",
+  "description": "Rigorium Zotero library boundary: local status, selected collection, and explicitly confirmed metadata import.",
+  "settings": {
+    "interfaceVersion": 1,
+    "capabilities": [
+      "library.status",
+      "library.collection.selected",
+      "library.import.confirmed"
+    ],
+    "currentIncrement": "local-status-and-confirmed-import"
+  }
+}

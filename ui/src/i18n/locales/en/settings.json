@@ -1352,5 +1352,64 @@
       "policyHint": "Basic policies are written to pilotdeck.yaml; edit YAML later for finer user or group allowlists.",
       "saveSuccess": "WeCom config saved"
     }
+  },
+  "research": {
+    "title": "Research Settings",
+    "detail": "Literature sources, Zotero, search budgets, maps, citations, and privacy.",
+    "loading": "Loading research settings…",
+    "saved": "Research settings saved.",
+    "save": "Save research settings",
+    "reload": "Reload",
+    "noProject": "Select a project first.",
+    "noProjects": "No projects available",
+    "remoteMetadata": "Allow remote metadata search",
+    "remoteFullText": "Allow remote full-text processing",
+    "remoteFullTextDescription": "Off by default. Increment one only searches metadata.",
+    "citationStyle": "Default citation style",
+    "includeDoi": "Include DOI when available",
+    "scope": {
+      "title": "Configuration scope",
+      "description": "Global defaults apply everywhere; project settings override them only for the selected project.",
+      "global": "Global defaults",
+      "project": "Project override",
+      "enableOverride": "Enable project override",
+      "enableOverrideDescription": "When disabled, this project inherits global defaults."
+    },
+    "sources": {
+      "title": "Literature sources",
+      "openalexDescription": "Real academic metadata, topics, citation counts, and reference links.",
+      "mailto": "OpenAlex contact email",
+      "mailtoDescription": "Optional polite-pool identity for OpenAlex requests."
+    },
+    "search": {
+      "title": "Search defaults and budget",
+      "defaultLimit": "Default result count",
+      "yearRange": "Default year range",
+      "sort": "Default ranking",
+      "relevance": "Relevance",
+      "citations": "Citation count",
+      "newest": "Newest first",
+      "maxResults": "Maximum results per search",
+      "timeout": "Request timeout (seconds)"
+    },
+    "map": {
+      "title": "Research panel and map",
+      "autoOpen": "Open panel when results arrive",
+      "autoUpdate": "Update map automatically",
+      "topicEdges": "Show shared-topic links",
+      "topicEdgesDescription": "These links are inferred and visually distinguished from real citations."
+    },
+    "zotero": {
+      "description": "Rigorium reads Zotero locally and only writes after an explicit confirmation.",
+      "enabled": "Enable Zotero integration",
+      "baseUrl": "Local endpoint",
+      "selectedCollection": "Use the collection selected in Zotero",
+      "test": "Test Zotero",
+      "ready": "Ready · {{name}}",
+      "notReady": "Zotero is not ready."
+    },
+    "citationPrivacy": {
+      "title": "Citation and privacy"
+    }
   }
 }

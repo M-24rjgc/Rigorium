@@ -5,6 +5,7 @@ import {
   Database,
   FileText,
   FolderOpen,
+  Library,
   MessageSquare,
   PanelLeftOpen,
   PanelRightClose,
@@ -15,7 +16,9 @@ import {
 } from 'lucide-react';
 import ChatInterfaceV2 from '../../chat-v2/ChatInterfaceV2';
 import PluginTabContent from '../../plugins/view/PluginTabContent';
+import { useResearchPanel } from '../../../contexts/ResearchPanelContext';
 import { cn } from '../../../lib/utils.js';
+import ResearchPanel from '../../../research/ResearchPanel';
 import type { MainContentProps } from '../types/types';
 import { useTaskMaster } from '../../../contexts/TaskMasterContext';
 import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
@@ -81,6 +84,11 @@ const TOOL_PANEL_DEFAULT_WIDTH = 480;
 const TOOL_PANEL_MIN_WIDTH = 360;
 const TOOL_PANEL_MAX_WIDTH = 720;
 const TOOL_PANEL_MAX_LAYOUT_RATIO = 0.48;
+const RESEARCH_PANEL_STORAGE_KEY = 'rigorium:research-panel-width';
+const RESEARCH_PANEL_DEFAULT_WIDTH = 520;
+const RESEARCH_PANEL_MIN_WIDTH = 380;
+const RESEARCH_PANEL_MAX_WIDTH = 960;
+const RESEARCH_PANEL_MAX_LAYOUT_RATIO = 0.72;
 
 type DashboardPanelTab = Extract<AppTab, 'skills' | 'dashboard' | 'memory' | 'always-on'>;
 
@@ -110,6 +118,19 @@ function readStoredToolPanelWidth(): number {
   } catch {
     return TOOL_PANEL_DEFAULT_WIDTH;
   }
+}
+
+function readStoredResearchPanelWidth(): number {
+  try {
+    const stored = Number(localStorage.getItem(RESEARCH_PANEL_STORAGE_KEY));
+    return Number.isFinite(stored) && stored > 0 ? stored : RESEARCH_PANEL_DEFAULT_WIDTH;
+  } catch {
+    return RESEARCH_PANEL_DEFAULT_WIDTH;
+  }
+}
+
+function normalizeComparablePath(value: string | undefined | null): string {
+  return String(value || '').replace(/\\/gu, '/').replace(/\/+$/u, '').toLowerCase();
 }
 
 async function readJsonPayload<T>(response: Response): Promise<T | null> {
@@ -524,6 +545,7 @@ type SplitBodyProps = {
 
 function SplitBody(props: SplitBodyProps) {
   const { t } = useTranslation();
+  const researchPanel = useResearchPanel();
   const {
     projects,
     selectedProject,
@@ -597,6 +619,8 @@ function SplitBody(props: SplitBodyProps) {
   const [workbenchWidth, setWorkbenchWidth] = useState(0);
   const [toolPanelWidth, setToolPanelWidth] = useState(readStoredToolPanelWidth);
   const [toolPanelResizing, setToolPanelResizing] = useState(false);
+  const [researchPanelWidth, setResearchPanelWidth] = useState(readStoredResearchPanelWidth);
+  const [researchPanelResizing, setResearchPanelResizing] = useState(false);
   const isNarrowWorkbench = workbenchWidth > 0 && workbenchWidth < FILES_NARROW_BREAKPOINT;
   const toolPanelMaxWidth = workbenchWidth > 0
     ? Math.max(
@@ -604,6 +628,25 @@ function SplitBody(props: SplitBodyProps) {
         Math.min(TOOL_PANEL_MAX_WIDTH, workbenchWidth * TOOL_PANEL_MAX_LAYOUT_RATIO),
       )
     : TOOL_PANEL_MAX_WIDTH;
+  const researchPanelMaxWidth = workbenchWidth > 0
+    ? Math.max(
+        RESEARCH_PANEL_MIN_WIDTH,
+        Math.min(RESEARCH_PANEL_MAX_WIDTH, workbenchWidth * RESEARCH_PANEL_MAX_LAYOUT_RATIO),
+      )
+    : RESEARCH_PANEL_MAX_WIDTH;
+  const currentProjectPath = normalizeComparablePath(selectedProject?.fullPath || selectedProject?.path);
+  const artifactProjectPath = normalizeComparablePath(researchPanel.artifactProjectPath);
+  const researchArtifactMatchesProject = Boolean(
+    researchPanel.artifact
+    && (!artifactProjectPath || !currentProjectPath || artifactProjectPath === currentProjectPath),
+  );
+  const showResearchPanel = activeTab === 'chat'
+    && researchPanel.isOpen
+    && researchArtifactMatchesProject
+    && !dashboardPanelTab;
+  const displayedResearchPanelWidth = researchPanel.isExpanded
+    ? researchPanelMaxWidth
+    : Math.min(Math.max(researchPanelWidth, RESEARCH_PANEL_MIN_WIDTH), researchPanelMaxWidth);
 
   useEffect(() => {
     const container = filesSplitContainerRef.current;
@@ -621,12 +664,24 @@ function SplitBody(props: SplitBodyProps) {
   }, [toolPanelMaxWidth]);
 
   useEffect(() => {
+    setResearchPanelWidth((width) => Math.min(Math.max(width, RESEARCH_PANEL_MIN_WIDTH), researchPanelMaxWidth));
+  }, [researchPanelMaxWidth]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(TOOL_PANEL_STORAGE_KEY, String(Math.round(toolPanelWidth)));
     } catch {
       // The panel remains usable when localStorage is unavailable.
     }
   }, [toolPanelWidth]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(RESEARCH_PANEL_STORAGE_KEY, String(Math.round(researchPanelWidth)));
+    } catch {
+      // The panel remains usable when localStorage is unavailable.
+    }
+  }, [researchPanelWidth]);
 
   useEffect(() => {
     if (!isNarrowWorkbench) setAssistantOverlayOpen(false);
@@ -747,6 +802,43 @@ function SplitBody(props: SplitBodyProps) {
       document.body.style.userSelect = '';
     };
   }, [clampToolPanelWidth, toolPanelResizing]);
+
+  const clampResearchPanelWidth = useCallback((width: number) => (
+    Math.min(Math.max(width, RESEARCH_PANEL_MIN_WIDTH), researchPanelMaxWidth)
+  ), [researchPanelMaxWidth]);
+
+  const handleResearchPanelResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!showResearchPanel || isMobile) return;
+    event.preventDefault();
+    researchPanel.setExpanded(false);
+    setResearchPanelResizing(true);
+  }, [isMobile, researchPanel, showResearchPanel]);
+
+  const handleResearchPanelResizeBy = useCallback((delta: number) => {
+    researchPanel.setExpanded(false);
+    setResearchPanelWidth((width) => clampResearchPanelWidth(width + delta));
+  }, [clampResearchPanelWidth, researchPanel]);
+
+  useEffect(() => {
+    if (!researchPanelResizing) return undefined;
+    const handleMouseMove = (event: globalThis.MouseEvent) => {
+      const container = filesSplitContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      setResearchPanelWidth(clampResearchPanelWidth(rect.right - event.clientX));
+    };
+    const handleMouseUp = () => setResearchPanelResizing(false);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [clampResearchPanelWidth, researchPanelResizing]);
 
   const renderTool = () => {
     if (activeTab === 'shell') {
@@ -994,6 +1086,43 @@ function SplitBody(props: SplitBodyProps) {
             {renderTool()}
           </Suspense>
         </ToolSidePanel>
+      ) : null}
+
+      {showResearchPanel && researchPanel.artifact ? (
+        <ToolSidePanel
+          title={t('researchPanel.title', { defaultValue: 'Research' })}
+          icon={Library}
+          width={displayedResearchPanelWidth}
+          minWidth={RESEARCH_PANEL_MIN_WIDTH}
+          maxWidth={researchPanelMaxWidth}
+          isMobile={isMobile}
+          closeLabel={t('researchPanel.close', { defaultValue: 'Close research panel' })}
+          resizeLabel={t('researchPanel.resize', { defaultValue: 'Resize research panel' })}
+          expandLabel={t('researchPanel.expand', { defaultValue: 'Expand research panel' })}
+          collapseLabel={t('researchPanel.collapse', { defaultValue: 'Restore research panel width' })}
+          isExpanded={researchPanel.isExpanded}
+          onToggleExpanded={() => researchPanel.setExpanded(!researchPanel.isExpanded)}
+          onClose={researchPanel.closePanel}
+          onResizeStart={handleResearchPanelResizeStart}
+          onResizeBy={handleResearchPanelResizeBy}
+        >
+          <ResearchPanel
+            artifact={researchPanel.artifact}
+            projectPath={selectedProject?.fullPath || selectedProject?.path}
+          />
+        </ToolSidePanel>
+      ) : null}
+
+      {activeTab === 'chat' && researchArtifactMatchesProject && !showResearchPanel ? (
+        <button
+          type="button"
+          onClick={researchPanel.openPanel}
+          className="absolute right-0 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-1 rounded-l-lg border border-r-0 border-neutral-200 bg-white px-2 py-3 text-[10px] font-medium text-neutral-600 shadow-lg transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          title={t('researchPanel.reopen', { defaultValue: 'Open research panel' })}
+        >
+          <Library className="h-4 w-4" />
+          <span>{t('researchPanel.shortTitle', { defaultValue: 'Research' })}</span>
+        </button>
       ) : null}
 
       {assistantVisible && !assistantIsOverlay ? (

@@ -1346,5 +1346,64 @@
       "policyHint": "基础策略会写入 pilotdeck.yaml；更细粒度的用户或群白名单可稍后手动编辑 YAML。",
       "saveSuccess": "企业微信配置已保存"
     }
+  },
+  "research": {
+    "title": "科研设置",
+    "detail": "配置文献来源、Zotero、检索预算、地图、引用与隐私。",
+    "loading": "正在加载科研设置…",
+    "saved": "科研设置已保存。",
+    "save": "保存科研设置",
+    "reload": "重新加载",
+    "noProject": "请先选择一个项目。",
+    "noProjects": "暂无可用项目",
+    "remoteMetadata": "允许远程元数据检索",
+    "remoteFullText": "允许远程全文处理",
+    "remoteFullTextDescription": "默认关闭；增量一只检索元数据。",
+    "citationStyle": "默认引用格式",
+    "includeDoi": "有 DOI 时自动包含",
+    "scope": {
+      "title": "配置作用域",
+      "description": "全局默认应用于所有项目；项目配置只覆盖当前选择的项目。",
+      "global": "全局默认",
+      "project": "项目覆盖",
+      "enableOverride": "启用项目覆盖",
+      "enableOverrideDescription": "关闭后，该项目继续继承全局默认。"
+    },
+    "sources": {
+      "title": "文献来源",
+      "openalexDescription": "提供真实学术元数据、主题、引用数和参考文献关系。",
+      "mailto": "OpenAlex 联系邮箱",
+      "mailtoDescription": "可选，用于 OpenAlex polite pool 请求标识。"
+    },
+    "search": {
+      "title": "检索默认与预算",
+      "defaultLimit": "默认结果数",
+      "yearRange": "默认年份范围",
+      "sort": "默认排序",
+      "relevance": "相关性",
+      "citations": "引用数",
+      "newest": "最新优先",
+      "maxResults": "单次最大结果数",
+      "timeout": "请求超时（秒）"
+    },
+    "map": {
+      "title": "科研面板与地图",
+      "autoOpen": "结果返回时自动打开面板",
+      "autoUpdate": "自动更新文献地图",
+      "topicEdges": "显示共享主题关系",
+      "topicEdgesDescription": "此类关系属于推断关系，会与真实引用边明确区分。"
+    },
+    "zotero": {
+      "description": "Rigorium 只在本机读取 Zotero，并仅在用户明确确认后写入。",
+      "enabled": "启用 Zotero 集成",
+      "baseUrl": "本地接口地址",
+      "selectedCollection": "使用 Zotero 当前选中的 Collection",
+      "test": "测试 Zotero",
+      "ready": "已连接 · {{name}}",
+      "notReady": "Zotero 尚未就绪。"
+    },
+    "citationPrivacy": {
+      "title": "引用与隐私"
+    }
   }
 }

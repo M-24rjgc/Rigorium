@@ -1,0 +1,15 @@
+{
+  "name": "rigorium-literature",
+  "version": "0.1.0",
+  "description": "Rigorium literature discovery boundary: academic sources, normalized paper identity, research artifacts, relation data, and panel rendering contracts.",
+  "settings": {
+    "interfaceVersion": 1,
+    "capabilities": [
+      "literature.search",
+      "literature.identity.normalize",
+      "literature.artifact.render",
+      "literature.relationships.basic"
+    ],
+    "currentIncrement": "openalex-search-and-basic-relationships"
+  }
+}

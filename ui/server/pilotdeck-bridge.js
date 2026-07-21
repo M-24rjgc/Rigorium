@@ -135,7 +135,7 @@ function readOnlyModeToolDenyCode(text) {
 
 function isSearchToolName(name) {
     const normalized = String(name || '').toLowerCase();
-    return normalized === 'grep' || normalized === 'glob';
+    return normalized === 'grep' || normalized === 'glob' || normalized === 'literature_search';
 }
 
 function normalizeToolErrorCode(errorCode, resultPreview) {

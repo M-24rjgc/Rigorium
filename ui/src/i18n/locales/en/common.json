@@ -530,5 +530,29 @@
       "updateAvailable": "Update available",
       "closeSidebar": "Close sidebar"
     }
+  },
+  "researchPanel": {
+    "title": "Research",
+    "shortTitle": "Research",
+    "close": "Close research panel",
+    "resize": "Resize research panel",
+    "expand": "Expand research panel",
+    "collapse": "Restore research panel width",
+    "reopen": "Open research panel",
+    "map": "Map",
+    "papers": "Papers",
+    "resultSummary": "{{papers}} papers · {{edges}} relationships",
+    "sources": "Sources and coverage",
+    "openPaper": "Open",
+    "saveToZotero": "Save to Zotero",
+    "refreshZotero": "Refresh Zotero status",
+    "zoteroTarget": "Target: {{name}}",
+    "zoteroUnavailable": "Start Zotero to enable saving.",
+    "importSuccess": "Saved to Zotero.",
+    "confirmImportTitle": "Write to Zotero?",
+    "confirmImportTarget": "This modifies {{name}}.",
+    "cancel": "Cancel",
+    "confirm": "Confirm import",
+    "noPapers": "No papers were returned."
   }
 }

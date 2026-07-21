@@ -694,6 +694,35 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
     }
   },
 
+  literature_search: {
+    input: {
+      type: 'one-line',
+      icon: 'search',
+      label: 'Literature',
+      getValue: (input) => input.query || 'Academic literature search',
+      getSecondary: (input) => {
+        const years = [input.fromYear, input.toYear].filter(Boolean).join('–');
+        return years || undefined;
+      },
+      style: 'search',
+      wrapText: true,
+    },
+    result: {
+      type: 'collapsible',
+      title: (result) => {
+        const artifact = result?.toolUseResult;
+        const count = Array.isArray(artifact?.papers) ? artifact.papers.length : 0;
+        return `${count} paper${count === 1 ? '' : 's'} · opened in Research`;
+      },
+      defaultOpen: false,
+      contentType: 'text',
+      getContentProps: (result) => ({
+        content: result?.content || '',
+        format: 'plain',
+      }),
+    },
+  },
+
   // ============================================================================
   // PLAN TOOLS
   // ============================================================================
