@@ -60,3 +60,27 @@ test("research settings reject non-loopback Zotero endpoints", async () => {
     /loopback/,
   );
 });
+
+test("research settings preserve a project Zotero collection binding", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rigorium-research-zotero-binding-"));
+  const projectRoot = join(root, "project");
+  await writeResearchSettings({
+    scope: "project",
+    pilotHome: join(root, "pilot-home"),
+    projectRoot,
+    settings: {
+      ...DEFAULT_RESEARCH_SETTINGS,
+      zotero: {
+        ...DEFAULT_RESEARCH_SETTINGS.zotero,
+        useSelectedCollection: false,
+        collectionKey: "ABCD1234",
+        collectionName: "Project Evidence",
+      },
+    },
+  });
+
+  const snapshot = await readResearchSettings({ pilotHome: join(root, "pilot-home"), projectRoot });
+  assert.equal(snapshot.effective.zotero.collectionKey, "ABCD1234");
+  assert.equal(snapshot.effective.zotero.collectionName, "Project Evidence");
+  assert.equal(snapshot.effective.zotero.useSelectedCollection, false);
+});

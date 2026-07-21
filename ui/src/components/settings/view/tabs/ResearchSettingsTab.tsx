@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, FlaskConical, RefreshCw, Save, ServerOff } from 'lucide-react';
+import { Check, CheckCircle2, FlaskConical, FolderTree, RefreshCw, Save, Search, ServerOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, Input } from '../../../../shared/view/ui';
 import { authenticatedFetch } from '../../../../utils/api';
-import type { ResearchSettings, ResearchSettingsSnapshot, ZoteroStatus } from '../../../../research/types';
+import type {
+  ResearchSettings,
+  ResearchSettingsSnapshot,
+  ZoteroCollection,
+  ZoteroCollectionsResult,
+  ZoteroStatus,
+} from '../../../../research/types';
 import type { SettingsProject } from '../../types/types';
 import SettingsCard from '../SettingsCard';
 import SettingsRow from '../SettingsRow';
@@ -27,11 +33,24 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [zoteroStatus, setZoteroStatus] = useState<ZoteroStatus | null>(null);
   const [checkingZotero, setCheckingZotero] = useState(false);
+  const [collectionsOpen, setCollectionsOpen] = useState(false);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [collectionsResult, setCollectionsResult] = useState<ZoteroCollectionsResult | null>(null);
+  const [collectionsError, setCollectionsError] = useState<string | null>(null);
+  const [collectionFilter, setCollectionFilter] = useState('');
 
   useEffect(() => {
     if (projectPath || projectOptions.length === 0) return;
     setProjectPath(projectOptions[0]?.fullPath || projectOptions[0]?.path || '');
   }, [projectOptions, projectPath]);
+
+  useEffect(() => {
+    setZoteroStatus(null);
+    setCollectionsOpen(false);
+    setCollectionsResult(null);
+    setCollectionsError(null);
+    setCollectionFilter('');
+  }, [projectPath, scope]);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -101,7 +120,7 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
     setZoteroStatus(null);
     try {
       const params = new URLSearchParams();
-      if (projectPath) params.set('projectPath', projectPath);
+      if (scope === 'project' && projectPath) params.set('projectPath', projectPath);
       const response = await authenticatedFetch(`/api/research/zotero/status${params.size ? `?${params}` : ''}`, {
         suppressServerErrorToast: true,
       });
@@ -120,7 +139,56 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
     } finally {
       setCheckingZotero(false);
     }
-  }, [projectPath]);
+  }, [projectPath, scope]);
+
+  const loadCollections = useCallback(async () => {
+    setCollectionsOpen(true);
+    setCollectionsLoading(true);
+    setCollectionsError(null);
+    try {
+      const params = new URLSearchParams();
+      if (scope === 'project' && projectPath) params.set('projectPath', projectPath);
+      const response = await authenticatedFetch(`/api/research/zotero/collections${params.size ? `?${params}` : ''}`, {
+        suppressServerErrorToast: true,
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Failed to load Zotero collections.');
+      if (body.available === false) throw new Error(body.error || 'Zotero is unavailable.');
+      if (!Array.isArray(body.collections)) throw new Error('Zotero returned an invalid collection list.');
+      setCollectionsResult(body as ZoteroCollectionsResult);
+    } catch (error) {
+      setCollectionsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCollectionsLoading(false);
+    }
+  }, [projectPath, scope]);
+
+  const visibleCollections = useMemo(() => {
+    const collections = collectionsResult?.collections ?? [];
+    const query = collectionFilter.trim().toLocaleLowerCase();
+    if (!query) return collections;
+    return collections.filter((collection) => collection.name.toLocaleLowerCase().includes(query));
+  }, [collectionFilter, collectionsResult]);
+
+  const collectionIndex = useMemo(
+    () => new Map((collectionsResult?.collections ?? []).flatMap((collection) => (
+      collection.key ? [[collection.key, collection] as const] : []
+    ))),
+    [collectionsResult],
+  );
+
+  const bindCollection = useCallback((collection: ZoteroCollection) => {
+    if (!collection.key) return;
+    setDraft((current) => current ? {
+      ...current,
+      zotero: {
+        ...current.zotero,
+        useSelectedCollection: false,
+        collectionKey: collection.key ?? null,
+        collectionName: collection.name,
+      },
+    } : current);
+  }, []);
 
   if (loading || !draft) {
     return (
@@ -362,11 +430,49 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
               ariaLabel="Selected Zotero collection"
             />
           </SettingsRow>
+          <SettingsRow
+            label={t('research.zotero.collectionBinding', { defaultValue: 'Collection binding' })}
+            description={draft.zotero.useSelectedCollection
+              ? t('research.zotero.followSelection', { defaultValue: 'Follows the current Zotero selection.' })
+              : t('research.zotero.fixedCollection', { defaultValue: 'Uses one fixed collection for this scope.' })}
+          >
+            <div className="flex min-w-0 items-center gap-2 text-sm">
+              {!draft.zotero.useSelectedCollection && draft.zotero.collectionKey ? (
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              ) : (
+                <FolderTree className="h-4 w-4 shrink-0 text-muted-foreground" />
+              )}
+              <span className="max-w-64 truncate text-foreground">
+                {draft.zotero.useSelectedCollection
+                  ? zoteroStatus?.selectedCollection?.name || t('research.zotero.currentSelection', { defaultValue: 'Current Zotero selection' })
+                  : draft.zotero.collectionName || t('research.zotero.noCollection', { defaultValue: 'No collection bound' })}
+              </span>
+            </div>
+          </SettingsRow>
         </SettingsCard>
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-3 flex flex-wrap items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => void checkZotero()} disabled={checkingZotero}>
             {checkingZotero ? <RefreshCw className="animate-spin" /> : <FlaskConical />}
             {t('research.zotero.test', { defaultValue: 'Test Zotero' })}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (collectionsOpen) {
+                setCollectionsOpen(false);
+                return;
+              }
+              if (collectionsResult) {
+                setCollectionsOpen(true);
+                return;
+              }
+              void loadCollections();
+            }}
+            disabled={collectionsLoading}
+          >
+            {collectionsLoading ? <RefreshCw className="animate-spin" /> : <FolderTree />}
+            {t('research.zotero.browseCollections', { defaultValue: 'Browse collections' })}
           </Button>
           {zoteroStatus ? (
             <div className={`flex min-w-0 items-center gap-1.5 text-xs ${zoteroStatus.connectorReady ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -379,6 +485,72 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
             </div>
           ) : null}
         </div>
+        {collectionsOpen ? (
+          <div className="mt-3 overflow-hidden rounded-lg border border-border bg-background">
+            <div className="flex items-center gap-2 border-b border-border p-2">
+              <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <Input
+                value={collectionFilter}
+                onChange={(event) => setCollectionFilter(event.target.value)}
+                placeholder={t('research.zotero.filterCollections', { defaultValue: 'Filter collections' })}
+                aria-label={t('research.zotero.filterCollections', { defaultValue: 'Filter collections' })}
+                className="h-8 border-0 shadow-none focus-visible:ring-0"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => void loadCollections()}
+                disabled={collectionsLoading}
+                aria-label={t('research.zotero.refreshCollections', { defaultValue: 'Refresh collections' })}
+                className="h-8 w-8"
+              >
+                <RefreshCw className={collectionsLoading ? 'animate-spin' : ''} />
+              </Button>
+            </div>
+            {collectionsError ? (
+              <div className="px-3 py-4 text-xs text-red-600 dark:text-red-300">{collectionsError}</div>
+            ) : visibleCollections.length > 0 ? (
+              <div className="max-h-72 divide-y divide-border overflow-y-auto">
+                {visibleCollections.map((collection) => {
+                  const bound = !draft.zotero.useSelectedCollection && collection.key === draft.zotero.collectionKey;
+                  const depth = collectionDepth(collection, collectionIndex);
+                  return (
+                    <button
+                      key={collection.key || `${collection.libraryId ?? 'local'}:${collection.name}`}
+                      type="button"
+                      onClick={() => bindCollection(collection)}
+                      disabled={!collection.key}
+                      className={`flex min-h-11 w-full items-center gap-2 pr-3 text-left text-sm transition hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-50 ${bound ? 'bg-emerald-50/70 dark:bg-emerald-950/20' : ''}`}
+                      style={{ paddingLeft: `${12 + depth * 16}px` }}
+                      aria-label={t('research.zotero.bindCollection', { defaultValue: 'Bind {{name}}', name: collection.name })}
+                    >
+                      <FolderTree className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate text-foreground">{collection.name}</span>
+                      {typeof collection.itemCount === 'number' ? (
+                        <span className="shrink-0 text-xs text-muted-foreground">{collection.itemCount}</span>
+                      ) : null}
+                      {bound ? <Check className="h-4 w-4 shrink-0 text-emerald-600" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : collectionsLoading ? (
+              <div className="flex items-center justify-center gap-2 px-3 py-6 text-xs text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                {t('research.zotero.loadingCollections', { defaultValue: 'Loading collections…' })}
+              </div>
+            ) : (
+              <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                {t('research.zotero.noCollections', { defaultValue: 'No collections found.' })}
+              </div>
+            )}
+            {collectionsResult?.truncated ? (
+              <div className="border-t border-border px-3 py-2 text-[11px] text-amber-600 dark:text-amber-300">
+                {t('research.zotero.collectionsTruncated', { defaultValue: 'Only the first {{count}} collections are shown.', count: collectionsResult.collections.length })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </SettingsSection>
 
       <SettingsSection title={t('research.citationPrivacy.title', { defaultValue: 'Citation and privacy' })}>
@@ -453,4 +625,16 @@ function nullableNumber(value: string): number | null {
   if (!value.trim()) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.round(parsed) : null;
+}
+
+function collectionDepth(collection: ZoteroCollection, index: Map<string, ZoteroCollection>): number {
+  let depth = 0;
+  let parentKey = collection.parentKey;
+  const visited = new Set<string>();
+  while (parentKey && depth < 12 && !visited.has(parentKey)) {
+    visited.add(parentKey);
+    depth += 1;
+    parentKey = index.get(parentKey)?.parentKey;
+  }
+  return depth;
 }

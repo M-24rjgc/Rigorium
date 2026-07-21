@@ -33,6 +33,8 @@ export const DEFAULT_RESEARCH_SETTINGS: ResearchSettings = {
     enabled: true,
     baseUrl: "http://127.0.0.1:23119",
     useSelectedCollection: true,
+    collectionKey: null,
+    collectionName: null,
   },
   citation: {
     style: "apa",
@@ -178,6 +180,12 @@ export function normalizeResearchSettings(value: unknown, base: ResearchSettings
       enabled: booleanValue(zotero.enabled, base.zotero.enabled),
       baseUrl: loopbackBaseUrl(zotero.baseUrl, base.zotero.baseUrl),
       useSelectedCollection: booleanValue(zotero.useSelectedCollection, base.zotero.useSelectedCollection),
+      collectionKey: zoteroCollectionKey(zotero.collectionKey, base.zotero.collectionKey),
+      collectionName: zoteroCollectionName(
+        zotero.collectionName,
+        zoteroCollectionKey(zotero.collectionKey, base.zotero.collectionKey),
+        base.zotero,
+      ),
     },
     citation: {
       style: enumValue(
@@ -229,6 +237,24 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
 
 function stringValue(value: unknown, fallback: string, maxLength: number): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : fallback;
+}
+
+function zoteroCollectionKey(value: unknown, fallback: string | null): string | null {
+  if (value === null || value === "") return null;
+  if (typeof value !== "string") return fallback;
+  const key = value.trim();
+  return /^[A-Za-z0-9]{1,32}$/u.test(key) ? key : fallback;
+}
+
+function zoteroCollectionName(
+  value: unknown,
+  collectionKey: string | null,
+  base: ResearchSettings["zotero"],
+): string | null {
+  if (!collectionKey) return null;
+  if (value === null || value === "") return null;
+  if (typeof value === "string") return value.trim().slice(0, 500) || null;
+  return collectionKey === base.collectionKey ? base.collectionName : null;
 }
 
 function integerValue(value: unknown, fallback: number, min: number, max: number): number {

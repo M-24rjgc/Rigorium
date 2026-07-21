@@ -30,6 +30,12 @@ export type ResearchSettings = {
     enabled: boolean;
     baseUrl: string;
     useSelectedCollection: boolean;
+    /**
+     * A project may pin its working collection instead of relying on whatever
+     * collection happens to be selected in the Zotero desktop app.
+     */
+    collectionKey: string | null;
+    collectionName: string | null;
   };
   citation: {
     style: "apa" | "chicago-author-date" | "ieee" | "mla";
@@ -165,6 +171,55 @@ export type ZoteroCollectionTarget = {
   libraryId?: string | number;
   libraryName?: string;
   editable?: boolean;
+  parentKey?: string;
+  itemCount?: number;
+};
+
+export type ZoteroLibraryItem = {
+  key: string;
+  itemType: string;
+  title: string;
+  creators: string[];
+  date?: string;
+  year?: number;
+  doi?: string;
+  arxiv?: string;
+  pmid?: string;
+  url?: string;
+  tags: string[];
+  collectionKeys: string[];
+  identity: PaperIdentity;
+};
+
+export type ZoteroCollectionsResult = {
+  collections: ZoteroCollectionTarget[];
+  total: number;
+  truncated: boolean;
+};
+
+export type ZoteroListItemsInput = {
+  collectionKey?: string;
+  query?: string;
+  limit?: number;
+};
+
+export type ZoteroItemsResult = {
+  collection?: ZoteroCollectionTarget;
+  items: ZoteroLibraryItem[];
+  total: number;
+  truncated: boolean;
+  query?: string;
+};
+
+export type ZoteroPaperMatchReason = "zotero_key" | "doi" | "arxiv" | "pmid" | "title";
+
+export type ZoteroPaperMatch = {
+  paperId: string;
+  matched: boolean;
+  confidence: "exact" | "heuristic" | "none";
+  reasons: ZoteroPaperMatchReason[];
+  item?: ZoteroLibraryItem;
+  inCollection?: boolean;
 };
 
 export type LibraryProviderStatus = {
@@ -189,5 +244,8 @@ export interface LibraryProvider {
   readonly id: "zotero";
   getStatus(): Promise<LibraryProviderStatus>;
   getSelectedCollection(): Promise<ZoteroCollectionTarget | undefined>;
+  listCollections(): Promise<ZoteroCollectionsResult>;
+  listItems(input?: ZoteroListItemsInput): Promise<ZoteroItemsResult>;
+  matchPapers(input: { papers: ResearchPaper[]; collectionKey?: string }): Promise<ZoteroPaperMatch[]>;
   importPapers(input: { papers: ResearchPaper[]; confirmed: boolean }): Promise<LibraryImportResult>;
 }

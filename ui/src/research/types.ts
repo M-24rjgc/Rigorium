@@ -12,7 +12,13 @@ export type ResearchSettings = {
     budget: { maxResultsPerSearch: number; requestTimeoutMs: number };
     map: { autoOpen: boolean; autoUpdate: boolean; showTopicEdges: boolean };
   };
-  zotero: { enabled: boolean; baseUrl: string; useSelectedCollection: boolean };
+  zotero: {
+    enabled: boolean;
+    baseUrl: string;
+    useSelectedCollection: boolean;
+    collectionKey: string | null;
+    collectionName: string | null;
+  };
   citation: { style: 'apa' | 'chicago-author-date' | 'ieee' | 'mla'; includeDoi: boolean };
   privacy: { allowRemoteMetadataSearch: boolean; allowRemoteFullText: boolean };
 };
@@ -106,6 +112,58 @@ export type ZoteroStatus = {
     editable?: boolean;
   };
   error?: string;
+};
+
+export type ZoteroCollection = NonNullable<ZoteroStatus['selectedCollection']> & {
+  parentKey?: string;
+  itemCount?: number;
+};
+
+export type ZoteroCollectionsResult = {
+  provider?: 'zotero';
+  available?: boolean;
+  disabled?: boolean;
+  error?: string;
+  collections: ZoteroCollection[];
+  total: number;
+  truncated: boolean;
+};
+
+export type ZoteroLibraryItem = {
+  key: string;
+  itemType: string;
+  title: string;
+  creators: string[];
+  date?: string;
+  year?: number;
+  doi?: string;
+  arxiv?: string;
+  pmid?: string;
+  url?: string;
+  tags: string[];
+  collectionKeys: string[];
+  identity: Record<string, unknown>;
+};
+
+export type ZoteroItemsResult = {
+  provider?: 'zotero';
+  available?: boolean;
+  disabled?: boolean;
+  error?: string;
+  collection?: ZoteroCollection;
+  items: ZoteroLibraryItem[];
+  total: number;
+  truncated: boolean;
+  query?: string;
+};
+
+export type ZoteroPaperMatch = {
+  paperId: string;
+  matched: boolean;
+  confidence: 'exact' | 'heuristic' | 'none';
+  reasons: Array<'zotero_key' | 'doi' | 'arxiv' | 'pmid' | 'title'>;
+  item?: ZoteroLibraryItem;
+  inCollection?: boolean;
 };
 
 export function isResearchArtifact(value: unknown): value is ResearchArtifact {

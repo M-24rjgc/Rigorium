@@ -70,6 +70,79 @@ router.get('/zotero/status', async (req, res) => {
   }
 });
 
+router.get('/zotero/collections', async (req, res) => {
+  try {
+    const context = await zoteroContext(req.query.projectPath);
+    if (!context.enabled) return res.json(disabledZoteroPayload({ collections: [], total: 0, truncated: false }));
+    try {
+      const result = await context.provider.listCollections();
+      return res.json({
+        provider: 'zotero',
+        available: true,
+        ...result,
+        boundCollection: configuredCollection(context.settings),
+      });
+    } catch (error) {
+      return res.json(unavailableZoteroPayload(error, { collections: [], total: 0, truncated: false }));
+    }
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
+router.get('/zotero/items', async (req, res) => {
+  try {
+    const context = await zoteroContext(req.query.projectPath);
+    const collectionKey = requestCollectionKey(req.query.collectionKey) || configuredCollectionKey(context.settings);
+    const query = queryString(req.query.q);
+    const limit = positiveInteger(req.query.limit, 50, 100);
+    if (!context.enabled) {
+      return res.json(disabledZoteroPayload({ collectionKey, items: [], total: 0, truncated: false }));
+    }
+    try {
+      const result = await context.provider.listItems({ collectionKey, query, limit });
+      return res.json({
+        provider: 'zotero',
+        available: true,
+        collectionKey,
+        collectionName: collectionKey === context.settings.collectionKey
+          ? context.settings.collectionName
+          : result.collection?.name,
+        ...result,
+      });
+    } catch (error) {
+      return res.json(unavailableZoteroPayload(error, { collectionKey, items: [], total: 0, truncated: false }));
+    }
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
+router.post('/zotero/match', async (req, res) => {
+  try {
+    const context = await zoteroContext(req.body?.projectPath);
+    const papers = normalizePapers(req.body?.papers);
+    const collectionKey = requestCollectionKey(req.body?.collectionKey) || configuredCollectionKey(context.settings);
+    if (!context.enabled) {
+      return res.json(disabledZoteroPayload({
+        collectionKey,
+        matches: papers.map((paper) => unmatchedPaper(paper.id, collectionKey)),
+      }));
+    }
+    try {
+      const matches = await context.provider.matchPapers({ papers, collectionKey });
+      return res.json({ provider: 'zotero', available: true, collectionKey, matches });
+    } catch (error) {
+      return res.json(unavailableZoteroPayload(error, {
+        collectionKey,
+        matches: papers.map((paper) => unmatchedPaper(paper.id, collectionKey)),
+      }));
+    }
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
 router.post('/zotero/import', async (req, res) => {
   try {
     if (req.body?.confirmed !== true) {
@@ -108,6 +181,84 @@ async function validatedProjectRoot(value, required = false) {
     throw error;
   }
   return validation.resolvedPath;
+}
+
+async function zoteroContext(projectPath) {
+  const projectRoot = await validatedProjectRoot(projectPath);
+  const snapshot = await readResearchSettings({
+    pilotHome: process.env.PILOT_HOME,
+    ...(projectRoot ? { projectRoot } : {}),
+  });
+  return {
+    enabled: snapshot.effective.zotero.enabled,
+    settings: snapshot.effective.zotero,
+    provider: createZoteroLibraryProvider({
+      baseUrl: snapshot.effective.zotero.baseUrl,
+      fetchImpl: fetch,
+      timeoutMs: 3_000,
+    }),
+  };
+}
+
+function configuredCollection(settings) {
+  return !settings.useSelectedCollection && settings.collectionKey
+    ? { key: settings.collectionKey, name: settings.collectionName || settings.collectionKey }
+    : undefined;
+}
+
+function configuredCollectionKey(settings) {
+  return !settings.useSelectedCollection && settings.collectionKey
+    ? settings.collectionKey
+    : undefined;
+}
+
+function disabledZoteroPayload(extra) {
+  return {
+    provider: 'zotero',
+    available: false,
+    disabled: true,
+    error: 'Zotero integration is disabled in Research Settings.',
+    ...extra,
+  };
+}
+
+function unavailableZoteroPayload(error, extra) {
+  return {
+    provider: 'zotero',
+    available: false,
+    error: error instanceof Error ? error.message : String(error),
+    ...extra,
+  };
+}
+
+function unmatchedPaper(paperId, collectionKey) {
+  return {
+    paperId,
+    matched: false,
+    confidence: 'none',
+    reasons: [],
+    ...(collectionKey ? { inCollection: false } : {}),
+  };
+}
+
+function queryString(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function requestCollectionKey(value) {
+  const key = queryString(value);
+  if (!key) return undefined;
+  if (!/^[A-Za-z0-9]{1,32}$/u.test(key)) {
+    const error = new Error('Invalid Zotero collection key.');
+    error.statusCode = 400;
+    throw error;
+  }
+  return key;
+}
+
+function positiveInteger(value, fallback, max) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(1, Math.round(parsed))) : fallback;
 }
 
 function normalizePapers(value) {

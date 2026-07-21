@@ -26,6 +26,7 @@
     "desktop:prepare-icon": "node desktop/build-icon.mjs",
     "desktop:start": "electron .",
     "desktop:smoke": "electron . --smoke-test",
+    "desktop:verify-research": "node scripts/verify-packaged-research.mjs",
     "desktop:pack": "pnpm run desktop:prepare-icon && electron-builder --dir --win --x64",
     "desktop:build": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && electron-builder --win nsis --x64",
     "predev": "npm run check:runtime && node scripts/bootstrap-pilotdeck-config.mjs",

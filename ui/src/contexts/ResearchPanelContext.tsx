@@ -18,7 +18,20 @@ type ResearchPanelContextValue = ResearchPanelState & {
   selectPaper: (paperId: string) => void;
 };
 
-const ResearchPanelContext = createContext<ResearchPanelContextValue | null>(null);
+const FALLBACK_RESEARCH_PANEL: ResearchPanelContextValue = {
+  artifact: null,
+  artifactProjectPath: null,
+  isOpen: false,
+  isExpanded: false,
+  selectedPaperId: null,
+  ingestArtifact: () => undefined,
+  openPanel: () => undefined,
+  closePanel: () => undefined,
+  setExpanded: () => undefined,
+  selectPaper: () => undefined,
+};
+
+const ResearchPanelContext = createContext<ResearchPanelContextValue>(FALLBACK_RESEARCH_PANEL);
 
 export function ResearchPanelProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ResearchPanelState>({
@@ -68,7 +81,5 @@ export function ResearchPanelProvider({ children }: { children: ReactNode }) {
 }
 
 export function useResearchPanel(): ResearchPanelContextValue {
-  const value = useContext(ResearchPanelContext);
-  if (!value) throw new Error('useResearchPanel must be used inside ResearchPanelProvider.');
-  return value;
+  return useContext(ResearchPanelContext);
 }
