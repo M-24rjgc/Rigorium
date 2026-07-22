@@ -12,5 +12,6 @@ export * from "./literature/mapRepository.js";
 export * from "./literature/searchSession.js";
 export * from "./literature/terminology.js";
 export * from "./direction/directionAssessment.js";
+export * from "./direction/titleConfirmation.js";
 export * from "./library/zoteroProvider.js";
 export * from "./library/zoteroCloudProvider.js";
