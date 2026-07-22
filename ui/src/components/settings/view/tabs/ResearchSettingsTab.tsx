@@ -5,6 +5,7 @@ import { Button, Input } from '../../../../shared/view/ui';
 import { authenticatedFetch } from '../../../../utils/api';
 import { getZoteroCloudStatus } from '../../../../research/zoteroCloudApi';
 import type {
+  ResearchArxivSourceSettings,
   ResearchLiteratureSourceSettings,
   ResearchSettings,
   ResearchSettingsSnapshot,
@@ -28,6 +29,10 @@ const defaultCrossrefSourceSettings: ResearchLiteratureSourceSettings = {
   mailto: '',
 };
 
+const defaultArxivSourceSettings: ResearchArxivSourceSettings = {
+  enabled: true,
+};
+
 function normalizeResearchSettings(settings: ResearchSettings): ResearchSettings {
   return {
     ...settings,
@@ -38,6 +43,10 @@ function normalizeResearchSettings(settings: ResearchSettings): ResearchSettings
         crossref: {
           ...defaultCrossrefSourceSettings,
           ...settings.literature.sources.crossref,
+        },
+        arxiv: {
+          ...defaultArxivSourceSettings,
+          ...settings.literature.sources.arxiv,
         },
       },
     },
@@ -155,13 +164,14 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
     setSaving(true);
     setMessage(null);
     try {
+      const normalizedDraft = normalizeResearchSettings(draft);
       const response = await authenticatedFetch('/api/research/settings', {
         method: 'PUT',
         body: JSON.stringify({
           scope,
           projectPath: projectPath || undefined,
           projectOverrideEnabled,
-          settings: draft,
+          settings: normalizedDraft,
         }),
         suppressServerErrorToast: true,
       });
@@ -366,6 +376,22 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
       },
     } : current);
   };
+  const updateArxiv = (value: Partial<ResearchArxivSourceSettings>) => {
+    setDraft((current) => current ? {
+      ...current,
+      literature: {
+        ...current.literature,
+        sources: {
+          ...current.literature.sources,
+          arxiv: {
+            ...defaultArxivSourceSettings,
+            ...current.literature.sources.arxiv,
+            ...value,
+          },
+        },
+      },
+    } : current);
+  };
   const updateZoteroCloud = (value: Partial<ResearchSettings['zotero']['cloud']>) => {
     setDraft((current) => current ? {
       ...current,
@@ -373,7 +399,8 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
     } : current);
   };
   const crossrefSource = draft.literature.sources.crossref ?? defaultCrossrefSourceSettings;
-  const noLiteratureSourcesEnabled = !draft.literature.sources.openalex.enabled && !crossrefSource.enabled;
+  const arxivSource = draft.literature.sources.arxiv ?? defaultArxivSourceSettings;
+  const noLiteratureSourcesEnabled = !draft.literature.sources.openalex.enabled && !crossrefSource.enabled && !arxivSource.enabled;
 
   return (
     <div className="space-y-8">
@@ -471,6 +498,16 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
               aria-label={t('research.sources.crossrefMailto', { defaultValue: 'Crossref contact email' })}
               placeholder="name@example.com"
               className="w-36 sm:w-56"
+            />
+          </SettingsRow>
+          <SettingsRow
+            label="arXiv"
+            description={t('research.sources.arxivDescription', { defaultValue: 'Preprint metadata, abstracts, and subject categories; it has no citation-graph data.' })}
+          >
+            <SettingsToggle
+              checked={arxivSource.enabled}
+              onChange={(enabled) => updateArxiv({ enabled })}
+              ariaLabel="arXiv"
             />
           </SettingsRow>
           <SettingsRow label={t('research.remoteMetadata', { defaultValue: 'Allow remote metadata search' })}>

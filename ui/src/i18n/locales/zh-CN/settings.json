@@ -1377,6 +1377,7 @@
       "crossrefDescription": "提供 DOI 和出版方元数据，用于补充广域发现结果。",
       "crossrefMailto": "Crossref 联系邮箱",
       "crossrefMailtoDescription": "可选，用于 Crossref 元数据请求标识。",
+      "arxivDescription": "提供预印本元数据、摘要和学科分类；不提供引用图数据。",
       "noneEnabled": "当前没有启用任何文献来源；至少开启一个来源后才能检索。"
     },
     "search": {

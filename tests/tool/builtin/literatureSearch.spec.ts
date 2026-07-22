@@ -26,7 +26,11 @@ const openAlexPayload = {
       open_access: { is_oa: true },
       topics: [{ id: "https://openalex.org/T1", display_name: "Research agents", score: 0.9 }],
       referenced_works: ["https://openalex.org/W2"],
-      ids: { openalex: "https://openalex.org/W1", doi: "https://doi.org/10.1000/first" },
+      ids: {
+        openalex: "https://openalex.org/W1",
+        doi: "https://doi.org/10.1000/first",
+        arxiv: "https://arxiv.org/abs/2401.12345v2",
+      },
       abstract_inverted_index: { Useful: [0], evidence: [1] },
     },
     {
@@ -59,16 +63,38 @@ const crossrefPayload = {
   },
 };
 
+const arxivPayload = [
+  "<feed xmlns=\"http://www.w3.org/2005/Atom\"",
+  " xmlns:arxiv=\"http://arxiv.org/schemas/atom\"",
+  " xmlns:opensearch=\"http://a9.com/-/spec/opensearch/1.1/\">",
+  "<title>ArXiv Query</title>",
+  "<opensearch:totalResults>1</opensearch:totalResults>",
+  "<entry>",
+  "<id>http://arxiv.org/abs/2401.12345v2</id>",
+  "<updated>2025-02-02T00:00:00Z</updated>",
+  "<published>2025-02-01T00:00:00Z</published>",
+  "<title>First research paper</title>",
+  "<summary>Useful evidence</summary>",
+  "<author><name>Ada Lovelace</name></author>",
+  "<arxiv:primary_category term=\"cs.AI\"/>",
+  "<category term=\"cs.AI\"/>",
+  "<arxiv:doi>10.1000/first</arxiv:doi>",
+  "</entry>",
+  "</feed>",
+].join("");
+
+const ARXIV_TEST_ENDPOINT = "https://arxiv.test/api/literature-search";
+
 test("literature_search normalizes OpenAlex papers and real citation edges", async () => {
   const requestedUrls: string[] = [];
   const fetchImpl: typeof fetch = async (input) => {
     const url = String(input);
     requestedUrls.push(url);
-    return url.includes("api.crossref.org")
-      ? jsonResponse(crossrefPayload)
-      : jsonResponse(openAlexPayload);
+    if (url.includes("api.crossref.org")) return jsonResponse(crossrefPayload);
+    if (url.includes("arxiv.test")) return new Response(arxivPayload);
+    return jsonResponse(openAlexPayload);
   };
-  const tool = createLiteratureSearchTool({ fetchImpl });
+  const tool = createLiteratureSearchTool({ fetchImpl, arxivEndpoint: ARXIV_TEST_ENDPOINT, arxivMinimumIntervalMs: 1 });
   const result = await tool.execute(
     { query: "research agents", limit: 2, fromYear: 2023, toYear: 2025 },
     {
@@ -84,22 +110,29 @@ test("literature_search normalizes OpenAlex papers and real citation edges", asy
   assert.equal(result.data?.papers[0]?.abstract, "Useful evidence");
   assert.equal(result.data?.edges.some((edge) => edge.type === "citation" && !edge.inferred), true);
   assert.equal(result.data?.sources[0]?.totalMatches, 42);
-  assert.equal(result.data?.sources.length, 2);
+  assert.equal(result.data?.sources.length, 3);
   assert.equal(result.data?.coverage.status, "complete");
-  assert.deepEqual(result.data?.coverage.successfulSourceIds, ["openalex", "crossref"]);
-  assert.deepEqual(result.data?.papers[0]?.sourceIds, ["openalex", "crossref"]);
-  assert.equal(result.data?.papers[0]?.provenance.length, 2);
+  assert.deepEqual(result.data?.coverage.successfulSourceIds, ["openalex", "arxiv", "crossref"]);
+  assert.deepEqual(result.data?.papers[0]?.sourceIds, ["openalex", "arxiv", "crossref"]);
+  assert.equal(result.data?.papers[0]?.provenance.length, 3);
+  assert.equal(result.data?.papers[0]?.identity.arxiv, "2401.12345");
+  assert.equal(result.data?.papers[0]?.identity.arxivVersion, 2);
   const openAlexUrl = requestedUrls.find((url) => url.includes("api.openalex.org")) ?? "";
   const crossrefUrl = requestedUrls.find((url) => url.includes("api.crossref.org")) ?? "";
+  const arxivUrl = requestedUrls.find((url) => url.includes("arxiv.test")) ?? "";
   assert.match(openAlexUrl, /from_publication_date%3A2023-01-01/);
   assert.match(openAlexUrl, /to_publication_date%3A2025-12-31/);
   assert.match(crossrefUrl, /from-pub-date%3A2023-01-01/);
   assert.match(crossrefUrl, /until-pub-date%3A2025-12-31/);
+  assert.match(
+    new URL(arxivUrl).searchParams.get("search_query") ?? "",
+    /submittedDate:\[202301010000 TO 202512312359\]/,
+  );
 });
 
 test("literature_search preserves a structured failed-source artifact", async () => {
   const fetchImpl: typeof fetch = async () => jsonResponse({ error: "rate limited" }, 429);
-  const tool = createLiteratureSearchTool({ fetchImpl });
+  const tool = createLiteratureSearchTool({ fetchImpl, arxivEndpoint: ARXIV_TEST_ENDPOINT, arxivMinimumIntervalMs: 1 });
   // networkFetch deliberately unrefs retry timers; keep the test process alive
   // while the 429 retry policy is exercised.
   const keepAlive = setInterval(() => undefined, 50);
@@ -118,10 +151,13 @@ test("literature_search preserves a structured failed-source artifact", async ()
 });
 
 test("literature_search retains OpenAlex results when Crossref returns a malformed payload", async () => {
-  const fetchImpl: typeof fetch = async (input) => String(input).includes("api.crossref.org")
-    ? jsonResponse({ message: {} })
-    : jsonResponse(openAlexPayload);
-  const tool = createLiteratureSearchTool({ fetchImpl });
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("api.crossref.org")) return jsonResponse({ message: {} });
+    if (url.includes("arxiv.test")) return new Response(arxivPayload);
+    return jsonResponse(openAlexPayload);
+  };
+  const tool = createLiteratureSearchTool({ fetchImpl, arxivEndpoint: ARXIV_TEST_ENDPOINT, arxivMinimumIntervalMs: 1 });
   const result = await tool.execute(
     { query: "partial source coverage" },
     {
@@ -133,16 +169,19 @@ test("literature_search retains OpenAlex results when Crossref returns a malform
 
   assert.equal(result.data?.coverage.status, "partial");
   assert.equal(result.data?.papers.length, 2);
-  assert.deepEqual(result.data?.coverage.successfulSourceIds, ["openalex"]);
+  assert.deepEqual(result.data?.coverage.successfulSourceIds, ["openalex", "arxiv"]);
   assert.deepEqual(result.data?.coverage.failedSourceIds, ["crossref"]);
   assert.match(result.data?.coverage.warnings[0] ?? "", /Crossref/);
 });
 
 test("literature_search retains Crossref results when OpenAlex fails", async () => {
-  const fetchImpl: typeof fetch = async (input) => String(input).includes("api.openalex.org")
-    ? jsonResponse({ error: "OpenAlex unavailable" }, 400)
-    : jsonResponse(crossrefPayload);
-  const tool = createLiteratureSearchTool({ fetchImpl });
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("api.openalex.org")) return jsonResponse({ error: "OpenAlex unavailable" }, 400);
+    if (url.includes("arxiv.test")) return new Response(arxivPayload);
+    return jsonResponse(crossrefPayload);
+  };
+  const tool = createLiteratureSearchTool({ fetchImpl, arxivEndpoint: ARXIV_TEST_ENDPOINT, arxivMinimumIntervalMs: 1 });
   const result = await tool.execute(
     { query: "symmetric partial source coverage" },
     {
@@ -154,8 +193,8 @@ test("literature_search retains Crossref results when OpenAlex fails", async () 
 
   assert.equal(result.data?.coverage.status, "partial");
   assert.equal(result.data?.papers.length, 1);
-  assert.equal(result.data?.papers[0]?.sourceId, "crossref");
-  assert.deepEqual(result.data?.coverage.successfulSourceIds, ["crossref"]);
+  assert.equal(result.data?.papers[0]?.sourceId, "arxiv");
+  assert.deepEqual(result.data?.coverage.successfulSourceIds, ["arxiv", "crossref"]);
   assert.deepEqual(result.data?.coverage.failedSourceIds, ["openalex"]);
   assert.match(result.data?.coverage.warnings[0] ?? "", /OpenAlex/);
 });
@@ -172,12 +211,15 @@ test("literature_search rejects execution when every configured source is disabl
         ...DEFAULT_RESEARCH_SETTINGS.literature,
         sources: {
           openalex: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.openalex, enabled: false },
+          arxiv: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.arxiv, enabled: false },
           crossref: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.crossref, enabled: false },
         },
       },
     },
   });
   const tool = createLiteratureSearchTool({
+    arxivEndpoint: ARXIV_TEST_ENDPOINT,
+    arxivMinimumIntervalMs: 1,
     fetchImpl: async () => {
       throw new Error("disabled source must not be called");
     },
@@ -190,4 +232,87 @@ test("literature_search rejects execution when every configured source is disabl
     ),
     /No academic metadata source is enabled/,
   );
+});
+
+test("literature_search records partial coverage when requested arXiv classifications cannot run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rigorium-literature-classification-disabled-"));
+  const pilotHome = join(root, "pilot-home");
+  await writeResearchSettings({
+    scope: "global",
+    pilotHome,
+    settings: {
+      ...DEFAULT_RESEARCH_SETTINGS,
+      literature: {
+        ...DEFAULT_RESEARCH_SETTINGS.literature,
+        sources: {
+          ...DEFAULT_RESEARCH_SETTINGS.literature.sources,
+          arxiv: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.arxiv, enabled: false },
+        },
+      },
+    },
+  });
+  const tool = createLiteratureSearchTool({
+    arxivEndpoint: ARXIV_TEST_ENDPOINT,
+    arxivMinimumIntervalMs: 1,
+    fetchImpl: async (input) => String(input).includes("api.crossref.org")
+      ? jsonResponse(crossrefPayload)
+      : jsonResponse(openAlexPayload),
+  });
+
+  const result = await tool.execute(
+    {
+      query: "classification coverage",
+      classifications: [{ scheme: "arxiv", include: ["cs.AI"] }],
+    },
+    {
+      cwd: join(root, "project"),
+      env: { PILOT_HOME: pilotHome },
+      now: () => new Date("2026-07-22T00:00:00.000Z"),
+    } as any,
+  );
+
+  assert.equal(result.data?.coverage.status, "partial");
+  assert.deepEqual(result.data?.plan.classifications, [{ scheme: "arxiv", include: ["cs.AI"] }]);
+  assert.deepEqual(result.data?.coverage.successfulSourceIds, ["openalex", "crossref"]);
+  assert.deepEqual(result.data?.coverage.failedSourceIds, ["arxiv"]);
+  assert.equal(result.data?.sources.find((source) => source.id === "arxiv")?.status, "disabled");
+  assert.match(result.data?.coverage.warnings.join(" ") ?? "", /classification constraints were not applied/i);
+});
+
+test("literature_search rejects malformed arXiv category query grammar", async () => {
+  const tool = createLiteratureSearchTool({ arxivEndpoint: ARXIV_TEST_ENDPOINT, arxivMinimumIntervalMs: 1 });
+  await assert.rejects(
+    tool.execute(
+      {
+        query: "unsafe classification",
+        classifications: [{ scheme: "arxiv", include: ["cs.AI OR all:*"] }],
+      } as any,
+      { cwd: join(tmpdir(), "rigorium-literature-invalid-classification") } as any,
+    ),
+    /Invalid arXiv classifications.*Invalid arXiv category token/i,
+  );
+});
+
+test("literature_search bounds explicit year input to the Research Settings range", async () => {
+  const currentMax = new Date().getUTCFullYear() + 2;
+  const tool = createLiteratureSearchTool({
+    arxivEndpoint: ARXIV_TEST_ENDPOINT,
+    arxivMinimumIntervalMs: 1,
+    fetchImpl: async (input) => {
+      const url = String(input);
+      if (url.includes("api.crossref.org")) return jsonResponse(crossrefPayload);
+      if (url.includes("arxiv.test")) return new Response(arxivPayload);
+      return jsonResponse(openAlexPayload);
+    },
+  });
+  const result = await tool.execute(
+    { query: "bounded years", fromYear: 1400, toYear: currentMax + 100 },
+    {
+      cwd: join(tmpdir(), "rigorium-literature-bounded-years"),
+      env: { PILOT_HOME: join(tmpdir(), "rigorium-literature-bounded-years-home") },
+    } as any,
+  );
+
+  assert.equal(result.data?.plan.fromYear, 1800);
+  assert.equal(result.data?.plan.toYear, currentMax);
 });

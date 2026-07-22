@@ -16,6 +16,8 @@ const pilotHome = join(userData, 'pilot-home');
 const executableName = executable.split(/[\\/]/u).at(-1)?.replace(/\.exe$/iu, '') || 'Rigorium';
 const verificationCredential = 'x'.repeat(32);
 const credentialsPath = join(userData, 'research', 'credentials.v1.json');
+const arxivVerificationReportPath = join(userData, 'research', 'verification', 'arxiv-adapter.v1.json');
+const verifyLiveArxiv = process.env.RIGORIUM_VERIFY_ARXIV_LIVE === '1';
 
 let browserProcessCountBefore = await countBrowserProcesses();
 const mockBroker = await startVerificationZoteroBroker();
@@ -32,6 +34,35 @@ try {
       RIGORIUM_VERIFY_ZOTERO_BROKER_TOKEN: mockBroker.token,
     },
   });
+  const arxivVerification = await readArxivVerificationReport(arxivVerificationReportPath);
+  assert.equal(arxivVerification.schemaVersion, 1, 'The packaged arXiv verification report has an unexpected schema.');
+  assert.equal(arxivVerification.packaged, true, 'The arXiv adapter verification did not run inside a packaged Electron app.');
+  assert.equal(arxivVerification.appPathType, 'asar', 'The arXiv adapter was not loaded from app.asar.');
+  assert.equal(arxivVerification.adapterLoadedFromAppAsar, true, 'The packaged adapter verification did not use app.asar.');
+  assert.deepEqual(arxivVerification.parser, { name: '@rgrove/parse-xml', version: '4.2.2' });
+  assert.deepEqual(arxivVerification.source, { id: 'arxiv', status: 'ok', edgeCount: 0 });
+  assert.deepEqual(arxivVerification.paper, {
+    arxiv: '2401.24680',
+    arxivVersion: 3,
+    title: 'Controlled Atom & parser verification',
+    topics: ['cs.AI', 'cs.LG'],
+  });
+  if (verifyLiveArxiv) {
+    assert.equal(arxivVerification.live?.requested, true, 'The packaged live arXiv smoke was not requested.');
+    assert.equal(arxivVerification.live?.source?.id, 'arxiv', 'The packaged live arXiv smoke reported the wrong source.');
+    assert.equal(arxivVerification.live?.source?.status, 'ok', `The packaged live arXiv smoke failed: ${arxivVerification.live?.error || 'unknown error'}`);
+    assert.equal(
+      Number.isSafeInteger(arxivVerification.live?.source?.resultCount) && arxivVerification.live.source.resultCount > 0,
+      true,
+      'The packaged live arXiv smoke returned no metadata records.',
+    );
+    assert.equal(typeof arxivVerification.live?.paper?.arxiv, 'string', 'The packaged live arXiv smoke did not normalize an arXiv identifier.');
+    assert.equal(arxivVerification.live.paper.arxiv.trim().length > 0, true, 'The packaged live arXiv identifier was empty.');
+    assert.equal(typeof arxivVerification.live?.paper?.title, 'string', 'The packaged live arXiv smoke did not normalize a paper title.');
+    assert.equal(arxivVerification.live.paper.title.trim().length > 0, true, 'The packaged live arXiv title was empty.');
+  } else {
+    assert.equal(arxivVerification.live?.requested, false, 'The deterministic packaged check unexpectedly made a live arXiv request.');
+  }
   const page = await app.firstWindow({ timeout: 90_000 });
   await page.waitForLoadState('domcontentloaded');
   await page.waitForFunction(() => typeof window.openSettings === 'function', undefined, { timeout: 60_000 });
@@ -175,6 +206,7 @@ try {
           enabled: true,
           sources: {
             openalex: { enabled: true, mailto: '' },
+            arxiv: { enabled: true },
             crossref: { enabled: true, mailto: '' },
           },
           search: { defaultLimit: 12, fromYear: null, toYear: null, sort: 'relevance' },
@@ -315,7 +347,7 @@ try {
   await page.evaluate((artifactQuery) => {
     const paper = {
       id: 'verification-paper',
-      identity: { doi: '10.1000/verification' },
+      identity: { doi: '10.1000/verification', arxiv: '2401.12345', arxivVersion: 2 },
       title: 'Packaged research verification paper',
       authors: ['Rigorium Verification'],
       year: 2026,
@@ -323,10 +355,15 @@ try {
       topics: [{ id: 'verification', name: 'Verification' }],
       referencedWorkIds: [],
       sourceId: 'openalex',
-      sourceIds: ['openalex', 'crossref'],
+      sourceIds: ['openalex', 'arxiv', 'crossref'],
       provenance: [{
         sourceId: 'openalex',
         sourceRecordId: 'https://openalex.org/W-VERIFY',
+        rank: 1,
+        retrievedAt: new Date().toISOString(),
+      }, {
+        sourceId: 'arxiv',
+        sourceRecordId: 'https://arxiv.org/abs/2401.12345v2',
         rank: 1,
         retrievedAt: new Date().toISOString(),
       }, {
@@ -344,7 +381,13 @@ try {
           artifactId: 'packaged-research-verification',
           createdAt: new Date().toISOString(),
           intent: { text: artifactQuery },
-          plan: { query: artifactQuery, limit: 1, sort: 'relevance', sourceIds: ['openalex', 'crossref'] },
+          plan: {
+            query: artifactQuery,
+            limit: 1,
+            sort: 'relevance',
+            classifications: [{ scheme: 'arxiv', include: ['cs.AI'] }],
+            sourceIds: ['openalex', 'arxiv', 'crossref'],
+          },
           papers: [paper],
           edges: [],
           sources: [{
@@ -354,6 +397,18 @@ try {
             retrievedAt: new Date().toISOString(),
             resultCount: 1,
             coverage: 'Packaged OpenAlex verification artifact.',
+          }, {
+            id: 'arxiv',
+            name: 'arXiv',
+            status: 'ok',
+            retrievedAt: new Date().toISOString(),
+            resultCount: 1,
+            coverage: 'Packaged arXiv verification artifact.',
+            applied: {
+              dateField: 'submitted',
+              sort: 'relevance:descending',
+              classifications: ['cs.AI'],
+            },
           }, {
             id: 'crossref',
             name: 'Crossref',
@@ -366,8 +421,8 @@ try {
             status: 'complete',
             resultCount: 1,
             warnings: [],
-            requestedSourceIds: ['openalex', 'crossref'],
-            successfulSourceIds: ['openalex', 'crossref'],
+            requestedSourceIds: ['openalex', 'arxiv', 'crossref'],
+            successfulSourceIds: ['openalex', 'arxiv', 'crossref'],
             failedSourceIds: [],
           },
           presentation: { autoOpen: true },
@@ -378,7 +433,9 @@ try {
   await page.getByText(query, { exact: true }).waitFor({ timeout: 30_000 });
   await page.getByText(/Coverage complete|覆盖完整/u, { exact: true }).waitFor({ timeout: 30_000 });
   await page.getByText('OpenAlex', { exact: true }).first().waitFor({ timeout: 30_000 });
+  await page.getByText('arXiv', { exact: true }).first().waitFor({ timeout: 30_000 });
   await page.getByText('Crossref', { exact: true }).first().waitFor({ timeout: 30_000 });
+  await page.getByText(/cs\.AI/u).first().waitFor({ timeout: 30_000 });
   await page.getByRole('button', { name: /Collection|文献库/u }).click();
   await page.getByText('Packaged Zotero item', { exact: true }).waitFor({ timeout: 30_000 });
   await page.getByRole('button', { name: /Show details for Packaged Zotero item|展开.*Packaged Zotero item/u }).click();
@@ -471,6 +528,7 @@ try {
     browserProcessCountAfter,
     desktopOverflow,
     mobileOverflow,
+    arxivVerification,
     cloudBrokerRequests: mockBroker.requests.map((request) => `${request.method} ${request.path}`),
     localZoteroRequests: mockBroker.localRequests.map((request) => `${request.method} ${request.path}`),
     title: await page.title(),
@@ -626,6 +684,7 @@ cron:
       enabled: true,
       sources: {
         openalex: { enabled: true, mailto: '' },
+        arxiv: { enabled: true },
         crossref: { enabled: true, mailto: '' },
       },
       search: { defaultLimit: 12, fromYear: null, toYear: null, sort: 'relevance' },
@@ -696,4 +755,21 @@ async function readOptionalText(path) {
     if (error && typeof error === 'object' && error.code === 'ENOENT') return '';
     throw error;
   }
+}
+
+async function readArxivVerificationReport(path, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      return JSON.parse(await readFile(path, 'utf8'));
+    } catch (error) {
+      if (!error || typeof error !== 'object' || (error.code !== 'ENOENT' && !(error instanceof SyntaxError))) {
+        throw error;
+      }
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw new Error(`Packaged arXiv adapter verification did not produce a report within ${timeoutMs}ms: ${lastError?.message || 'unknown error'}`);
 }

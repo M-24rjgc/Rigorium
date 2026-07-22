@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+  <title>Rigorium packaged arXiv verification</title>
+  <id>https://export.arxiv.org/api/query</id>
+  <updated>2026-07-22T00:00:00Z</updated>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <entry>
+    <id>https://arxiv.org/abs/2401.24680v3</id>
+    <updated>2024-01-04T05:06:07Z</updated>
+    <published>2024-01-03T04:05:06Z</published>
+    <title>Controlled Atom &amp; parser verification</title>
+    <summary>A local Atom fixture proves the packaged adapter path without a network request.</summary>
+    <author><name>Rigorium Verification</name></author>
+    <arxiv:primary_category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <arxiv:doi>10.1000/rigorium.atom-fixture</arxiv:doi>
+  </entry>
+</feed>

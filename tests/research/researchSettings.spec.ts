@@ -9,6 +9,10 @@ import {
   writeResearchSettings,
 } from "../../src/research/settings.js";
 
+test("research settings enable arXiv metadata search by default", () => {
+  assert.equal(DEFAULT_RESEARCH_SETTINGS.literature.sources.arxiv.enabled, true);
+});
+
 test("research settings merge global defaults with an enabled project override", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-research-settings-"));
   const pilotHome = join(root, "pilot-home");

@@ -32,6 +32,7 @@ const summary = {
   papers: artifact.papers.map((paper) => ({
     title: paper.title,
     doi: paper.doi,
+    arxiv: paper.identity.arxiv,
     sourceId: paper.sourceId,
     sourceIds: paper.sourceIds,
     provenanceCount: paper.provenance.length,
@@ -41,7 +42,7 @@ const summary = {
 
 console.log(JSON.stringify(summary, null, 2));
 
-const expectedSources = new Set(['openalex', 'crossref']);
+const expectedSources = new Set(['openalex', 'arxiv', 'crossref']);
 const returnedSources = new Map(artifact.sources.map((source) => [source.id, source]));
 for (const sourceId of expectedSources) {
   if (returnedSources.get(sourceId)?.status !== 'ok') {

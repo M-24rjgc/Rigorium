@@ -1,4 +1,5 @@
 import { networkFetch } from "../../network/fetch.js";
+import { normalizeArxivIdentifier, normalizeDoi } from "../identity.js";
 import type {
   LiteratureSearchResult,
   LiteratureSource,
@@ -131,6 +132,7 @@ function normalizeOpenAlexWork(
   const ids = isRecord(work.ids) ? work.ids : {};
   const doiUrl = stringValue(work.doi) ?? stringValue(ids.doi);
   const doi = normalizeDoi(doiUrl);
+  const arxiv = normalizeArxivIdentifier(ids.arxiv);
   const paperUrl = safeHttpUrl(doiUrl)
     ?? safeHttpUrl(isRecord(work.primary_location) ? work.primary_location.landing_page_url : undefined)
     ?? safeHttpUrl(id);
@@ -151,7 +153,7 @@ function normalizeOpenAlexWork(
 
   const other: Record<string, string> = {};
   for (const [key, value] of Object.entries(ids)) {
-    if (["openalex", "doi", "pmid", "pmcid"].includes(key)) continue;
+    if (["openalex", "doi", "arxiv", "pmid", "pmcid"].includes(key)) continue;
     if (typeof value === "string") other[key] = value;
   }
 
@@ -160,6 +162,10 @@ function normalizeOpenAlexWork(
     identity: {
       openAlexId: id,
       ...(doi ? { doi } : {}),
+      ...(arxiv ? {
+        arxiv: arxiv.id,
+        ...(arxiv.version !== undefined ? { arxivVersion: arxiv.version } : {}),
+      } : {}),
       ...(normalizeExternalId(ids.pmid, "pmid") ? { pmid: normalizeExternalId(ids.pmid, "pmid") } : {}),
       ...(normalizeExternalId(ids.pmcid, "pmcid") ? { pmcid: normalizeExternalId(ids.pmcid, "pmcid") } : {}),
       ...(Object.keys(other).length > 0 ? { other } : {}),
@@ -288,11 +294,6 @@ function failedResult(retrievedAt: string, url: URL, error: string): LiteratureS
       error,
     },
   };
-}
-
-function normalizeDoi(value: unknown): string | undefined {
-  const text = stringValue(value);
-  return text?.replace(/^https?:\/\/(?:dx\.)?doi\.org\//iu, "").replace(/^doi:/iu, "").trim().toLowerCase() || undefined;
 }
 
 function safeHttpUrl(value: unknown): string | undefined {

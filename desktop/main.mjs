@@ -13,6 +13,7 @@ const LOCAL_HOST = '127.0.0.1';
 const isSmokeTest = process.argv.includes('--smoke-test');
 const isWindowSmokeTest = process.argv.includes('--window-smoke-test');
 const isResearchVerification = process.argv.includes('--verify-research');
+const shouldRunLiveArxivVerification = isResearchVerification && process.env.RIGORIUM_VERIFY_ARXIV_LIVE === '1';
 
 let gatewayProcess;
 let uiProcess;
@@ -28,6 +29,8 @@ const ZOTERO_CREDENTIALS_DIRECTORY = 'research';
 const ZOTERO_CREDENTIALS_FILENAME = 'credentials.v1.json';
 const ZOTERO_CLOUD_SESSION_HEADER = 'x-rigorium-zotero-cloud-session';
 const ZOTERO_CLOUD_MAX_RESPONSE_CHARS = 2 * 1024 * 1024;
+const RESEARCH_VERIFICATION_DIRECTORY = 'verification';
+const ARXIV_VERIFICATION_REPORT_FILENAME = 'arxiv-adapter.v1.json';
 
 function zoteroCredentialsPath() {
   return join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY, ZOTERO_CREDENTIALS_FILENAME);
@@ -226,6 +229,144 @@ function writeDesktopLog(label, value) {
   } catch {
     // Logging must never interfere with the desktop runtime.
   }
+}
+
+/**
+ * This checks the exact main-process module path that Electron Builder places
+ * in app.asar. It is deliberately only reachable through --verify-research:
+ * no IPC or renderer API is added for this diagnostic.
+ */
+async function verifyResearchArxivAdapter() {
+  const appRoot = app.getAppPath();
+  const appPathType = appRoot.toLowerCase().endsWith('.asar') ? 'asar' : 'directory';
+  const adapterPath = join(appRoot, 'dist', 'src', 'research', 'literature', 'arxivSource.js');
+  const parserManifestPath = join(appRoot, 'node_modules', '@rgrove', 'parse-xml', 'package.json');
+  const fixturePath = join(appRoot, 'desktop', 'fixtures', 'arxiv-packaged-verification.atom');
+
+  const parserManifest = JSON.parse(readFileSync(parserManifestPath, 'utf8'));
+  assertResearchVerification(parserManifest?.name === '@rgrove/parse-xml', 'The packaged parser manifest name is invalid.');
+  assertResearchVerification(parserManifest?.version === '4.2.2', 'The packaged parser version is not the pinned 4.2.2 release.');
+
+  const adapter = await import(pathToFileURL(adapterPath).href);
+  assertResearchVerification(typeof adapter.createArxivSource === 'function', 'The packaged arXiv adapter did not export createArxivSource.');
+  const fixture = readFileSync(fixturePath, 'utf8');
+  const requestedUrls = [];
+  const source = adapter.createArxivSource({
+    endpoint: 'https://verification.invalid/arxiv',
+    timeoutMs: 5_000,
+    minimumIntervalMs: 1,
+    fetchImpl: async (input) => {
+      requestedUrls.push(String(input));
+      return new Response(fixture, {
+        status: 200,
+        headers: {
+          'content-length': String(Buffer.byteLength(fixture, 'utf8')),
+          'content-type': 'application/atom+xml; charset=utf-8',
+        },
+      });
+    },
+  });
+  const result = await source.search({
+    query: 'packaged arXiv adapter verification',
+    limit: 1,
+    fromYear: 2024,
+    toYear: 2024,
+    sort: 'publication_date',
+    classifications: [{ scheme: 'arxiv', include: ['cs.AI'] }],
+    sourceIds: ['arxiv'],
+  });
+
+  const paper = result.papers[0];
+  assertResearchVerification(requestedUrls.length === 1, 'The local Atom fixture was not requested exactly once.');
+  const requestUrl = new URL(requestedUrls[0]);
+  assertResearchVerification(requestUrl.hostname === 'verification.invalid', 'The verification adapter attempted to use a non-local endpoint.');
+  assertResearchVerification(requestUrl.searchParams.get('sortBy') === 'submittedDate', 'The packaged adapter did not apply its production date-sort mapping.');
+  assertResearchVerification(
+    requestUrl.searchParams.get('search_query')?.includes('submittedDate:[202401010000 TO 202412312359]'),
+    'The packaged adapter did not apply its production submitted-date bounds.',
+  );
+  assertResearchVerification(result.source.id === 'arxiv' && result.source.status === 'ok', 'The fixture did not produce an arXiv success result.');
+  assertResearchVerification(result.edges.length === 0, 'The arXiv adapter fabricated citation edges for the fixture.');
+  assertResearchVerification(result.papers.length === 1 && Boolean(paper), 'The fixture did not produce exactly one normalized paper.');
+  assertResearchVerification(paper?.sourceId === 'arxiv', 'The normalized fixture paper has the wrong source ID.');
+  assertResearchVerification(paper?.identity.arxiv === '2401.24680', 'The fixture arXiv identifier was not normalized.');
+  assertResearchVerification(paper?.identity.arxivVersion === 3, 'The fixture arXiv version was not parsed.');
+  assertResearchVerification(paper?.title === 'Controlled Atom & parser verification', 'The fixture title was not parsed from Atom XML.');
+  assertResearchVerification(
+    JSON.stringify(paper?.topics.map((topic) => topic.name)) === JSON.stringify(['cs.AI', 'cs.LG']),
+    'The fixture categories were not parsed from Atom XML.',
+  );
+  const live = shouldRunLiveArxivVerification
+    ? await verifyResearchArxivLiveSource(adapter)
+    : { requested: false };
+
+  const reportDirectory = join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY, RESEARCH_VERIFICATION_DIRECTORY);
+  mkdirSync(reportDirectory, { recursive: true });
+  writeFileSync(join(reportDirectory, ARXIV_VERIFICATION_REPORT_FILENAME), `${JSON.stringify({
+    schemaVersion: 1,
+    packaged: app.isPackaged,
+    appPathType,
+    adapterLoadedFromAppAsar: appPathType === 'asar',
+    parser: { name: parserManifest.name, version: parserManifest.version },
+    source: { id: result.source.id, status: result.source.status, edgeCount: result.edges.length },
+    paper: {
+      arxiv: paper.identity.arxiv,
+      arxivVersion: paper.identity.arxivVersion,
+      title: paper.title,
+      topics: paper.topics.map((topic) => topic.name),
+    },
+    live,
+  })}\n`, { encoding: 'utf8', mode: 0o600 });
+}
+
+/**
+ * An opt-in release check for the actual production transport. This deliberately
+ * uses the dynamically loaded adapter with its default endpoint and default
+ * process-wide 3-second / single-connection gate. It fetches metadata only,
+ * one first-page record, and records a structured failure instead of hiding it
+ * behind an absent verification report.
+ */
+async function verifyResearchArxivLiveSource(adapter) {
+  try {
+    const result = await adapter.createArxivSource().search({
+      query: 'machine learning',
+      limit: 1,
+      sort: 'relevance',
+      sourceIds: ['arxiv'],
+    });
+    const paper = result.papers[0];
+    return {
+      requested: true,
+      source: {
+        id: result.source.id,
+        status: result.source.status,
+        resultCount: result.source.resultCount,
+        ...(result.source.queryUrl ? { queryUrl: result.source.queryUrl } : {}),
+      },
+      ...(paper ? {
+        paper: {
+          ...(paper.identity.arxiv ? { arxiv: paper.identity.arxiv } : {}),
+          ...(paper.title ? { title: paper.title } : {}),
+        },
+      } : {}),
+      ...(result.source.error ? { error: result.source.error } : {}),
+    };
+  } catch (error) {
+    return {
+      requested: true,
+      source: { id: 'arxiv', status: 'error', resultCount: 0 },
+      error: researchVerificationErrorMessage(error),
+    };
+  }
+}
+
+function researchVerificationErrorMessage(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.slice(0, 1_000);
+}
+
+function assertResearchVerification(condition, message) {
+  if (!condition) throw new Error(`Research verification failed: ${message}`);
 }
 
 function runtimeWorkingDirectory() {
@@ -535,6 +676,7 @@ app.on('before-quit', (event) => {
 app.whenReady().then(async () => {
   registerZoteroIpc();
   try {
+    if (isResearchVerification) await verifyResearchArxivAdapter();
     await startServices();
     if (isSmokeTest) {
       isQuitting = true;
@@ -546,7 +688,7 @@ app.whenReady().then(async () => {
   } catch (error) {
     isQuitting = true;
     await stopServices();
-    if (isSmokeTest) {
+    if (isSmokeTest || isResearchVerification) {
       writeDesktopLog('main', error instanceof Error ? error.stack || error.message : String(error));
       app.exit(1);
       return;

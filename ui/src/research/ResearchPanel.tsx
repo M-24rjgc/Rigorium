@@ -583,19 +583,34 @@ function CoverageSummary({
   const { t } = useTranslation();
   const requestedSourceIds = resolvedCoverageSourceIds(artifact, 'requestedSourceIds');
   const successfulSourceIds = resolvedCoverageSourceIds(artifact, 'successfulSourceIds');
-  const failedSourceIds = resolvedCoverageSourceIds(artifact, 'failedSourceIds');
+  // Older artifacts classified every non-successful source as failed. A
+  // disabled source was never queried, however, so keep it separate from an
+  // actual request failure when presenting the coverage summary.
+  const unappliedSourceIds = resolvedUnappliedSourceIds(artifact);
+  const unappliedSourceIdSet = new Set(unappliedSourceIds);
+  const failedSourceIds = resolvedCoverageSourceIds(artifact, 'failedSourceIds')
+    .filter((sourceId) => !unappliedSourceIdSet.has(sourceId));
   const status = artifact.coverage.status;
-  const statusLabel = status === 'complete'
-    ? t('researchPanel.coverageComplete', { defaultValue: 'Coverage complete' })
-    : status === 'partial'
-      ? t('researchPanel.coveragePartial', { defaultValue: 'Partial coverage' })
-      : t('researchPanel.coverageFailed', { defaultValue: 'Coverage failed' });
-  const statusClassName = status === 'complete'
+  const onlyUnapplied = status === 'failed'
+    && successfulSourceIds.length === 0
+    && failedSourceIds.length === 0
+    && unappliedSourceIds.length > 0;
+  const statusLabel = onlyUnapplied
+    ? t('researchPanel.coverageUnapplied', { defaultValue: 'No sources applied' })
+    : status === 'complete'
+      ? t('researchPanel.coverageComplete', { defaultValue: 'Coverage complete' })
+      : status === 'partial'
+        ? t('researchPanel.coveragePartial', { defaultValue: 'Partial coverage' })
+        : t('researchPanel.coverageFailed', { defaultValue: 'Coverage failed' });
+  const statusClassName = onlyUnapplied
+    ? 'border-neutral-200 bg-neutral-50 text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200'
+    : status === 'complete'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200'
     : status === 'partial'
       ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200'
       : 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200';
   const failedNames = failedSourceIds.map((sourceId) => sourceDisplayName(sourceId, sourceNameById));
+  const unappliedNames = unappliedSourceIds.map((sourceId) => sourceDisplayName(sourceId, sourceNameById));
 
   return (
     <section
@@ -609,9 +624,10 @@ function CoverageSummary({
         </span>
         <span className="text-current/75">
           {t('researchPanel.coverageCounts', {
-            defaultValue: '{{successful}} successful · {{failed}} failed · {{requested}} requested sources',
+            defaultValue: '{{successful}} successful · {{failed}} failed · {{unapplied}} not applied · {{requested}} requested sources',
             successful: successfulSourceIds.length,
             failed: failedSourceIds.length,
+            unapplied: unappliedSourceIds.length,
             requested: requestedSourceIds.length,
           })}
         </span>
@@ -621,6 +637,14 @@ function CoverageSummary({
           {t('researchPanel.failedSources', {
             defaultValue: 'Failed sources: {{sources}}',
             sources: failedNames.join(', '),
+          })}
+        </p>
+      ) : null}
+      {unappliedNames.length > 0 ? (
+        <p className="mt-1.5 break-words font-medium">
+          {t('researchPanel.unappliedSources', {
+            defaultValue: 'Not applied: {{sources}}',
+            sources: unappliedNames.join(', '),
           })}
         </p>
       ) : null}
@@ -657,10 +681,25 @@ function SourceCoverageList({
           {sources.map((source) => {
             const queryUrl = safeExternalUrl(source.queryUrl);
             const rateLimited = isRateLimitedSource(source);
+            const appliedDetails = [
+              source.applied?.dateField
+                ? t('researchPanel.sourceAppliedDateField', { defaultValue: 'Date: {{field}}', field: source.applied.dateField })
+                : null,
+              source.applied?.sort
+                ? t('researchPanel.sourceAppliedSort', { defaultValue: 'Sort: {{sort}}', sort: source.applied.sort })
+                : null,
+              source.applied?.classifications?.length
+                ? t('researchPanel.sourceAppliedClassifications', {
+                  defaultValue: 'Categories: {{classifications}}',
+                  classifications: source.applied.classifications.join(', '),
+                })
+                : null,
+            ].filter((detail): detail is string => Boolean(detail));
+            const warnings = Array.isArray(source.warnings) ? source.warnings.filter(Boolean) : [];
             const statusLabel = source.status === 'ok'
               ? t('researchPanel.sourceAvailable', { defaultValue: 'Available' })
               : source.status === 'disabled'
-                ? t('researchPanel.sourceDisabled', { defaultValue: 'Disabled' })
+                ? t('researchPanel.sourceNotApplied', { defaultValue: 'Not applied' })
                 : t('researchPanel.sourceFailed', { defaultValue: 'Failed' });
             return (
               <div
@@ -695,6 +734,17 @@ function SourceCoverageList({
                   </span>
                 </div>
                 <p className="mt-1 break-words text-[10px] leading-4 text-neutral-500 dark:text-neutral-400">{source.coverage}</p>
+                {appliedDetails.length > 0 ? (
+                  <div
+                    data-testid={`research-source-applied-${source.id}`}
+                    className="mt-1 flex min-w-0 gap-1.5 break-words text-[10px] leading-4 text-neutral-500 dark:text-neutral-400"
+                  >
+                    <span className="shrink-0 font-medium text-neutral-600 dark:text-neutral-300">
+                      {t('researchPanel.sourceApplied', { defaultValue: 'Applied:' })}
+                    </span>
+                    <span className="min-w-0 break-words">{appliedDetails.join(' · ')}</span>
+                  </div>
+                ) : null}
                 {source.error ? (
                   <p className="mt-1 break-words text-[10px] leading-4 text-red-700 dark:text-red-300" role="alert">
                     <span className="font-medium">{t('researchPanel.sourceError', { defaultValue: 'Error:' })}</span> {source.error}
@@ -704,6 +754,16 @@ function SourceCoverageList({
                   <p className="mt-1 break-words text-[10px] leading-4 text-amber-700 dark:text-amber-300">
                     {t('researchPanel.sourceRateLimited', { defaultValue: 'Rate limited. This source may have incomplete coverage.' })}
                   </p>
+                ) : null}
+                {warnings.length > 0 ? (
+                  <div
+                    data-testid={`research-source-warnings-${source.id}`}
+                    className="mt-1 flex min-w-0 gap-1.5 text-[10px] leading-4 text-amber-700 dark:text-amber-300"
+                    role="status"
+                  >
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span className="min-w-0 break-words">{warnings.join(' ')}</span>
+                  </div>
                 ) : null}
                 <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-neutral-400">
                   <span className="min-w-0 break-words">
@@ -1825,6 +1885,12 @@ function resolvedCoverageSourceIds(
   return uniqueSourceIds(artifact.sources.filter((source) => source.status === 'error').map((source) => source.id));
 }
 
+function resolvedUnappliedSourceIds(artifact: ResearchArtifact): string[] {
+  return uniqueSourceIds(artifact.sources
+    .filter((source) => source.status === 'disabled')
+    .map((source) => source.id));
+}
+
 function paperSourceIds(paper: ResearchPaper): string[] {
   return uniqueSourceIds([
     ...(Array.isArray(paper.sourceIds) ? paper.sourceIds : []),
@@ -1851,6 +1917,7 @@ function sourceDisplayName(sourceId: string, sourceNameById: ReadonlyMap<string,
   if (reportedName) return reportedName;
   if (sourceId.toLocaleLowerCase() === 'openalex') return 'OpenAlex';
   if (sourceId.toLocaleLowerCase() === 'crossref') return 'Crossref';
+  if (sourceId.toLocaleLowerCase() === 'arxiv') return 'arXiv';
   return sourceId.replace(/[-_]+/gu, ' ');
 }
 

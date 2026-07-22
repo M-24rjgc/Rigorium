@@ -197,3 +197,37 @@ test("candidate pool reports partial coverage without discarding the successful 
   assert.equal(pool.papers.length, 1);
   assert.match(pool.coverage.warnings[0] ?? "", /Crossref/);
 });
+
+test("candidate pool promotes legacy identity.other.arxiv and keeps the highest numeric arXiv version", () => {
+  const legacyOpenAlex = paper({
+    id: "https://openalex.org/W-arxiv-legacy",
+    sourceId: "openalex",
+    rank: 1,
+    identity: {
+      openAlexId: "https://openalex.org/W-arxiv-legacy",
+      other: { arxiv: "https://arxiv.org/abs/2401.12345v1" },
+    },
+  });
+  const arxivRecord = paper({
+    id: "https://arxiv.org/abs/2401.12345",
+    sourceId: "arxiv",
+    rank: 1,
+    identity: { arxiv: "2401.12345", arxivVersion: 3 },
+  });
+
+  const pool = mergeLiteratureSearchResults({
+    requestedSourceIds: ["openalex", "arxiv"],
+    sourcePriority: ["openalex", "arxiv"],
+    limit: 10,
+    results: [
+      result(source("openalex"), [legacyOpenAlex]),
+      result(source("arxiv"), [arxivRecord]),
+    ],
+  });
+
+  assert.equal(pool.papers.length, 1);
+  assert.equal(pool.papers[0]?.id, "https://openalex.org/W-arxiv-legacy");
+  assert.equal(pool.papers[0]?.identity.arxiv, "2401.12345");
+  assert.equal(pool.papers[0]?.identity.arxivVersion, 3);
+  assert.equal(pool.papers[0]?.identity.other?.arxiv, undefined);
+});

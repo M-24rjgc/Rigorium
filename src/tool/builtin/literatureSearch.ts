@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { PermissionResult } from "../../permission/index.js";
 import { mergeLiteratureSearchResults } from "../../research/literature/candidatePool.js";
+import { createArxivSource, normalizeArxivClassifications } from "../../research/literature/arxivSource.js";
 import { createCrossrefSource } from "../../research/literature/crossrefSource.js";
 import { createOpenAlexSource } from "../../research/literature/openAlexSource.js";
 import { readResearchSettings } from "../../research/settings.js";
-import type { LiteratureSource, ResearchArtifact, SearchPlan } from "../../research/types.js";
+import type {
+  LiteratureSearchResult,
+  LiteratureSource,
+  ResearchArtifact,
+  SearchClassification,
+  SearchPlan,
+} from "../../research/types.js";
 import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
 import type {
   PilotDeckToolDefinition,
@@ -17,6 +24,7 @@ export type LiteratureSearchInput = {
   fromYear?: number;
   toYear?: number;
   sort?: "relevance" | "cited_by_count" | "publication_date";
+  classifications?: SearchClassification[];
 };
 
 export type CreateLiteratureSearchToolOptions = {
@@ -26,6 +34,11 @@ export type CreateLiteratureSearchToolOptions = {
   /** Crossref endpoint override, primarily for controlled tests. */
   crossrefEndpoint?: string;
   crossrefFetchImpl?: typeof fetch;
+  /** arXiv endpoint override, primarily for controlled tests. */
+  arxivEndpoint?: string;
+  arxivFetchImpl?: typeof fetch;
+  /** Test-only shorter arXiv gate interval. Production retains 3 seconds. */
+  arxivMinimumIntervalMs?: number;
 };
 
 export function createLiteratureSearchTool(
@@ -65,6 +78,28 @@ The result includes normalized paper identities, source provenance, real citatio
           type: "string",
           enum: ["relevance", "cited_by_count", "publication_date"],
           description: "Ranking strategy. Defaults to the project or global Research Settings value.",
+        },
+        classifications: {
+          type: "array",
+          maxItems: 8,
+          description: "Optional structured arXiv subject-class constraints selected from the research goal.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["scheme", "include"],
+            properties: {
+              scheme: { type: "string", enum: ["arxiv"] },
+              include: {
+                type: "array",
+                minItems: 1,
+                maxItems: 32,
+                items: {
+                  type: "string",
+                  pattern: "^[a-z][a-z-]*(?:\\.[A-Za-z0-9-]+)?$",
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -121,13 +156,23 @@ The result includes normalized paper identities, source provenance, real citatio
       const maxLimit = settings.literature.budget.maxResultsPerSearch;
       const requestedLimit = finiteInteger(input.limit) ?? settings.literature.search.defaultLimit;
       const limit = Math.max(1, Math.min(maxLimit, requestedLimit));
-      const fromYear = finiteInteger(input.fromYear) ?? settings.literature.search.fromYear ?? undefined;
-      const toYear = finiteInteger(input.toYear) ?? settings.literature.search.toYear ?? undefined;
+      const fromYear = boundedSearchYear(input.fromYear, settings.literature.search.fromYear);
+      const toYear = boundedSearchYear(input.toYear, settings.literature.search.toYear);
       if (fromYear && toYear && fromYear > toYear) {
         throw new PilotDeckToolRuntimeError("invalid_tool_input", "fromYear cannot be after toYear.");
       }
+      let classifications: string[];
+      try {
+        classifications = normalizeArxivClassifications(input.classifications);
+      } catch (error) {
+        throw new PilotDeckToolRuntimeError(
+          "invalid_tool_input",
+          "Invalid arXiv classifications: " + (error instanceof Error ? error.message : String(error)),
+        );
+      }
 
       const sources: LiteratureSource[] = [];
+      let disabledArxivResult: LiteratureSearchResult | undefined;
       if (settings.literature.sources.openalex.enabled) {
         sources.push(createOpenAlexSource({
           endpoint: options.endpoint,
@@ -136,6 +181,29 @@ The result includes normalized paper identities, source provenance, real citatio
           mailto: settings.literature.sources.openalex.mailto,
           includeTopicEdges: settings.literature.map.showTopicEdges,
         }));
+      }
+      if (settings.literature.sources.arxiv.enabled) {
+        sources.push(createArxivSource({
+          endpoint: options.arxivEndpoint,
+          fetchImpl: options.arxivFetchImpl ?? options.fetchImpl,
+          timeoutMs: settings.literature.budget.requestTimeoutMs,
+          ...(options.arxivMinimumIntervalMs !== undefined ? { minimumIntervalMs: options.arxivMinimumIntervalMs } : {}),
+        }));
+      } else if (classifications.length > 0) {
+        const retrievedAt = (context.now?.() ?? new Date()).toISOString();
+        disabledArxivResult = {
+          papers: [],
+          edges: [],
+          source: {
+            id: "arxiv",
+            name: "arXiv",
+            status: "disabled",
+            retrievedAt,
+            resultCount: 0,
+            coverage: "arXiv classification constraints were not searched because arXiv is disabled in Research Settings.",
+            warnings: ["arXiv classification constraints were not applied because arXiv is disabled."],
+          },
+        };
       }
       if (settings.literature.sources.crossref.enabled) {
         sources.push(createCrossrefSource({
@@ -158,7 +226,14 @@ The result includes normalized paper identities, source provenance, real citatio
         ...(fromYear ? { fromYear } : {}),
         ...(toYear ? { toYear } : {}),
         sort: input.sort ?? settings.literature.search.sort,
-        sourceIds: sources.map((source) => source.id),
+        ...(classifications.length > 0 ? {
+          classifications: [{ scheme: "arxiv" as const, include: classifications }],
+        } : {}),
+        sourceIds: [
+          ...(settings.literature.sources.openalex.enabled ? ["openalex"] : []),
+          ...(settings.literature.sources.arxiv.enabled || disabledArxivResult ? ["arxiv"] : []),
+          ...(settings.literature.sources.crossref.enabled ? ["crossref"] : []),
+        ],
       };
       // Sources are independent metadata requests. A failed source resolves to
       // a structured result, so Promise.all preserves successful siblings.
@@ -166,11 +241,12 @@ The result includes normalized paper identities, source provenance, real citatio
         signal: context.abortSignal,
         now: context.now,
       })));
+      if (disabledArxivResult) results.push(disabledArxivResult);
       const pool = mergeLiteratureSearchResults({
         requestedSourceIds: plan.sourceIds,
         results,
         limit,
-        sourcePriority: ["openalex", "crossref"],
+        sourcePriority: ["openalex", "arxiv", "crossref"],
       });
       const artifact: ResearchArtifact = {
         schemaVersion: 1,
@@ -226,4 +302,11 @@ function formatToolOutput(artifact: ResearchArtifact): PilotDeckToolExecutionOut
 
 function finiteInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : undefined;
+}
+
+function boundedSearchYear(value: unknown, fallback: number | null): number | undefined {
+  const year = finiteInteger(value);
+  if (year === undefined) return fallback ?? undefined;
+  const currentMax = new Date().getUTCFullYear() + 2;
+  return Math.min(currentMax, Math.max(1800, year));
 }

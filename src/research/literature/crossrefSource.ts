@@ -1,4 +1,5 @@
 import { networkFetch } from "../../network/fetch.js";
+import { normalizeDoi } from "../identity.js";
 import type {
   LiteratureSearchResult,
   LiteratureSource,
@@ -527,11 +528,6 @@ function failedResult(retrievedAt: string, url: URL, error: string): LiteratureS
       error,
     },
   };
-}
-
-function normalizeDoi(value: unknown): string | undefined {
-  const text = stringValue(value);
-  return text?.replace(/^https?:\/\/(?:dx\.)?doi\.org\//iu, "").replace(/^doi:/iu, "").trim().toLowerCase() || undefined;
 }
 
 function firstString(value: unknown): string | undefined {

@@ -1383,6 +1383,7 @@
       "crossrefDescription": "DOI and publisher metadata that complements broad discovery results.",
       "crossrefMailto": "Crossref contact email",
       "crossrefMailtoDescription": "Optional polite identity for Crossref metadata requests.",
+      "arxivDescription": "Preprint metadata, abstracts, and subject categories; it has no citation-graph data.",
       "noneEnabled": "No literature source is enabled. Searches remain unavailable until at least one source is turned on."
     },
     "search": {

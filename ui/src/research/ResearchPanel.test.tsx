@@ -5,12 +5,13 @@ import i18n from '../i18n/config';
 import { ResearchPanelProvider } from '../contexts/ResearchPanelContext';
 import { authenticatedFetch } from '../utils/api';
 import ResearchPanel from './ResearchPanel';
-import type {
-  ResearchArtifact,
-  ResearchSettings,
-  ZoteroCloudWriteIntent,
-  ZoteroCloudWritePlan,
-  ZoteroPaperMatch,
+import {
+  isResearchArtifact,
+  type ResearchArtifact,
+  type ResearchSettings,
+  type ZoteroCloudWriteIntent,
+  type ZoteroCloudWritePlan,
+  type ZoteroPaperMatch,
 } from './types';
 
 vi.mock('../utils/api', () => ({ authenticatedFetch: vi.fn() }));
@@ -107,6 +108,82 @@ const multiSourceArtifact: ResearchArtifact = {
     requestedSourceIds: ['openalex', 'crossref'],
     successfulSourceIds: ['openalex'],
     failedSourceIds: ['crossref'],
+  },
+};
+
+const disabledArxivArtifact: ResearchArtifact = {
+  ...artifact,
+  artifactId: 'literature-panel-arxiv-disabled-test',
+  plan: {
+    ...artifact.plan,
+    sourceIds: ['arxiv'],
+    classifications: [{ scheme: 'arxiv', include: ['cs.AI'] }],
+  },
+  papers: [],
+  edges: [],
+  sources: [{
+    id: 'arxiv',
+    name: 'arXiv',
+    status: 'disabled',
+    retrievedAt: '2026-07-22T00:00:00.000Z',
+    resultCount: 0,
+    coverage: 'arXiv classification constraints were not searched because arXiv is disabled in Research Settings.',
+    warnings: ['arXiv classification constraints were not applied because arXiv is disabled.'],
+  }],
+  coverage: {
+    // This is how artifacts produced before the coverage fix represented a
+    // disabled source: as a failed search despite no request being made.
+    status: 'failed',
+    resultCount: 0,
+    warnings: [],
+    requestedSourceIds: ['arxiv'],
+    successfulSourceIds: [],
+    failedSourceIds: ['arxiv'],
+  },
+};
+
+const arxivArtifact: ResearchArtifact = {
+  ...artifact,
+  artifactId: 'literature-panel-arxiv-test',
+  plan: {
+    ...artifact.plan,
+    sort: 'cited_by_count',
+    sourceIds: ['arxiv'],
+    classifications: [{ scheme: 'arxiv', include: ['cs.AI', 'cs.LG'] }],
+  },
+  papers: [{
+    ...artifact.papers[0],
+    id: 'arxiv:2607.00001',
+    sourceId: 'arxiv',
+    sourceIds: ['arxiv'],
+    provenance: [{
+      sourceId: 'arxiv',
+      sourceRecordId: '2607.00001',
+      rank: 1,
+      retrievedAt: '2026-07-22T00:00:00.000Z',
+    }],
+  }],
+  edges: [],
+  sources: [{
+    id: 'arxiv',
+    name: 'arXiv',
+    status: 'ok',
+    retrievedAt: '2026-07-22T00:00:00.000Z',
+    resultCount: 1,
+    coverage: 'Preprint metadata and abstracts were returned.',
+    warnings: ['arXiv does not expose cited-by counts; requested ranking was downgraded to relevance.'],
+    applied: {
+      sort: 'relevance:descending',
+      classifications: ['cs.AI', 'cs.LG'],
+    },
+  }],
+  coverage: {
+    status: 'complete',
+    resultCount: 1,
+    warnings: [],
+    requestedSourceIds: ['arxiv'],
+    successfulSourceIds: ['arxiv'],
+    failedSourceIds: [],
   },
 };
 
@@ -361,6 +438,71 @@ describe('ResearchPanel', () => {
     const panelRoot = container.firstElementChild as HTMLElement;
     expect(panelRoot.className).toContain('min-w-0');
     expect(panelRoot.className).toContain('overflow-x-hidden');
+  });
+
+  it('keeps a disabled source out of failure reporting while retaining real failure reporting', () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={disabledArxivArtifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    const coverage = screen.getByTestId('research-coverage-summary');
+    expect(coverage.textContent).toContain('No sources applied');
+    expect(coverage.textContent).toContain('0 successful');
+    expect(coverage.textContent).toContain('0 failed');
+    expect(coverage.textContent).toContain('1 not applied');
+    expect(coverage.textContent).toContain('Not applied: arXiv');
+    expect(coverage.textContent).not.toContain('Coverage failed');
+    expect(coverage.textContent).not.toContain('Failed sources:');
+
+    const arxivStatus = screen.getByTestId('research-source-arxiv');
+    expect(arxivStatus.textContent).toContain('Not applied');
+    expect(arxivStatus.textContent).not.toContain('Failed');
+    expect(screen.getByTestId('research-source-warnings-arxiv').textContent).toContain(
+      'arXiv classification constraints were not applied because arXiv is disabled.',
+    );
+  });
+
+  it('keeps legacy artifacts valid and shows arXiv provenance, applied constraints, and sort fallbacks', async () => {
+    expect(isResearchArtifact(artifact)).toBe(true);
+    expect(isResearchArtifact(arxivArtifact)).toBe(true);
+
+    const legacy = render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={artifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+    expect(screen.getByTestId('research-source-openalex')).not.toBeNull();
+    legacy.unmount();
+
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={arxivArtifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    const arxivStatus = screen.getByTestId('research-source-arxiv');
+    expect(arxivStatus.textContent).toContain('arXiv');
+    const applied = screen.getByTestId('research-source-applied-arxiv');
+    expect(applied.textContent).toContain('Sort: relevance:descending');
+    expect(applied.textContent).not.toContain('submittedDate');
+    expect(applied.textContent).toContain('Categories: cs.AI, cs.LG');
+    expect(applied.className).toContain('min-w-0');
+    expect(applied.className).toContain('break-words');
+    expect(screen.getByTestId('research-source-warnings-arxiv').textContent).toContain(
+      'arXiv does not expose cited-by counts; requested ranking was downgraded to relevance.',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Papers|论文/i }));
+    expect(screen.getAllByLabelText('Sources: arXiv').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('paper-provenance-arxiv:2607.00001').textContent).toContain('arXiv');
   });
 
   it('marks matched papers and browses the collection bound in research settings', async () => {

@@ -3,6 +3,10 @@ export type ResearchLiteratureSourceSettings = {
   mailto: string;
 };
 
+export type ResearchArxivSourceSettings = {
+  enabled: boolean;
+};
+
 export type ResearchSettings = {
   schemaVersion: 1;
   literature: {
@@ -13,6 +17,10 @@ export type ResearchSettings = {
       // multi-source release remain readable. The settings UI normalizes it
       // to the enabled Crossref default before a save.
       crossref?: ResearchLiteratureSourceSettings;
+      // Optional at the renderer boundary so settings saved before arXiv
+      // support remain readable. The settings UI normalizes it to enabled
+      // before a save.
+      arxiv?: ResearchArxivSourceSettings;
     };
     search: {
       defaultLimit: number;
@@ -56,6 +64,7 @@ export type ResearchPaper = {
   authors: string[];
   year?: number;
   publicationDate?: string;
+  updatedAt?: string;
   type?: string;
   venue?: string;
   doi?: string;
@@ -92,6 +101,15 @@ export type ResearchSourceStatus = {
   totalMatches?: number;
   coverage: string;
   error?: string;
+  // A source can succeed while applying a narrower query than the overall
+  // intent permits. Keep that fact alongside source-local warnings so the
+  // renderer can show the actual retrieval conditions without guessing.
+  warnings?: string[];
+  applied?: {
+    dateField?: 'submitted';
+    sort?: string;
+    classifications?: string[];
+  };
 };
 
 export type ResearchArtifact = {
@@ -107,6 +125,10 @@ export type ResearchArtifact = {
     toYear?: number;
     sort: string;
     sourceIds: string[];
+    classifications?: Array<{
+      scheme: 'arxiv';
+      include: string[];
+    }>;
   };
   papers: ResearchPaper[];
   edges: ResearchRelationEdge[];

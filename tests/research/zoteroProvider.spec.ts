@@ -153,6 +153,50 @@ test("Zotero matches papers by identifiers and reports collection membership", a
   assert.deepEqual(match?.reasons, ["doi"]);
 });
 
+test("Zotero matches legacy identity.other.arxiv records", async () => {
+  const legacyArxivPaper: ResearchPaper = {
+    ...paper,
+    id: "https://arxiv.org/abs/2401.12345",
+    identity: { other: { arxiv: "https://arxiv.org/abs/2401.12345v2" } },
+    doi: undefined,
+    url: "https://arxiv.org/abs/2401.12345",
+    sourceId: "arxiv",
+    sourceIds: ["arxiv"],
+    provenance: [{
+      sourceId: "arxiv",
+      sourceRecordId: "2401.12345v2",
+      rank: 1,
+      retrievedAt: "2026-07-22T00:00:00.000Z",
+    }],
+  };
+  const searched: string[] = [];
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    searched.push(url);
+    if (url.includes("2401.12345")) {
+      return new Response(JSON.stringify([{
+        key: "ARXIV001",
+        data: {
+          key: "ARXIV001",
+          itemType: "preprint",
+          title: legacyArxivPaper.title,
+          archiveID: "arXiv:2401.12345v2",
+          creators: [],
+          tags: [],
+          collections: [],
+        },
+      }]), { headers: { "Content-Type": "application/json" } });
+    }
+    return new Response(JSON.stringify([]), { headers: { "Content-Type": "application/json" } });
+  };
+  const provider = createZoteroLibraryProvider({ fetchImpl });
+  const [match] = await provider.matchPapers({ papers: [legacyArxivPaper] });
+
+  assert.equal(match?.matched, true);
+  assert.deepEqual(match?.reasons, ["arxiv"]);
+  assert.ok(searched.some((url) => url.includes("2401.12345")));
+});
+
 test("Zotero matches a single item response by Zotero item key", async () => {
   const keyedPaper: ResearchPaper = { ...paper, identity: { zoteroKey: "ITEM1234" } };
   const fetchImpl: typeof fetch = async (input) => {

@@ -22,6 +22,9 @@ export type ResearchSettings = {
         enabled: boolean;
         mailto: string;
       };
+      arxiv: {
+        enabled: boolean;
+      };
       crossref: {
         enabled: boolean;
         /** Optional address used only to opt into Crossref's documented polite pool. */
@@ -84,12 +87,23 @@ export type SearchIntent = {
   text: string;
 };
 
+/**
+ * A provider-specific narrowing constraint chosen by the agent from the
+ * natural-language research goal. It remains structured so providers can
+ * validate and audit it without exposing query grammar to users.
+ */
+export type SearchClassification = {
+  scheme: "arxiv";
+  include: string[];
+};
+
 export type SearchPlan = {
   query: string;
   limit: number;
   fromYear?: number;
   toYear?: number;
   sort: "relevance" | "cited_by_count" | "publication_date";
+  classifications?: SearchClassification[];
   sourceIds: string[];
 };
 
@@ -111,6 +125,8 @@ export type PaperIdentity = {
   openAlexId?: string;
   doi?: string;
   arxiv?: string;
+  /** Numeric version marker for the canonical arXiv identifier, for example 2. */
+  arxivVersion?: number;
   openReview?: string;
   pmid?: string;
   pmcid?: string;
@@ -131,6 +147,8 @@ export type ResearchPaper = {
   authors: string[];
   year?: number;
   publicationDate?: string;
+  /** Provider-reported metadata update time, distinct from publication date. */
+  updatedAt?: string;
   type?: string;
   venue?: string;
   doi?: string;
@@ -162,6 +180,15 @@ export type ResearchRelationEdge = {
   evidence?: string[];
 };
 
+export type ResearchSourceApplied = {
+  /** Source-specific date field used to implement the requested year range. */
+  dateField?: "submitted";
+  /** Source-specific ranking actually applied to the query. */
+  sort?: string;
+  /** Canonical source classifications added to the submitted query. */
+  classifications?: string[];
+};
+
 export type ResearchSourceStatus = {
   id: string;
   name: string;
@@ -171,6 +198,10 @@ export type ResearchSourceStatus = {
   resultCount: number;
   totalMatches?: number;
   coverage: string;
+  /** Non-fatal source limitations or transformations included in coverage. */
+  warnings?: string[];
+  /** Provider-specific query constraints or ranking actually applied. */
+  applied?: ResearchSourceApplied;
   error?: string;
 };
 

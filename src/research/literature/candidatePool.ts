@@ -1,3 +1,9 @@
+import {
+  normalizeArxiv,
+  normalizeArxivIdentifier,
+  normalizeArxivVersion,
+  normalizeDoi,
+} from "../identity.js";
 import type {
   LiteratureSearchResult,
   PaperIdentity,
@@ -73,9 +79,10 @@ export function mergeLiteratureSearchResults(input: LiteratureCandidatePoolInput
     failedSourceIds.push(id);
   }
 
-  const warnings = sources.flatMap((source) => source.status === "ok"
-    ? []
-    : [`${source.name}: ${source.error ?? source.coverage}`]);
+  const warnings = sources.flatMap((source) => [
+    ...(source.warnings ?? []).map((warning) => `${source.name}: ${warning}`),
+    ...(source.status === "ok" ? [] : [`${source.name}: ${source.error ?? source.coverage}`]),
+  ]);
   for (const id of missingSourceIds) {
     warnings.push(`${id}: source did not return a status.`);
   }
@@ -177,7 +184,7 @@ function mergeCandidateGroup(group: CandidateGroup, sourcePriority: Map<string, 
   const provenance = uniqueProvenance(ordered.flatMap((entry) => entry.provenance), sourcePriority);
   const sourceIds = orderedSourceIds(ordered, provenance, sourcePriority);
   const identities = mergeIdentities(ordered.map((entry) => entry.paper.identity));
-  const doi = normalizedDoi(identities.doi ?? primary.paper.doi ?? firstDefined(ordered, (entry) => entry.paper.doi));
+  const doi = normalizeDoi(identities.doi ?? primary.paper.doi ?? firstDefined(ordered, (entry) => entry.paper.doi));
   if (doi) identities.doi = doi;
 
   const abstracts = ordered.map((entry) => entry.paper.abstract).filter((value): value is string => Boolean(value));
@@ -200,6 +207,9 @@ function mergeCandidateGroup(group: CandidateGroup, sourcePriority: Map<string, 
       : {}),
     ...(firstDefined(ordered, (entry) => entry.paper.publicationDate)
       ? { publicationDate: firstDefined(ordered, (entry) => entry.paper.publicationDate) }
+      : {}),
+    ...(firstDefined(ordered, (entry) => entry.paper.updatedAt)
+      ? { updatedAt: firstDefined(ordered, (entry) => entry.paper.updatedAt) }
       : {}),
     ...(firstDefined(ordered, (entry) => entry.paper.type) ? { type: firstDefined(ordered, (entry) => entry.paper.type) } : {}),
     ...(firstDefined(ordered, (entry) => entry.paper.venue) ? { venue: firstDefined(ordered, (entry) => entry.paper.venue) } : {}),
@@ -316,13 +326,27 @@ function mergeIdentities(identities: PaperIdentity[]): PaperIdentity {
   const other: Record<string, string> = {};
   for (const identity of identities) {
     if (!merged.openAlexId && identity.openAlexId) merged.openAlexId = identity.openAlexId;
-    if (!merged.doi && identity.doi) merged.doi = normalizedDoi(identity.doi) ?? identity.doi;
-    if (!merged.arxiv && identity.arxiv) merged.arxiv = identity.arxiv;
+    if (!merged.doi && identity.doi) merged.doi = normalizeDoi(identity.doi) ?? identity.doi;
+    const directArxiv = normalizeArxivIdentifier(identity.arxiv);
+    const legacyArxiv = legacyArxivIdentifier(identity.other);
+    const arxiv = directArxiv ?? legacyArxiv;
+    if (!merged.arxiv && arxiv) merged.arxiv = arxiv.id;
+    if (arxiv && arxiv.id === merged.arxiv) {
+      const arxivVersion = Math.max(
+        normalizeArxivVersion(identity.arxivVersion) ?? 0,
+        directArxiv?.version ?? 0,
+        legacyArxiv?.version ?? 0,
+      );
+      if (arxivVersion > 0 && (merged.arxivVersion === undefined || arxivVersion > merged.arxivVersion)) {
+        merged.arxivVersion = arxivVersion;
+      }
+    }
     if (!merged.openReview && identity.openReview) merged.openReview = identity.openReview;
     if (!merged.pmid && identity.pmid) merged.pmid = identity.pmid;
     if (!merged.pmcid && identity.pmcid) merged.pmcid = identity.pmcid;
     if (!merged.zoteroKey && identity.zoteroKey) merged.zoteroKey = identity.zoteroKey;
     for (const [key, value] of Object.entries(identity.other ?? {})) {
+      if (key.toLowerCase() === "arxiv") continue;
       if (!(key in other)) other[key] = value;
     }
   }
@@ -347,9 +371,10 @@ function mergedOpenAccess(values: Array<boolean | undefined>): Pick<ResearchPape
 
 function strongIdentifiers(paper: ResearchPaper): Set<string> {
   const identity = paper.identity;
+  const arxiv = normalizeArxiv(identity.arxiv) ?? legacyArxivIdentifier(identity.other)?.id;
   const identifiers = [
-    normalizedDoi(identity.doi ?? paper.doi) ? `doi:${normalizedDoi(identity.doi ?? paper.doi)}` : undefined,
-    normalizedArxiv(identity.arxiv) ? `arxiv:${normalizedArxiv(identity.arxiv)}` : undefined,
+    normalizeDoi(identity.doi ?? paper.doi) ? `doi:${normalizeDoi(identity.doi ?? paper.doi)}` : undefined,
+    arxiv ? `arxiv:${arxiv}` : undefined,
     normalizedValue(identity.openReview) ? `openreview:${normalizedValue(identity.openReview)}` : undefined,
     normalizedValue(identity.pmid) ? `pmid:${normalizedValue(identity.pmid)}` : undefined,
     normalizedValue(identity.pmcid) ? `pmcid:${normalizedValue(identity.pmcid)}` : undefined,
@@ -358,24 +383,23 @@ function strongIdentifiers(paper: ResearchPaper): Set<string> {
     ...Object.entries(identity.other ?? {}).flatMap(([key, value]) => {
       const normalizedKey = normalizedValue(key);
       const normalized = normalizedValue(value);
+      if (normalizedKey === "arxiv") return [];
       return normalizedKey && normalized ? [`other:${normalizedKey}:${normalized}`] : [];
     }),
   ];
   return new Set(identifiers.filter((value): value is string => Boolean(value)));
 }
 
-function normalizedDoi(value: unknown): string | undefined {
-  const text = normalizedValue(value);
-  return text?.replace(/^https?:\/\/(?:dx\.)?doi\.org\//iu, "").replace(/^doi:/iu, "").trim() || undefined;
-}
-
-function normalizedArxiv(value: unknown): string | undefined {
-  const text = normalizedValue(value);
-  return text?.replace(/^https?:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\//iu, "").replace(/^arxiv:/iu, "").replace(/v\d+$/iu, "") || undefined;
-}
-
 function normalizedValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : undefined;
+}
+
+function legacyArxivIdentifier(other: Record<string, string> | undefined) {
+  if (!other) return undefined;
+  for (const [key, value] of Object.entries(other)) {
+    if (key.toLowerCase() === "arxiv") return normalizeArxivIdentifier(value);
+  }
+  return undefined;
 }
 
 function normalizedTitle(value: string): string {

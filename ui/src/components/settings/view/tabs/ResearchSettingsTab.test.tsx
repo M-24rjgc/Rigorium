@@ -15,6 +15,7 @@ const settings: ResearchSettings = {
     sources: {
       openalex: { enabled: true, mailto: '' },
       crossref: { enabled: true, mailto: '' },
+      arxiv: { enabled: true },
     },
     search: { defaultLimit: 12, fromYear: null, toYear: null, sort: 'relevance' },
     budget: { maxResultsPerSearch: 25, requestTimeoutMs: 20_000 },
@@ -130,7 +131,7 @@ describe('ResearchSettingsTab Zotero collections', () => {
     });
   });
 
-  it('normalizes legacy settings, exposes both source controls, and warns before saving with all sources off', async () => {
+  it('normalizes legacy settings, exposes all source controls, and warns before saving with all sources off', async () => {
     const legacySettings: ResearchSettings = {
       ...settings,
       literature: {
@@ -159,13 +160,17 @@ describe('ResearchSettingsTab Zotero collections', () => {
 
     const openAlexToggle = await screen.findByRole('switch', { name: 'OpenAlex' });
     const crossrefToggle = screen.getByRole('switch', { name: 'Crossref' });
+    const arxivToggle = screen.getByRole('switch', { name: 'arXiv' });
     expect(crossrefToggle.getAttribute('aria-checked')).toBe('true');
+    expect(arxivToggle.getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByText('Preprint metadata, abstracts, and subject categories; it has no citation-graph data.')).not.toBeNull();
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Crossref contact email' }), {
       target: { value: 'researcher@example.test' },
     });
     fireEvent.click(openAlexToggle);
     fireEvent.click(crossrefToggle);
+    fireEvent.click(arxivToggle);
     expect(screen.getByRole('status').textContent).toContain('No literature source is enabled.');
 
     fireEvent.click(screen.getByRole('button', { name: /Save research settings|保存科研设置/i }));
@@ -176,6 +181,7 @@ describe('ResearchSettingsTab Zotero collections', () => {
     expect(payload.settings.literature.sources).toMatchObject({
       openalex: { enabled: false, mailto: '' },
       crossref: { enabled: false, mailto: 'researcher@example.test' },
+      arxiv: { enabled: false },
     });
   });
 

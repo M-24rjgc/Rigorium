@@ -12,6 +12,9 @@ export const DEFAULT_RESEARCH_SETTINGS: ResearchSettings = {
         enabled: true,
         mailto: "",
       },
+      arxiv: {
+        enabled: true,
+      },
       crossref: {
         enabled: true,
         mailto: "",
@@ -138,6 +141,7 @@ export function normalizeResearchSettings(value: unknown, base: ResearchSettings
   const literature = isRecord(root.literature) ? root.literature : {};
   const sources = isRecord(literature.sources) ? literature.sources : {};
   const openalex = isRecord(sources.openalex) ? sources.openalex : {};
+  const arxiv = isRecord(sources.arxiv) ? sources.arxiv : {};
   const crossref = isRecord(sources.crossref) ? sources.crossref : {};
   const search = isRecord(literature.search) ? literature.search : {};
   const budget = isRecord(literature.budget) ? literature.budget : {};
@@ -155,6 +159,9 @@ export function normalizeResearchSettings(value: unknown, base: ResearchSettings
         openalex: {
           enabled: booleanValue(openalex.enabled, base.literature.sources.openalex.enabled),
           mailto: stringValue(openalex.mailto, base.literature.sources.openalex.mailto, 200),
+        },
+        arxiv: {
+          enabled: booleanValue(arxiv.enabled, base.literature.sources.arxiv.enabled),
         },
         crossref: {
           enabled: booleanValue(crossref.enabled, base.literature.sources.crossref.enabled),

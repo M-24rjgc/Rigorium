@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { normalizeArxiv, normalizeDoi } from "../identity.js";
 import type {
   LibraryImportResult,
   LibraryProvider,
@@ -780,13 +781,15 @@ function normalizedPaperIdentity(paper: ResearchPaper): {
   arxiv?: string;
   pmid?: string;
 } {
+  const legacyArxiv = Object.entries(paper.identity.other ?? {})
+    .find(([key]) => key.toLowerCase() === "arxiv")?.[1];
   return {
     ...(normalizeZoteroKey(paper.identity.zoteroKey) ? { zoteroKey: normalizeZoteroKey(paper.identity.zoteroKey) } : {}),
     ...(firstDefined(normalizeDoi(paper.identity.doi), normalizeDoi(paper.doi), normalizeDoi(paper.url))
       ? { doi: firstDefined(normalizeDoi(paper.identity.doi), normalizeDoi(paper.doi), normalizeDoi(paper.url)) }
       : {}),
-    ...(firstDefined(normalizeArxiv(paper.identity.arxiv), normalizeArxiv(paper.url))
-      ? { arxiv: firstDefined(normalizeArxiv(paper.identity.arxiv), normalizeArxiv(paper.url)) }
+    ...(firstDefined(normalizeArxiv(paper.identity.arxiv), normalizeArxiv(legacyArxiv), normalizeArxiv(paper.url))
+      ? { arxiv: firstDefined(normalizeArxiv(paper.identity.arxiv), normalizeArxiv(legacyArxiv), normalizeArxiv(paper.url)) }
       : {}),
     ...(firstDefined(normalizePmid(paper.identity.pmid), normalizePmid(paper.url))
       ? { pmid: firstDefined(normalizePmid(paper.identity.pmid), normalizePmid(paper.url)) }
@@ -868,25 +871,6 @@ function normalizeZoteroKey(value: unknown): string | undefined {
   return typeof value === "string" && /^[A-Za-z0-9]{1,32}$/u.test(value.trim())
     ? value.trim().toUpperCase()
     : undefined;
-}
-
-function normalizeDoi(value: unknown): string | undefined {
-  const raw = stringValue(value);
-  if (!raw) return undefined;
-  const doi = raw
-    .replace(/^https?:\/\/(?:dx\.)?doi\.org\//iu, "")
-    .replace(/^doi:\s*/iu, "")
-    .replace(/[\s.,;]+$/u, "")
-    .toLowerCase();
-  return /^10\.\d{4,9}\/.+$/u.test(doi) ? doi : undefined;
-}
-
-function normalizeArxiv(value: unknown): string | undefined {
-  const raw = stringValue(value);
-  if (!raw) return undefined;
-  const direct = raw.match(/^(?:arxiv:\s*)?([a-z-]+(?:\.[a-z-]+)?\/\d{7}|\d{4}\.\d{4,5})(?:v\d+)?$/iu);
-  const embedded = raw.match(/(?:arxiv(?:\.org\/(?:abs|pdf)\/|:\s*|\s+))([a-z-]+(?:\.[a-z-]+)?\/\d{7}|\d{4}\.\d{4,5})(?:v\d+)?/iu);
-  return (direct?.[1] ?? embedded?.[1])?.toLowerCase();
 }
 
 function normalizePmid(value: unknown): string | undefined {
