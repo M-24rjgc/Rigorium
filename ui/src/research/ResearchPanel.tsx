@@ -12,7 +12,6 @@ import {
   FileText,
   FolderTree,
   Library,
-  Network,
   Paperclip,
   PenLine,
   Plus,
@@ -25,6 +24,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { authenticatedFetch } from '../utils/api';
+import { CHAT_DRAFT_INSERT_EVENT } from '../utils/chatDraftInsertion';
 import { cn } from '../lib/utils';
 import { useResearchPanel } from '../contexts/ResearchPanelContext';
 import {
@@ -35,14 +35,18 @@ import {
   getZoteroItemExport,
 } from './zoteroItemApi';
 import { confirmZoteroCloudWrite, importPapersIntoZotero, previewZoteroCloudWrite } from './zoteroCloudApi';
-import { directedEdgeEndpoints } from './graphGeometry';
+import {
+  LiteratureMap,
+  type LiteratureMapActionRequest,
+  type LiteratureMapPaperState,
+  type LiteratureMapPoint,
+} from './literature-map';
 import type {
   ResearchArtifact,
   LiteratureSearchArtifact,
   LiteratureExpansionDirectionResult,
   ResearchPaper,
   ResearchPaperProvenance,
-  ResearchRelationEdge,
   ResearchSettingsSnapshot,
   ResearchSourceStatus,
   ResearchTerminologyCandidate,
@@ -65,10 +69,6 @@ type ResearchPanelProps = {
   artifact: ResearchArtifact;
   projectPath?: string;
 };
-
-function researchGraphNodeRadius(paper: ResearchPaper): number {
-  return Math.max(9, Math.min(18, 9 + Math.log10(paper.citedByCount + 1) * 2.6));
-}
 
 type ZoteroBinding = {
   collectionKey?: string;
@@ -94,6 +94,10 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
   const [confirmingPaper, setConfirmingPaper] = useState<ResearchPaper | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [mapSeedPaperId, setMapSeedPaperId] = useState<string | null>(null);
+  const [mapPaperStates, setMapPaperStates] = useState<Record<string, LiteratureMapPaperState[]>>({});
+  const [mapPinnedPositions, setMapPinnedPositions] = useState<Record<string, LiteratureMapPoint>>({});
+  const artifactSeedPaperId = artifact.kind === 'literature_expansion' ? artifact.seedPaperId : null;
   const expansionSeedPaper = useMemo(
     () => artifact.kind === 'literature_expansion'
       ? artifact.papers.find((paper) => paper.id === artifact.seedPaperId) ?? null
@@ -120,6 +124,17 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
     : undefined;
   const selectedExactMatch = selectedMatch?.matched && selectedMatch.confidence === 'exact';
   const connectorTargetName = zoteroStatus?.selectedCollection?.name || 'My Library';
+
+  useEffect(() => {
+    const paperIds = new Set(artifact.papers.map((paper) => paper.id));
+    setMapSeedPaperId(artifactSeedPaperId);
+    setMapPaperStates((current) => Object.fromEntries(
+      Object.entries(current).filter(([paperId]) => paperIds.has(paperId)),
+    ));
+    setMapPinnedPositions((current) => Object.fromEntries(
+      Object.entries(current).filter(([paperId]) => paperIds.has(paperId)),
+    ));
+  }, [artifact.artifactId, artifact.papers, artifactSeedPaperId]);
 
   useEffect(() => {
     if (selectedPaperId && artifact.papers.some((paper) => paper.id === selectedPaperId)) return;
@@ -267,6 +282,7 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
         kind: 'success',
         text: t('researchPanel.importSuccess', { defaultValue: 'Saved to Zotero.' }),
       });
+      setMapPaperStates((current) => updateMapPaperState(current, confirmingPaper.id, 'favorite', true));
       setConfirmingPaper(null);
       await loadPaperMatches();
       if (view === 'collection') await loadCollectionItems(collectionQuery);
@@ -279,6 +295,51 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
       setImporting(false);
     }
   }, [collectionQuery, confirmingPaper, loadCollectionItems, loadPaperMatches, projectPath, t, view]);
+
+  const handleMapPaperAction = useCallback((request: LiteratureMapActionRequest) => {
+    const paper = artifact.papers.find((candidate) => candidate.id === request.paperId);
+    if (!paper) return;
+    if (request.action === 'set_seed') {
+      setMapSeedPaperId((current) => current === paper.id ? null : paper.id);
+      return;
+    }
+    if (request.action === 'add_to_chat') {
+      window.dispatchEvent(new CustomEvent(CHAT_DRAFT_INSERT_EVENT, {
+        detail: { text: formatLiteratureChatReference(paper), source: 'research-literature' },
+      }));
+      return;
+    }
+    if (request.action === 'favorite') {
+      const match = matchByPaperId.get(paper.id);
+      if (match?.matched && match.confidence === 'exact') {
+        setMapPaperStates((current) => updateMapPaperState(current, paper.id, 'favorite', true));
+        return;
+      }
+      if (!zoteroStatus?.connectorReady) {
+        setImportMessage({
+          kind: 'error',
+          text: zoteroStatus?.error || t('researchPanel.zoteroUnavailable', { defaultValue: 'Start Zotero to enable saving.' }),
+        });
+        return;
+      }
+      setImportMessage(null);
+      setConfirmingPaper(paper);
+      return;
+    }
+
+    const state = mapStateForAction(request.action);
+    if (!state) return;
+    setMapPaperStates((current) => {
+      const active = current[paper.id]?.includes(state) ?? false;
+      let next = current;
+      if (state === 'core' || state === 'relevant' || state === 'irrelevant') {
+        next = updateMapPaperState(next, paper.id, 'core', false);
+        next = updateMapPaperState(next, paper.id, 'relevant', false);
+        next = updateMapPaperState(next, paper.id, 'irrelevant', false);
+      }
+      return updateMapPaperState(next, paper.id, state, !active);
+    });
+  }, [artifact.papers, matchByPaperId, t, zoteroStatus]);
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden bg-neutral-50/70 dark:bg-neutral-950">
@@ -350,24 +411,29 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
         ) : null}
 
         {view === 'map' ? (
-          <div className="space-y-3 p-3">
-            <LiteratureGraph
-              papers={artifact.papers}
-              edges={artifact.edges}
+          <div className="p-3">
+            <LiteratureMap
+              artifact={artifact}
               selectedPaperId={selectedPaper?.id ?? null}
-              seedPaperId={artifact.kind === 'literature_expansion' ? artifact.seedPaperId : null}
+              seedPaperId={mapSeedPaperId}
+              paperStates={mapPaperStates}
+              pinnedPositions={mapPinnedPositions}
               onSelectPaper={selectPaper}
-            />
-            <RelationshipLegend
-              showTopicEdges={artifact.kind === 'literature_search'}
-              showSeed={artifact.kind === 'literature_expansion'}
+              onPaperAction={handleMapPaperAction}
+              onPinnedPositionChange={(paperId, position) => setMapPinnedPositions((current) => {
+                if (position) return { ...current, [paperId]: position };
+                if (!current[paperId]) return current;
+                const next = { ...current };
+                delete next[paperId];
+                return next;
+              })}
             />
           </div>
         ) : view === 'papers' ? (
           <PaperList
             papers={artifact.papers}
             selectedPaperId={selectedPaper?.id ?? null}
-            seedPaperId={artifact.kind === 'literature_expansion' ? artifact.seedPaperId : null}
+            seedPaperId={mapSeedPaperId}
             onSelectPaper={selectPaper}
             matches={matchByPaperId}
             sourceNameById={sourceNameById}
@@ -517,132 +583,6 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
           </div>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function LiteratureGraph({
-  papers,
-  edges,
-  selectedPaperId,
-  seedPaperId,
-  onSelectPaper,
-}: {
-  papers: ResearchPaper[];
-  edges: ResearchRelationEdge[];
-  selectedPaperId: string | null;
-  seedPaperId: string | null;
-  onSelectPaper: (paperId: string) => void;
-}) {
-  const positions = useMemo(() => {
-    const centerX = 320;
-    const centerY = 180;
-    const radiusX = 245;
-    const radiusY = 125;
-    const seed = seedPaperId && papers.some((paper) => paper.id === seedPaperId) ? seedPaperId : null;
-    const surrounding = seed ? papers.filter((paper) => paper.id !== seed) : papers;
-    const next = new Map<string, { x: number; y: number }>();
-    if (seed) next.set(seed, { x: centerX, y: centerY });
-    surrounding.forEach((paper, index) => {
-      const angle = surrounding.length <= 1 ? -Math.PI / 2 : (Math.PI * 2 * index) / surrounding.length - Math.PI / 2;
-      const isStandaloneNode = !seed && surrounding.length <= 1;
-      next.set(paper.id, {
-        x: isStandaloneNode ? centerX : centerX + Math.cos(angle) * radiusX,
-        y: isStandaloneNode ? centerY : centerY + Math.sin(angle) * radiusY,
-      });
-    });
-    return next;
-  }, [papers, seedPaperId]);
-  const paperById = useMemo(() => new Map(papers.map((paper) => [paper.id, paper] as const)), [papers]);
-
-  if (papers.length === 0) {
-    return (
-      <div className="flex h-56 items-center justify-center rounded-xl border border-dashed border-neutral-300 text-[11px] text-neutral-400 dark:border-neutral-700">
-        No graph data
-      </div>
-    );
-  }
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900/70">
-      <svg viewBox="0 0 640 360" className="h-auto w-full" role="img" aria-label="Literature relationship map">
-        <defs>
-          <marker id="research-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-            <path d="M0,0 L6,3 L0,6 Z" className="fill-indigo-400" />
-          </marker>
-        </defs>
-        {edges.map((edge) => {
-          const source = positions.get(edge.source);
-          const target = positions.get(edge.target);
-          if (!source || !target) return null;
-          const sourcePaper = paperById.get(edge.source);
-          const targetPaper = paperById.get(edge.target);
-          const endpoints = edge.type === 'citation' && sourcePaper && targetPaper
-            ? directedEdgeEndpoints(
-                source,
-                target,
-                researchGraphNodeRadius(sourcePaper),
-                researchGraphNodeRadius(targetPaper),
-              )
-            : { source, target };
-          return (
-            <line
-              key={edge.id}
-              data-testid={`research-edge-${edge.id}`}
-              data-source={edge.source}
-              data-target={edge.target}
-              x1={endpoints.source.x}
-              y1={endpoints.source.y}
-              x2={endpoints.target.x}
-              y2={endpoints.target.y}
-              stroke={edge.type === 'citation' ? '#818cf8' : '#a3a3a3'}
-              strokeWidth={edge.type === 'citation' ? 1.8 : 1.1}
-              strokeDasharray={edge.inferred ? '5 5' : undefined}
-              opacity={edge.type === 'citation' ? 0.78 : 0.48}
-              markerEnd={edge.type === 'citation' ? 'url(#research-arrow)' : undefined}
-            >
-              <title>{edge.type === 'citation' ? 'Citation' : `Shared topic: ${edge.evidence?.join(', ') || ''}`}</title>
-            </line>
-          );
-        })}
-        {papers.map((paper) => {
-          const position = positions.get(paper.id)!;
-          const selected = paper.id === selectedPaperId;
-          const isSeed = paper.id === seedPaperId;
-          const nodeRadius = researchGraphNodeRadius(paper);
-          return (
-            <g
-              key={paper.id}
-              data-testid={`research-graph-node-${paper.id}`}
-              data-seed={isSeed ? 'true' : 'false'}
-              transform={`translate(${position.x}, ${position.y})`}
-              className="cursor-pointer"
-              onClick={() => onSelectPaper(paper.id)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') onSelectPaper(paper.id);
-              }}
-            >
-              <circle
-                r={nodeRadius + (selected || isSeed ? 5 : 2)}
-                fill={selected ? '#c7d2fe' : isSeed ? '#fde68a' : '#e5e7eb'}
-                opacity={selected || isSeed ? 0.8 : 0.55}
-              />
-              <circle
-                r={nodeRadius}
-                fill={selected ? '#4f46e5' : isSeed ? '#d97706' : '#6366f1'}
-                stroke={isSeed ? '#92400e' : 'white'}
-                strokeWidth={isSeed ? '2.5' : '2'}
-              />
-              <text y={nodeRadius + 15} textAnchor="middle" fontSize="9" fill="currentColor" className="fill-neutral-600 dark:fill-neutral-300">
-                {shortTitle(paper.title, 28)}
-              </text>
-              <title>{`${isSeed ? 'Seed paper: ' : ''}${paper.title}\n${paper.citedByCount} citations`}</title>
-            </g>
-          );
-        })}
-      </svg>
     </div>
   );
 }
@@ -1326,22 +1266,6 @@ function PaperSourceBadges({
         </span>
       ) : null}
     </span>
-  );
-}
-
-function RelationshipLegend({ showTopicEdges, showSeed }: { showTopicEdges: boolean; showSeed: boolean }) {
-  const { t } = useTranslation();
-  return (
-    <div className="flex flex-wrap gap-3 px-1 text-[10px] text-neutral-500 dark:text-neutral-400">
-      <span className="inline-flex items-center gap-1.5"><span className="h-px w-5 bg-indigo-400" />{t('researchPanel.citationEdge', { defaultValue: 'Citation' })}</span>
-      {showTopicEdges ? (
-        <span className="inline-flex items-center gap-1.5"><span className="w-5 border-t border-dashed border-neutral-400" />{t('researchPanel.sharedTopicEdge', { defaultValue: 'Shared topic (inferred)' })}</span>
-      ) : null}
-      {showSeed ? (
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full border-2 border-amber-800 bg-amber-600" />{t('researchPanel.seedLegend', { defaultValue: 'Seed paper' })}</span>
-      ) : null}
-      <span className="ml-auto inline-flex items-center gap-1"><Network className="h-3 w-3" />{t('researchPanel.nodeSizeLegend', { defaultValue: 'Node size = citations' })}</span>
-    </div>
   );
 }
 
@@ -2321,8 +2245,56 @@ function PaperList({
   );
 }
 
-function shortTitle(title: string, maxLength: number): string {
-  return title.length > maxLength ? `${title.slice(0, maxLength - 1)}…` : title;
+function mapStateForAction(action: LiteratureMapActionRequest['action']): LiteratureMapPaperState | null {
+  if (action === 'mark_core') return 'core';
+  if (action === 'mark_relevant') return 'relevant';
+  if (action === 'mark_irrelevant') return 'irrelevant';
+  if (action === 'exclude') return 'excluded';
+  return null;
+}
+
+function updateMapPaperState(
+  current: Record<string, LiteratureMapPaperState[]>,
+  paperId: string,
+  state: LiteratureMapPaperState,
+  enabled: boolean,
+): Record<string, LiteratureMapPaperState[]> {
+  const previous = current[paperId] ?? [];
+  const nextStates = enabled
+    ? [...new Set([...previous, state])]
+    : previous.filter((candidate) => candidate !== state);
+  if (nextStates.length === previous.length && nextStates.every((candidate, index) => candidate === previous[index])) {
+    return current;
+  }
+  if (nextStates.length === 0) {
+    const next = { ...current };
+    delete next[paperId];
+    return next;
+  }
+  return { ...current, [paperId]: nextStates };
+}
+
+function formatLiteratureChatReference(paper: ResearchPaper): string {
+  const identity = paper.identity && typeof paper.identity === 'object' ? paper.identity : {};
+  const identifiers = [
+    paper.doi ? `DOI: ${singleLineReferenceValue(paper.doi, 256)}` : null,
+    typeof identity.arxiv === 'string' ? `arXiv: ${singleLineReferenceValue(identity.arxiv, 256)}` : null,
+    typeof identity.openReview === 'string' ? `OpenReview: ${singleLineReferenceValue(identity.openReview, 256)}` : null,
+    `Paper ID: ${singleLineReferenceValue(paper.id, 512)}`,
+  ].filter((value): value is string => Boolean(value));
+  return [
+    '[Research paper]',
+    `Title: ${singleLineReferenceValue(paper.title, 1_000)}`,
+    paper.authors.length > 0 ? `Authors: ${paper.authors.slice(0, 20).map((author) => singleLineReferenceValue(author, 160)).join('; ')}` : null,
+    paper.year !== undefined ? `Year: ${paper.year}` : null,
+    paper.venue ? `Venue: ${singleLineReferenceValue(paper.venue, 300)}` : null,
+    ...identifiers,
+  ].filter((value): value is string => Boolean(value)).join('\n');
+}
+
+function singleLineReferenceValue(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/gu, ' ').trim();
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 function safeExternalUrl(value: string | undefined): string | undefined {

@@ -11,6 +11,11 @@ import type {
 } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { authenticatedFetch } from '../../../utils/api';
+import {
+  appendChatDraftText,
+  CHAT_DRAFT_INSERT_EVENT,
+  isChatDraftInsertDetail,
+} from '../../../utils/chatDraftInsertion';
 import { isThinkingModeId, thinkingModeToConfig, type ThinkingModeId } from '../constants/thinkingModes';
 import { getEffectiveThinkingMode, type ThinkingModeAvailability } from '../constants/thinkingModeAvailability';
 import { grantPilotDeckToolPermission } from '../utils/chatPermissions';
@@ -281,6 +286,23 @@ export function useChatComposerState({
     return () => {
       window.removeEventListener('pilotdeck:add-chat-reference', handleAddDocumentReference);
     };
+  }, [syncQueuedBusySendSnapshot]);
+
+  useEffect(() => {
+    const handleDraftInsertion = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!isChatDraftInsertDetail(detail)) return;
+      setInput((current) => {
+        const next = appendChatDraftText(current, detail.text);
+        inputValueRef.current = next;
+        syncQueuedBusySendSnapshot({ input: next });
+        return next;
+      });
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    };
+
+    window.addEventListener(CHAT_DRAFT_INSERT_EVENT, handleDraftInsertion);
+    return () => window.removeEventListener(CHAT_DRAFT_INSERT_EVENT, handleDraftInsertion);
   }, [syncQueuedBusySendSnapshot]);
 
   useEffect(() => {

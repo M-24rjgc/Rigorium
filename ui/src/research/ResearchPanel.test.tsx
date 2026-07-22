@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '../i18n/config';
 import { ResearchPanelProvider } from '../contexts/ResearchPanelContext';
 import { authenticatedFetch } from '../utils/api';
+import { CHAT_DRAFT_INSERT_EVENT } from '../utils/chatDraftInsertion';
 import ResearchPanel from './ResearchPanel';
 import { directedEdgeEndpoints, RESEARCH_CITATION_MARKER_BUFFER } from './graphGeometry';
 import {
@@ -656,6 +657,44 @@ describe('ResearchPanel', () => {
     expect(libraryImport).toHaveBeenCalledWith([expect.objectContaining({ id: 'W1' })], { projectPath: 'D:/project' });
   });
 
+  it('selects map nodes without sending and inserts a structured reference only on explicit action', () => {
+    const draftInsert = vi.fn();
+    window.addEventListener(CHAT_DRAFT_INSERT_EVENT, draftInsert);
+
+    try {
+      render(
+        <I18nextProvider i18n={i18n}>
+          <ResearchPanelProvider>
+            <ResearchPanel artifact={artifact} projectPath="D:/project" />
+          </ResearchPanelProvider>
+        </I18nextProvider>,
+      );
+
+      fireEvent.click(screen.getByTestId('literature-map-node-W2'));
+      expect(draftInsert).not.toHaveBeenCalled();
+
+      const markCore = screen.getByRole('button', { name: 'Mark core / 标为核心' });
+      expect(markCore.getAttribute('aria-pressed')).toBe('false');
+      fireEvent.click(markCore);
+      expect(markCore.getAttribute('aria-pressed')).toBe('true');
+      expect(screen.getByTestId('literature-map-node-W2').getAttribute('data-paper-states')).toContain('core');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Set seed / 设为种子' }));
+      fireEvent.click(screen.getByRole('button', { name: /Papers|论文/i }));
+      expect(screen.getByTestId('research-paper-seed-W2').textContent).toContain('Seed');
+      fireEvent.click(screen.getByRole('button', { name: /Map|地图/i }));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add to chat / 加入对话' }));
+      expect(draftInsert).toHaveBeenCalledTimes(1);
+      expect((draftInsert.mock.calls[0]?.[0] as CustomEvent).detail).toEqual(expect.objectContaining({
+        source: 'research-literature',
+        text: expect.stringContaining('Title: Second research paper'),
+      }));
+    } finally {
+      window.removeEventListener(CHAT_DRAFT_INSERT_EVENT, draftInsert);
+    }
+  });
+
   it('makes multi-source provenance and partial coverage explicit without relying on color', async () => {
     const { container } = render(
       <I18nextProvider i18n={i18n}>
@@ -897,7 +936,9 @@ describe('ResearchPanel', () => {
     );
 
     expect(screen.getByTestId('research-expansion-seed').textContent).toContain('Seed research paper');
-    expect(screen.getByText('Seed paper', { exact: true })).not.toBeNull();
+    const seedNode = screen.getByTestId('literature-map-node-Wseed');
+    expect(seedNode.getAttribute('aria-label')).toBe('Seed research paper');
+    expect(seedNode.getAttribute('data-seed')).toBe('true');
     const directions = screen.getByTestId('research-expansion-directions');
     expect(directions.textContent).toContain('References');
     expect(directions.textContent).toContain('Complete');
@@ -911,14 +952,12 @@ describe('ResearchPanel', () => {
     expect(directions.textContent).toContain('Only the first page of citing papers was available.');
     expect(directions.className).toContain('min-w-0');
 
-    const seedNode = screen.getByTestId('research-graph-node-Wseed');
-    expect(seedNode.getAttribute('data-seed')).toBe('true');
-    expect(screen.getByTestId('research-graph-node-Wreference').getAttribute('data-seed')).toBe('false');
-    const referenceEdge = screen.getByTestId('research-edge-citation:Wseed:Wreference');
+    expect(screen.getByTestId('literature-map-node-Wreference').getAttribute('data-seed')).toBe('false');
+    const referenceEdge = screen.getByTestId('literature-map-edge-artifact:citation:Wseed:Wreference');
     expect(referenceEdge.getAttribute('data-source')).toBe('Wseed');
     expect(referenceEdge.getAttribute('data-target')).toBe('Wreference');
-    expect(referenceEdge.getAttribute('marker-end')).toContain('research-arrow');
-    const citationEdge = screen.getByTestId('research-edge-citation:Wciting:Wseed');
+    expect(referenceEdge.getAttribute('marker-end')).toContain('literature-map-arrow');
+    const citationEdge = screen.getByTestId('literature-map-edge-artifact:citation:Wciting:Wseed');
     expect(citationEdge.getAttribute('data-source')).toBe('Wciting');
     expect(citationEdge.getAttribute('data-target')).toBe('Wseed');
     expect(container.textContent).not.toContain('Shared topic (inferred)');
