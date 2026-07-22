@@ -441,10 +441,12 @@ try {
       id: 'primary',
       query: artifactQuery,
       requestLimit: 1,
+      category: 'primary',
     }, {
       id: 'alternative-1',
       query: 'packaged research systems',
       requestLimit: 1,
+      category: 'adjacent_field',
       rationale: 'Packaged alternative terminology verification',
     }];
     const sourceDefinitions = [{
@@ -565,6 +567,14 @@ try {
   const queryAudit = page.getByTestId('research-query-audit');
   await queryAudit.getByText(/Primary query|主查询/u, { exact: true }).first().waitFor({ timeout: 30_000 });
   await queryAudit.getByText(/Alternative query|替代查询/u, { exact: true }).first().waitFor({ timeout: 30_000 });
+  for (const category of ['primary', 'adjacent_field']) {
+    const badges = queryAudit.getByTestId(`research-query-category-${category}`);
+    await badges.first().waitFor({ state: 'visible', timeout: 30_000 });
+    assert.equal(await badges.count(), 3, `Expected three ${category} query-category badges.`);
+    await Promise.all(Array.from({ length: 3 }, (_, index) => (
+      badges.nth(index).waitFor({ state: 'visible', timeout: 30_000 })
+    )));
+  }
   await queryAudit.getByText('packaged research systems', { exact: true }).first().waitFor({ timeout: 30_000 });
   const queryLinks = queryAudit.getByRole('link', { name: /Open query|打开查询/u });
   assert.equal(await queryLinks.count(), 6, 'The packaged query audit did not expose every query-source URL.');

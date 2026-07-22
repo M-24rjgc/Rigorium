@@ -155,8 +155,16 @@ export type SearchQueryVariant = {
   id: string;
   query: string;
   requestLimit: number;
+  category?: SearchQueryVariantCategory;
   rationale?: string;
 };
+
+export type SearchQueryVariantCategory =
+  | 'primary'
+  | 'synonym'
+  | 'abbreviation'
+  | 'historical_term'
+  | 'adjacent_field';
 
 /** Existing discovery artifact. Keep this shape stable for persisted results. */
 export type LiteratureSearchArtifact = ResearchArtifactBase & {
@@ -471,11 +479,26 @@ function isLiteratureSearchPlan(value: unknown): value is LiteratureSearchPlan {
 }
 
 function isSearchQueryVariant(value: unknown): value is SearchQueryVariant {
-  return isRecord(value)
-    && isNonEmptyString(value.id)
-    && isNonEmptyString(value.query)
-    && isPositiveFiniteNumber(value.requestLimit)
-    && isOptionalString(value.rationale);
+  if (!isRecord(value)
+    || !isNonEmptyString(value.id)
+    || !isNonEmptyString(value.query)
+    || !isPositiveFiniteNumber(value.requestLimit)
+    || (value.category !== undefined && !isSearchQueryVariantCategory(value.category))
+    || !isOptionalString(value.rationale)) {
+    return false;
+  }
+  if (value.category === undefined) return true;
+  return value.id === 'primary'
+    ? value.category === 'primary'
+    : value.category !== 'primary';
+}
+
+function isSearchQueryVariantCategory(value: unknown): value is SearchQueryVariantCategory {
+  return value === 'primary'
+    || value === 'synonym'
+    || value === 'abbreviation'
+    || value === 'historical_term'
+    || value === 'adjacent_field';
 }
 
 function isLiteratureExpansionPlan(value: unknown): value is LiteratureExpansionPlan {

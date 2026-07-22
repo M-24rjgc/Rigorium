@@ -12,6 +12,7 @@ import type {
   SearchClassification,
   SearchPlan,
   SearchQueryVariant,
+  SearchQueryVariantCategory,
 } from "../../research/types.js";
 import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
 import type {
@@ -24,6 +25,8 @@ export type LiteratureSearchInput = {
   /** Agent-selected alternative terminology for the same natural-language goal. */
   queryVariants?: Array<{
     query: string;
+    /** The tool reserves primary for the main query. */
+    category?: Exclude<SearchQueryVariantCategory, "primary">;
     rationale?: string;
   }>;
   limit?: number;
@@ -71,13 +74,18 @@ The result includes normalized paper identities, source provenance, real citatio
         queryVariants: {
           type: "array",
           maxItems: 3,
-          description: "Optional alternative query formulations selected by the agent for terminology, aliases, or an adjacent field. The user does not need to provide these as commands.",
+          description: "Optional alternative query formulations selected by the agent when a synonym, abbreviation, historical term, or adjacent field materially improves recall. The user does not need to provide these as commands.",
           items: {
             type: "object",
             additionalProperties: false,
             required: ["query"],
             properties: {
               query: { type: "string" },
+              category: {
+                type: "string",
+                enum: ["synonym", "abbreviation", "historical_term", "adjacent_field"],
+                description: "Optional reason category. The primary query is assigned primary automatically.",
+              },
               rationale: { type: "string" },
             },
           },
@@ -353,7 +361,11 @@ function buildSearchQueryVariants(
     throw new PilotDeckToolRuntimeError("invalid_tool_input", "literature_search accepts at most three alternative query variants.");
   }
 
-  const candidates: Array<{ query: string; rationale?: string }> = [{ query: primaryQuery }];
+  const candidates: Array<{
+    query: string;
+    category?: SearchQueryVariantCategory;
+    rationale?: string;
+  }> = [{ query: primaryQuery, category: "primary" }];
   const fingerprints = new Set([queryFingerprint(primaryQuery)]);
   for (const alternative of alternatives ?? []) {
     if (!isRecord(alternative) || typeof alternative.query !== "string") {
@@ -363,15 +375,30 @@ function buildSearchQueryVariants(
     if (!query) {
       throw new PilotDeckToolRuntimeError("invalid_tool_input", "Each query variant requires a non-empty query string.");
     }
-    const fingerprint = queryFingerprint(query);
-    if (fingerprints.has(fingerprint)) continue;
-    fingerprints.add(fingerprint);
+    let category: Exclude<SearchQueryVariantCategory, "primary"> | undefined;
+    if (alternative.category !== undefined) {
+      const rawCategory: unknown = alternative.category;
+      if (!isSearchQueryVariantCategory(rawCategory) || rawCategory === "primary") {
+        throw new PilotDeckToolRuntimeError(
+          "invalid_tool_input",
+          "A query variant category must be synonym, abbreviation, historical_term, or adjacent_field.",
+        );
+      }
+      category = rawCategory;
+    }
 
     if (alternative.rationale !== undefined && typeof alternative.rationale !== "string") {
       throw new PilotDeckToolRuntimeError("invalid_tool_input", "A query variant rationale must be text when provided.");
     }
     const rationale = alternative.rationale?.trim();
-    candidates.push({ query, ...(rationale ? { rationale } : {}) });
+    const fingerprint = queryFingerprint(query);
+    if (fingerprints.has(fingerprint)) continue;
+    fingerprints.add(fingerprint);
+    candidates.push({
+      query,
+      ...(category ? { category } : {}),
+      ...(rationale ? { rationale } : {}),
+    });
   }
 
   // Every executed formulation needs at least one result slot. When the user
@@ -383,8 +410,17 @@ function buildSearchQueryVariants(
     id: index === 0 ? "primary" : `alternative-${index}`,
     query: candidate.query,
     requestLimit: requestLimits[index] ?? 1,
+    ...(candidate.category ? { category: candidate.category } : {}),
     ...(candidate.rationale ? { rationale: candidate.rationale } : {}),
   }));
+}
+
+function isSearchQueryVariantCategory(value: unknown): value is SearchQueryVariantCategory {
+  return value === "primary"
+    || value === "synonym"
+    || value === "abbreviation"
+    || value === "historical_term"
+    || value === "adjacent_field";
 }
 
 function allocateVariantLimits(totalLimit: number, count: number): number[] {

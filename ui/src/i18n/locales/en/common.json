@@ -580,6 +580,13 @@
     "queryRuns": "Query runs",
     "queryPrimary": "Primary query",
     "queryAlternative": "Alternative query",
+    "queryCategory": {
+      "primary": "Primary",
+      "synonym": "Synonym",
+      "abbreviation": "Abbreviation",
+      "historical_term": "Historical term",
+      "adjacent_field": "Adjacent field"
+    },
     "queryRunCounts": "{{requested}} requested · {{returned}} returned",
     "queryRationale": "Reason: {{reason}}",
     "queryOpen": "Open query",

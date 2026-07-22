@@ -578,6 +578,13 @@
     "queryRuns": "查询运行记录",
     "queryPrimary": "主查询",
     "queryAlternative": "替代查询",
+    "queryCategory": {
+      "primary": "主查询",
+      "synonym": "同义术语",
+      "abbreviation": "缩写",
+      "historical_term": "历史术语",
+      "adjacent_field": "相邻领域"
+    },
     "queryRunCounts": "请求 {{requested}} 条 · 返回 {{returned}} 条",
     "queryRationale": "原因：{{reason}}",
     "queryOpen": "打开查询",

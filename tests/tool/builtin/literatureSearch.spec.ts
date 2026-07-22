@@ -117,6 +117,12 @@ test("literature_search normalizes OpenAlex papers and real citation edges", asy
   assert.equal(result.data?.papers[0]?.provenance.length, 3);
   assert.equal(result.data?.papers[0]?.identity.arxiv, "2401.12345");
   assert.equal(result.data?.papers[0]?.identity.arxivVersion, 2);
+  assert.deepEqual(result.data?.plan.queryVariants, [{
+    id: "primary",
+    query: "research agents",
+    requestLimit: 2,
+    category: "primary",
+  }]);
   const openAlexUrl = requestedUrls.find((url) => url.includes("api.openalex.org")) ?? "";
   const crossrefUrl = requestedUrls.find((url) => url.includes("api.crossref.org")) ?? "";
   const arxivUrl = requestedUrls.find((url) => url.includes("arxiv.test")) ?? "";
@@ -168,7 +174,11 @@ test("literature_search audits agent-selected query variants and merges their ca
     {
       query: "research agents",
       limit: 5,
-      queryVariants: [{ query: "agentic systems", rationale: "common adjacent terminology" }],
+      queryVariants: [{
+        query: "agentic systems",
+        category: "adjacent_field",
+        rationale: "common adjacent terminology",
+      }],
     },
     {
       cwd: join(root, "project"),
@@ -178,11 +188,12 @@ test("literature_search audits agent-selected query variants and merges their ca
   );
 
   assert.deepEqual(result.data?.plan.queryVariants, [
-    { id: "primary", query: "research agents", requestLimit: 3 },
+    { id: "primary", query: "research agents", requestLimit: 3, category: "primary" },
     {
       id: "alternative-1",
       query: "agentic systems",
       requestLimit: 2,
+      category: "adjacent_field",
       rationale: "common adjacent terminology",
     },
   ]);
@@ -298,6 +309,65 @@ test("literature_search never allocates more query requests than the total resul
     "primary formulation",
     "first alternative",
   ]);
+});
+
+test("literature_search preserves agent-selected query categories and rejects primary as an alternative", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rigorium-literature-variant-categories-"));
+  const pilotHome = join(root, "pilot-home");
+  await writeResearchSettings({
+    scope: "global",
+    pilotHome,
+    settings: {
+      ...DEFAULT_RESEARCH_SETTINGS,
+      literature: {
+        ...DEFAULT_RESEARCH_SETTINGS.literature,
+        sources: {
+          openalex: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.openalex, enabled: true },
+          arxiv: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.arxiv, enabled: false },
+          crossref: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.crossref, enabled: false },
+        },
+      },
+    },
+  });
+  const tool = createLiteratureSearchTool({
+    fetchImpl: async () => jsonResponse({ meta: { count: 0 }, results: [] }),
+  });
+  const context = {
+    cwd: join(root, "project"),
+    env: { PILOT_HOME: pilotHome },
+    now: () => new Date("2026-07-22T00:00:00.000Z"),
+  } as any;
+
+  const result = await tool.execute({
+    query: "large language models",
+    limit: 4,
+    queryVariants: [
+      { query: "language models", category: "synonym" },
+      { query: "LLMs", category: "abbreviation" },
+      { query: "neural language models", category: "historical_term" },
+    ],
+  }, context);
+
+  assert.deepEqual(result.data?.plan.queryVariants?.map((variant) => [variant.id, variant.category]), [
+    ["primary", "primary"],
+    ["alternative-1", "synonym"],
+    ["alternative-2", "abbreviation"],
+    ["alternative-3", "historical_term"],
+  ]);
+  await assert.rejects(
+    tool.execute({
+      query: "large language models",
+      queryVariants: [{ query: "duplicate primary label", category: "primary" }],
+    } as any, context),
+    /category must be synonym, abbreviation, historical_term, or adjacent_field/i,
+  );
+  await assert.rejects(
+    tool.execute({
+      query: "large language models",
+      queryVariants: [{ query: "unsupported label", category: "unsupported_category" }],
+    } as any, context),
+    /category must be synonym, abbreviation, historical_term, or adjacent_field/i,
+  );
 });
 
 test("literature_search preserves a structured failed-source artifact", async () => {

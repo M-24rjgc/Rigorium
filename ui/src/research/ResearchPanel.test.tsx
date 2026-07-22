@@ -118,11 +118,12 @@ const queryVariantArtifact: ResearchArtifact = {
   plan: {
     ...artifact.plan,
     queryVariants: [
-      { id: 'primary', query: 'research agents', requestLimit: 2 },
+      { id: 'primary', query: 'research agents', requestLimit: 2, category: 'primary' },
       {
         id: 'alternative-1',
         query: 'agentic systems',
         requestLimit: 2,
+        category: 'adjacent_field',
         rationale: 'Common adjacent terminology',
       },
     ],
@@ -576,6 +577,52 @@ describe('ResearchPanel', () => {
 
   it('shows every audited query variant and its real retrieval link', () => {
     expect(isResearchArtifact(queryVariantArtifact)).toBe(true);
+    expect(isResearchArtifact({
+      ...queryVariantArtifact,
+      plan: {
+        ...queryVariantArtifact.plan,
+        queryVariants: [{
+          id: 'primary',
+          query: 'research agents',
+          requestLimit: 2,
+          category: 'unsupported_category',
+        }],
+      },
+    })).toBe(false);
+    expect(isResearchArtifact({
+      ...queryVariantArtifact,
+      plan: {
+        ...queryVariantArtifact.plan,
+        queryVariants: [{
+          id: 'primary',
+          query: 'research agents',
+          requestLimit: 2,
+          category: 'adjacent_field',
+        }],
+      },
+    })).toBe(false);
+    expect(isResearchArtifact({
+      ...queryVariantArtifact,
+      plan: {
+        ...queryVariantArtifact.plan,
+        queryVariants: [{
+          id: 'alternative-1',
+          query: 'agentic systems',
+          requestLimit: 2,
+          category: 'primary',
+        }],
+      },
+    })).toBe(false);
+    expect(isResearchArtifact({
+      ...queryVariantArtifact,
+      plan: {
+        ...queryVariantArtifact.plan,
+        queryVariants: [
+          { id: 'primary', query: 'research agents', requestLimit: 2 },
+          { id: 'alternative-1', query: 'agentic systems', requestLimit: 2 },
+        ],
+      },
+    })).toBe(true);
     render(
       <I18nextProvider i18n={i18n}>
         <ResearchPanelProvider>
@@ -589,6 +636,8 @@ describe('ResearchPanel', () => {
     expect(audit.textContent).toContain('research agents');
     expect(audit.textContent).toContain('Alternative query');
     expect(audit.textContent).toContain('agentic systems');
+    expect(screen.getByTestId('research-query-category-primary').textContent).toContain('Primary');
+    expect(screen.getByTestId('research-query-category-adjacent_field').textContent).toContain('Adjacent field');
     expect(audit.textContent).toContain('Common adjacent terminology');
     expect(audit.textContent).toContain('OpenAlex API error (400)');
     const links = screen.getAllByRole('link', { name: /Open query|打开查询/i });

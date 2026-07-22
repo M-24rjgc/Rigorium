@@ -988,6 +988,9 @@ function QueryAuditSummary({
           const variantLabel = run.queryVariantId === 'primary'
             ? t('researchPanel.queryPrimary', { defaultValue: 'Primary query' })
             : t('researchPanel.queryAlternative', { defaultValue: 'Alternative query' });
+          const categoryLabel = variant?.category
+            ? t(`researchPanel.queryCategory.${variant.category}`, { defaultValue: variant.category })
+            : null;
           return (
             <div
               key={`${run.queryVariantId ?? 'query'}:${run.id}:${index}`}
@@ -1000,6 +1003,14 @@ function QueryAuditSummary({
                   run.status === 'ok' ? 'bg-emerald-500' : run.status === 'disabled' ? 'bg-neutral-400' : 'bg-red-500',
                 )} />
                 <span className="font-medium text-neutral-700 dark:text-neutral-200">{variantLabel}</span>
+                {categoryLabel ? (
+                  <span
+                    data-testid={`research-query-category-${variant?.category}`}
+                    className="rounded bg-indigo-50 px-1.5 py-0.5 font-medium text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-200"
+                  >
+                    {categoryLabel}
+                  </span>
+                ) : null}
                 <span className="min-w-0 break-words text-neutral-500 dark:text-neutral-400">
                   {sourceDisplayName(run.id, sourceNameById)}
                 </span>

@@ -102,12 +102,21 @@ export type SearchClassification = {
  * search. The primary formulation remains in `SearchPlan.query` for existing
  * consumers; this list makes any broadened terminology reproducible.
  */
+export type SearchQueryVariantCategory =
+  | "primary"
+  | "synonym"
+  | "abbreviation"
+  | "historical_term"
+  | "adjacent_field";
+
 export type SearchQueryVariant = {
   /** Stable artifact-local identifier assigned by the literature tool. */
   id: string;
   query: string;
   /** Per-source result cap allocated from the search's final candidate limit. */
   requestLimit: number;
+  /** Optional reason category for this concrete query formulation. */
+  category?: SearchQueryVariantCategory;
   /** Optional concise reason for using this alternative formulation. */
   rationale?: string;
 };
