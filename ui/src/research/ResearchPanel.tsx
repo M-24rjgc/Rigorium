@@ -14,9 +14,12 @@ import {
   Library,
   Network,
   Paperclip,
+  PenLine,
+  Plus,
   RefreshCw,
   Search,
   Star,
+  Trash2,
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -30,12 +33,16 @@ import {
   getZoteroItemDetails,
   getZoteroItemExport,
 } from './zoteroItemApi';
+import { confirmZoteroCloudWrite, importPapersIntoZotero, previewZoteroCloudWrite } from './zoteroCloudApi';
 import type {
   ResearchArtifact,
   ResearchPaper,
   ResearchRelationEdge,
   ResearchSettingsSnapshot,
   ZoteroAttachmentFullTextResult,
+  ZoteroCloudWriteIntent,
+  ZoteroCloudWritePlan,
+  ZoteroCloudWriteResult,
   ZoteroExportFormat,
   ZoteroItemDetailsResult,
   ZoteroItemsResult,
@@ -233,17 +240,7 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
     setImporting(true);
     setImportMessage(null);
     try {
-      const response = await authenticatedFetch('/api/research/zotero/import', {
-        method: 'POST',
-        body: JSON.stringify({
-          confirmed: true,
-          projectPath,
-          papers: [confirmingPaper],
-        }),
-        suppressServerErrorToast: true,
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || 'Zotero import failed.');
+      await importPapersIntoZotero([confirmingPaper], { projectPath });
       setImportMessage({
         kind: 'success',
         text: t('researchPanel.importSuccess', { defaultValue: 'Saved to Zotero.' }),
@@ -743,6 +740,11 @@ type ZoteroAttachmentTextState = {
 
 type ZoteroExportAction = `${ZoteroExportFormat}:${'copy' | 'download'}`;
 
+type ZoteroNoteEditorState =
+  | { mode: 'create'; text: string }
+  | { mode: 'update'; noteKey: string; text: string }
+  | null;
+
 function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; projectPath?: string }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -750,6 +752,12 @@ function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; pro
   const [attachmentTextByKey, setAttachmentTextByKey] = useState<Record<string, ZoteroAttachmentTextState>>({});
   const [exportAction, setExportAction] = useState<ZoteroExportAction | null>(null);
   const [exportMessage, setExportMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [tagEditorOpen, setTagEditorOpen] = useState(false);
+  const [tagDraft, setTagDraft] = useState('');
+  const [noteEditor, setNoteEditor] = useState<ZoteroNoteEditorState>(null);
+  const [cloudPlan, setCloudPlan] = useState<ZoteroCloudWritePlan | null>(null);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudMessage, setCloudMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const url = safeExternalUrl(item.url);
   const itemTitle = item.title || t('researchPanel.untitledItem', { defaultValue: 'Untitled item' });
   const detail = detailsState.data?.detail;
@@ -758,15 +766,7 @@ function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; pro
   const detailNotes = detail?.notes ?? [];
   const detailAttachments = detail?.attachments ?? [];
 
-  const toggleDetails = useCallback(() => {
-    if (expanded) {
-      setExpanded(false);
-      return;
-    }
-
-    setExpanded(true);
-    if (detailsState.status === 'loading' || detailsState.status === 'ready') return;
-
+  const loadDetails = useCallback(() => {
     setDetailsState({ status: 'loading' });
     void getZoteroItemDetails(item.key, { projectPath })
       .then((data) => {
@@ -779,7 +779,18 @@ function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; pro
           error: error instanceof Error ? error.message : String(error),
         });
       });
-  }, [detailsState.status, expanded, item.key, projectPath]);
+  }, [item.key, projectPath]);
+
+  const toggleDetails = useCallback(() => {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+
+    setExpanded(true);
+    if (detailsState.status === 'loading' || detailsState.status === 'ready') return;
+    loadDetails();
+  }, [detailsState.status, expanded, loadDetails]);
 
   const readAttachmentText = useCallback((attachment: ZoteroLibraryAttachment) => {
     const current = attachmentTextByKey[attachment.key];
@@ -845,6 +856,103 @@ function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; pro
       .finally(() => setExportAction(null));
   }, [item, projectPath, t]);
 
+  const previewCloudWrite = useCallback((intent: ZoteroCloudWriteIntent) => {
+    setCloudBusy(true);
+    setCloudMessage(null);
+    void previewZoteroCloudWrite(intent, { projectPath })
+      .then((plan) => setCloudPlan(plan))
+      .catch((error) => {
+        setCloudMessage({
+          kind: 'error',
+          text: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => setCloudBusy(false));
+  }, [projectPath]);
+
+  const confirmCloudWrite = useCallback(() => {
+    if (!cloudPlan) return;
+    setCloudBusy(true);
+    setCloudMessage(null);
+    void confirmZoteroCloudWrite(cloudPlan, { projectPath })
+      .then((result: ZoteroCloudWriteResult) => {
+        setCloudPlan(null);
+        if (result.status === 'succeeded' || result.status === 'partial') {
+          setTagEditorOpen(false);
+          setNoteEditor(null);
+          setCloudMessage({
+            kind: 'success',
+            text: result.status === 'partial'
+              ? t('researchPanel.cloudWritePartial', { defaultValue: 'Some Zotero changes were applied. Review the result before continuing.' })
+              : t('researchPanel.cloudWriteSucceeded', { defaultValue: 'Zotero changes were applied.' }),
+          });
+          loadDetails();
+          return;
+        }
+        const conflict = result.conflict;
+        setCloudMessage({
+          kind: 'error',
+          text: result.status === 'conflict'
+            ? t('researchPanel.cloudWriteConflict', { defaultValue: 'Zotero changed remotely. Review the latest item and preview again.' })
+            : result.error || t('researchPanel.cloudWriteFailed', { defaultValue: 'Zotero could not apply this change.' }),
+        });
+        if (conflict?.kind === 'note' && conflict.remoteHtml) {
+          const remoteHtml = conflict.remoteHtml;
+          setNoteEditor((current) => current?.mode === 'update'
+            ? { ...current, text: plainZoteroHtml(remoteHtml) }
+            : current);
+        }
+      })
+      .catch((error) => {
+        setCloudMessage({
+          kind: 'error',
+          text: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => setCloudBusy(false));
+  }, [cloudPlan, loadDetails, projectPath, t]);
+
+  const startTagEditor = useCallback(() => {
+    setCloudMessage(null);
+    setTagDraft(detailTags.join(', '));
+    setTagEditorOpen(true);
+    setNoteEditor(null);
+  }, [detailTags]);
+
+  const previewTagReplacement = useCallback(() => {
+    previewCloudWrite({
+      kind: 'tags',
+      itemKey: item.key,
+      operation: 'replace',
+      tags: tagDraft.split(',').map((tag) => tag.trim()).filter(Boolean),
+    });
+  }, [item.key, previewCloudWrite, tagDraft]);
+
+  const startCreateNote = useCallback(() => {
+    setCloudMessage(null);
+    setTagEditorOpen(false);
+    setNoteEditor({ mode: 'create', text: '' });
+  }, []);
+
+  const startUpdateNote = useCallback((note: ZoteroLibraryNote) => {
+    setCloudMessage(null);
+    setTagEditorOpen(false);
+    setNoteEditor({ mode: 'update', noteKey: note.key, text: plainNoteText(note) });
+  }, []);
+
+  const previewNote = useCallback(() => {
+    if (!noteEditor) return;
+    const html = zoteroNoteHtml(noteEditor.text);
+    previewCloudWrite(noteEditor.mode === 'create'
+      ? { kind: 'note', operation: 'create', parentItemKey: item.key, html }
+      : { kind: 'note', operation: 'update', noteKey: noteEditor.noteKey, html });
+  }, [item.key, noteEditor, previewCloudWrite]);
+
+  const previewDeleteNote = useCallback((note: ZoteroLibraryNote) => {
+    setCloudMessage(null);
+    previewCloudWrite({ kind: 'note', operation: 'delete', noteKey: note.key });
+  }, [previewCloudWrite]);
+
   return (
     <div className="min-w-0 bg-white dark:bg-neutral-950">
       <div className="flex min-w-0 items-start gap-1.5 px-3 py-3">
@@ -901,8 +1009,31 @@ function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; pro
           {detailsState.status !== 'loading' ? (
             <div className="space-y-3">
               <ZoteroItemMetadata item={detailItem} />
-              <ZoteroItemTags tags={detailTags} />
-              <ZoteroItemNotes notes={detailNotes} />
+              <ZoteroItemTags tags={detailTags} onEdit={startTagEditor} />
+              {tagEditorOpen ? (
+                <ZoteroTagEditor
+                  value={tagDraft}
+                  busy={cloudBusy}
+                  onChange={setTagDraft}
+                  onCancel={() => setTagEditorOpen(false)}
+                  onPreview={previewTagReplacement}
+                />
+              ) : null}
+              <ZoteroItemNotes
+                notes={detailNotes}
+                onCreate={startCreateNote}
+                onEdit={startUpdateNote}
+                onDelete={previewDeleteNote}
+              />
+              {noteEditor ? (
+                <ZoteroNoteEditor
+                  editor={noteEditor}
+                  busy={cloudBusy}
+                  onChange={(text) => setNoteEditor((current) => current ? { ...current, text } : current)}
+                  onCancel={() => setNoteEditor(null)}
+                  onPreview={previewNote}
+                />
+              ) : null}
               <ZoteroItemAttachments
                 attachments={detailAttachments}
                 states={attachmentTextByKey}
@@ -913,6 +1044,22 @@ function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; pro
                 message={exportMessage}
                 onExport={runExport}
               />
+              {cloudMessage ? (
+                <p className={cn(
+                  'text-[10px] leading-4',
+                  cloudMessage.kind === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300',
+                )} role="status">
+                  {cloudMessage.text}
+                </p>
+              ) : null}
+              {cloudPlan ? (
+                <ZoteroCloudWritePreview
+                  plan={cloudPlan}
+                  busy={cloudBusy}
+                  onCancel={() => setCloudPlan(null)}
+                  onConfirm={confirmCloudWrite}
+                />
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -951,13 +1098,24 @@ function ZoteroItemMetadata({ item }: { item: ZoteroLibraryItem }) {
   );
 }
 
-function ZoteroItemTags({ tags }: { tags: string[] }) {
+function ZoteroItemTags({ tags, onEdit }: { tags: string[]; onEdit: () => void }) {
   const { t } = useTranslation();
   return (
     <section>
-      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
-        {t('researchPanel.zoteroTags', { defaultValue: 'Tags' })}
-      </h4>
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+          {t('researchPanel.zoteroTags', { defaultValue: 'Tags' })}
+        </h4>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+          aria-label={t('researchPanel.editZoteroTags', { defaultValue: 'Edit Zotero tags' })}
+          title={t('researchPanel.editZoteroTags', { defaultValue: 'Edit Zotero tags' })}
+        >
+          <PenLine className="h-3.5 w-3.5" />
+        </button>
+      </div>
       {tags.length > 0 ? (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {tags.map((tag) => (
@@ -973,13 +1131,34 @@ function ZoteroItemTags({ tags }: { tags: string[] }) {
   );
 }
 
-function ZoteroItemNotes({ notes }: { notes: ZoteroLibraryNote[] }) {
+function ZoteroItemNotes({
+  notes,
+  onCreate,
+  onEdit,
+  onDelete,
+}: {
+  notes: ZoteroLibraryNote[];
+  onCreate: () => void;
+  onEdit: (note: ZoteroLibraryNote) => void;
+  onDelete: (note: ZoteroLibraryNote) => void;
+}) {
   const { t } = useTranslation();
   return (
     <section>
-      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
-        {t('researchPanel.zoteroNotes', { defaultValue: 'Notes' })}
-      </h4>
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+          {t('researchPanel.zoteroNotes', { defaultValue: 'Notes' })}
+        </h4>
+        <button
+          type="button"
+          onClick={onCreate}
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+          aria-label={t('researchPanel.addZoteroNote', { defaultValue: 'Add Zotero note' })}
+          title={t('researchPanel.addZoteroNote', { defaultValue: 'Add Zotero note' })}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
       {notes.length > 0 ? (
         <div className="mt-1.5 space-y-1.5">
           {notes.map((note) => {
@@ -992,6 +1171,26 @@ function ZoteroItemNotes({ notes }: { notes: ZoteroLibraryNote[] }) {
                 <p className="mt-1 whitespace-pre-wrap break-words leading-4 text-neutral-500 dark:text-neutral-400">
                   {noteText || t('researchPanel.emptyNote', { defaultValue: 'This note is empty.' })}
                 </p>
+                <div className="mt-1.5 flex justify-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onEdit(note)}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    aria-label={t('researchPanel.editZoteroNote', { defaultValue: 'Edit Zotero note' })}
+                    title={t('researchPanel.editZoteroNote', { defaultValue: 'Edit Zotero note' })}
+                  >
+                    <PenLine className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(note)}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/30 dark:hover:text-red-300"
+                    aria-label={t('researchPanel.deleteZoteroNote', { defaultValue: 'Delete Zotero note' })}
+                    title={t('researchPanel.deleteZoteroNote', { defaultValue: 'Delete Zotero note' })}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </details>
             );
           })}
@@ -999,6 +1198,141 @@ function ZoteroItemNotes({ notes }: { notes: ZoteroLibraryNote[] }) {
       ) : (
         <p className="mt-1 text-[10px] text-neutral-400">{t('researchPanel.noZoteroNotes', { defaultValue: 'No notes.' })}</p>
       )}
+    </section>
+  );
+}
+
+function ZoteroTagEditor({
+  value,
+  busy,
+  onChange,
+  onCancel,
+  onPreview,
+}: {
+  value: string;
+  busy: boolean;
+  onChange: (value: string) => void;
+  onCancel: () => void;
+  onPreview: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <section className="rounded-md border border-indigo-200 bg-indigo-50/50 p-2 dark:border-indigo-900/70 dark:bg-indigo-950/20">
+      <label className="block text-[10px] font-medium text-neutral-600 dark:text-neutral-300">
+        {t('researchPanel.editZoteroTags', { defaultValue: 'Edit Zotero tags' })}
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="mt-1.5 h-8 w-full rounded-md border border-neutral-200 bg-white px-2 text-[10px] text-neutral-700 outline-none focus:border-indigo-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          aria-label={t('researchPanel.editZoteroTags', { defaultValue: 'Edit Zotero tags' })}
+        />
+      </label>
+      <div className="mt-2 flex justify-end gap-1.5">
+        <button type="button" onClick={onCancel} disabled={busy} className="inline-flex h-7 items-center rounded-md border border-neutral-200 px-2 text-[10px] font-medium text-neutral-600 dark:border-neutral-700 dark:text-neutral-300">
+          {t('researchPanel.cancel', { defaultValue: 'Cancel' })}
+        </button>
+        <button type="button" onClick={onPreview} disabled={busy} className="inline-flex h-7 items-center rounded-md bg-indigo-600 px-2 text-[10px] font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+          {busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <PenLine className="h-3 w-3" />}
+          {t('researchPanel.previewZoteroChange', { defaultValue: 'Preview change' })}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ZoteroNoteEditor({
+  editor,
+  busy,
+  onChange,
+  onCancel,
+  onPreview,
+}: {
+  editor: Exclude<ZoteroNoteEditorState, null>;
+  busy: boolean;
+  onChange: (value: string) => void;
+  onCancel: () => void;
+  onPreview: () => void;
+}) {
+  const { t } = useTranslation();
+  const creating = editor.mode === 'create';
+  return (
+    <section className="rounded-md border border-indigo-200 bg-indigo-50/50 p-2 dark:border-indigo-900/70 dark:bg-indigo-950/20">
+      <label className="block text-[10px] font-medium text-neutral-600 dark:text-neutral-300">
+        {creating
+          ? t('researchPanel.addZoteroNote', { defaultValue: 'Add Zotero note' })
+          : t('researchPanel.editZoteroNote', { defaultValue: 'Edit Zotero note' })}
+        <textarea
+          value={editor.text}
+          onChange={(event) => onChange(event.target.value)}
+          rows={5}
+          className="mt-1.5 block w-full resize-y rounded-md border border-neutral-200 bg-white p-2 text-[10px] leading-4 text-neutral-700 outline-none focus:border-indigo-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          aria-label={creating
+            ? t('researchPanel.addZoteroNote', { defaultValue: 'Add Zotero note' })
+            : t('researchPanel.editZoteroNote', { defaultValue: 'Edit Zotero note' })}
+        />
+      </label>
+      <div className="mt-2 flex justify-end gap-1.5">
+        <button type="button" onClick={onCancel} disabled={busy} className="inline-flex h-7 items-center rounded-md border border-neutral-200 px-2 text-[10px] font-medium text-neutral-600 dark:border-neutral-700 dark:text-neutral-300">
+          {t('researchPanel.cancel', { defaultValue: 'Cancel' })}
+        </button>
+        <button type="button" onClick={onPreview} disabled={busy} className="inline-flex h-7 items-center rounded-md bg-indigo-600 px-2 text-[10px] font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+          {busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <PenLine className="h-3 w-3" />}
+          {t('researchPanel.previewZoteroChange', { defaultValue: 'Preview change' })}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ZoteroCloudWritePreview({
+  plan,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  plan: ZoteroCloudWritePlan;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const { t } = useTranslation();
+  const isTags = plan.kind === 'tags';
+  const addedTags = isTags ? (plan.afterTags ?? []).filter((tag) => !(plan.beforeTags ?? []).includes(tag)) : [];
+  const removedTags = isTags ? (plan.beforeTags ?? []).filter((tag) => !(plan.afterTags ?? []).includes(tag)) : [];
+  const summary = isTags
+    ? t('researchPanel.zoteroTagChangeSummary', { defaultValue: 'Replace tags for this item.' })
+    : plan.operation === 'create'
+      ? t('researchPanel.zoteroCreateNoteSummary', { defaultValue: 'Create a note on this item.' })
+      : plan.operation === 'update'
+        ? t('researchPanel.zoteroUpdateNoteSummary', { defaultValue: 'Replace the selected Zotero note.' })
+        : t('researchPanel.zoteroDeleteNoteSummary', { defaultValue: 'Delete the selected Zotero note.' });
+  return (
+    <section className="rounded-md border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-900 dark:bg-amber-950/30">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+        <div className="min-w-0 flex-1">
+          <h4 className="text-[10px] font-semibold text-amber-900 dark:text-amber-100">
+            {t('researchPanel.confirmZoteroCloudChange', { defaultValue: 'Confirm Zotero change' })}
+          </h4>
+          <p className="mt-1 text-[10px] leading-4 text-amber-800 dark:text-amber-200">{summary}</p>
+          {isTags ? (
+            <div className="mt-1.5 space-y-1 text-[10px] leading-4">
+              {addedTags.length > 0 ? <p className="text-emerald-700 dark:text-emerald-300">+ {addedTags.join(', ')}</p> : null}
+              {removedTags.length > 0 ? <p className="text-red-700 dark:text-red-300">- {removedTags.join(', ')}</p> : null}
+              {addedTags.length === 0 && removedTags.length === 0 ? <p className="text-neutral-600 dark:text-neutral-300">{t('researchPanel.noZoteroChange', { defaultValue: 'No field changes.' })}</p> : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div className="mt-2.5 flex justify-end gap-1.5">
+        <button type="button" onClick={onCancel} disabled={busy} className="inline-flex h-7 items-center rounded-md border border-amber-300 px-2 text-[10px] font-medium text-amber-900 dark:border-amber-800 dark:text-amber-100">
+          {t('researchPanel.cancel', { defaultValue: 'Cancel' })}
+        </button>
+        <button type="button" onClick={onConfirm} disabled={busy} className="inline-flex h-7 items-center gap-1 rounded-md bg-amber-700 px-2 text-[10px] font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+          {busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+          {t('researchPanel.confirmZoteroCloudChange', { defaultValue: 'Confirm Zotero change' })}
+        </button>
+      </div>
     </section>
   );
 }
@@ -1126,11 +1460,24 @@ function ZoteroItemExports({
 }
 
 function plainNoteText(note: ZoteroLibraryNote): string {
-  const source = note.text || note.html || '';
+  return plainZoteroHtml(note.text || note.html || '');
+}
+
+function plainZoteroHtml(source: string): string {
   return source
     .replace(/<[^>]*>/gu, ' ')
     .replace(/\s+/gu, ' ')
     .trim();
+}
+
+function zoteroNoteHtml(text: string): string {
+  const escaped = text
+    .trim()
+    .replace(/&/gu, '&amp;')
+    .replace(/</gu, '&lt;')
+    .replace(/>/gu, '&gt;')
+    .replace(/"/gu, '&quot;');
+  return escaped ? `<p>${escaped.replace(/\r?\n/gu, '<br>')}</p>` : '';
 }
 
 function exportFormatName(format: ZoteroExportFormat): string {

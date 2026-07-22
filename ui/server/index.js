@@ -442,7 +442,7 @@ const wss = new WebSocketServer({
 app.locals.wss = wss;
 
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token'] }));
-app.use(express.json({
+const generalJsonParser = express.json({
     limit: '50mb',
     type: (req) => {
         // Skip multipart/form-data requests (for file uploads like images)
@@ -452,8 +452,18 @@ app.use(express.json({
         }
         return contentType.includes('json');
     }
-}));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+});
+const generalUrlencodedParser = express.urlencoded({ limit: '50mb', extended: true });
+const isDesktopZoteroProtectedPath = (req) => (
+    req.path.startsWith('/api/research/zotero/cloud')
+    || (process.env.PILOTDECK_DESKTOP === '1' && req.path === '/api/research/zotero/import')
+);
+app.use((req, res, next) => (
+    isDesktopZoteroProtectedPath(req) ? next() : generalJsonParser(req, res, next)
+));
+app.use((req, res, next) => (
+    isDesktopZoteroProtectedPath(req) ? next() : generalUrlencodedParser(req, res, next)
+));
 
 // Public health check endpoint (no authentication required)
 app.get('/health', (req, res) => {

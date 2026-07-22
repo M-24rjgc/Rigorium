@@ -1,5 +1,18 @@
 export type ResearchSettingsScope = "global" | "project";
 
+/**
+ * Cloud library selection is intentionally non-secret. The API credential is
+ * supplied by a process-local transport and never belongs in research settings.
+ */
+export type ZoteroCloudLibraryType = "user" | "group";
+
+export type ZoteroCloudSettings = {
+  enabled: boolean;
+  libraryType: ZoteroCloudLibraryType;
+  /** Required for group libraries. A user-library ID is resolved from the credential. */
+  libraryId: string | null;
+};
+
 export type ResearchSettings = {
   schemaVersion: 1;
   literature: {
@@ -36,6 +49,7 @@ export type ResearchSettings = {
      */
     collectionKey: string | null;
     collectionName: string | null;
+    cloud: ZoteroCloudSettings;
   };
   citation: {
     style: "apa" | "chicago-author-date" | "ieee" | "mla";
@@ -326,4 +340,231 @@ export interface LibraryProvider {
   }): Promise<ZoteroItemExport>;
   matchPapers(input: { papers: ResearchPaper[]; collectionKey?: string }): Promise<ZoteroPaperMatch[]>;
   importPapers(input: { papers: ResearchPaper[]; confirmed: boolean }): Promise<LibraryImportResult>;
+}
+
+export type ZoteroCloudStatusKind =
+  | "unconfigured"
+  | "ready"
+  | "read_only"
+  | "offline"
+  | "rate_limited"
+  | "error";
+
+export type ZoteroCloudLibrary = {
+  type: ZoteroCloudLibraryType;
+  id: string;
+  path: string;
+};
+
+export type ZoteroCloudStatus = {
+  provider: "zotero-cloud";
+  status: ZoteroCloudStatusKind;
+  configured: boolean;
+  available: boolean;
+  writable: boolean;
+  checkedAt: string;
+  library?: ZoteroCloudLibrary;
+  libraryVersion?: number;
+  retryAfterSeconds?: number;
+  backoffSeconds?: number;
+  error?: string;
+};
+
+/**
+ * The caller owns authentication. This contract deliberately carries only a
+ * relative Zotero Web API path, HTTP data, and an already-authorized response.
+ */
+export type ZoteroCloudTransportRequest = {
+  path: string;
+  method: "GET" | "POST" | "PATCH" | "DELETE";
+  headers?: Record<string, string>;
+  body?: unknown;
+};
+
+export type ZoteroCloudTransportResponse = {
+  status: number;
+  headers?: Headers | Record<string, string | undefined>;
+  body?: unknown;
+};
+
+export interface ZoteroCloudTransport {
+  request(input: ZoteroCloudTransportRequest): Promise<ZoteroCloudTransportResponse>;
+}
+
+export type ZoteroCloudVersions = Record<string, number>;
+
+export type ZoteroCloudDeleted = {
+  items: string[];
+  collections: string[];
+  searches: string[];
+};
+
+export type ZoteroCloudSyncResult = {
+  status: "updated" | "unchanged" | "unavailable";
+  checkedAt: string;
+  provider: ZoteroCloudStatus;
+  sinceVersion?: number;
+  libraryVersion?: number;
+  itemVersions: ZoteroCloudVersions;
+  collectionVersions: ZoteroCloudVersions;
+  deleted: ZoteroCloudDeleted;
+  retryAfterSeconds?: number;
+  backoffSeconds?: number;
+};
+
+export type ZoteroCloudTagOperation = "replace" | "add" | "remove";
+
+export type ZoteroCloudTagWriteIntent = {
+  kind: "tags";
+  itemKey: string;
+  operation: ZoteroCloudTagOperation;
+  tags: string[];
+};
+
+export type ZoteroCloudCreateNoteIntent = {
+  kind: "note";
+  operation: "create";
+  parentItemKey: string;
+  html: string;
+};
+
+export type ZoteroCloudUpdateNoteIntent = {
+  kind: "note";
+  operation: "update";
+  noteKey: string;
+  html: string;
+};
+
+export type ZoteroCloudDeleteNoteIntent = {
+  kind: "note";
+  operation: "delete";
+  noteKey: string;
+};
+
+export type ZoteroCloudWriteIntent =
+  | ZoteroCloudTagWriteIntent
+  | ZoteroCloudCreateNoteIntent
+  | ZoteroCloudUpdateNoteIntent
+  | ZoteroCloudDeleteNoteIntent;
+
+type ZoteroCloudWritePlanBase = {
+  planId: string;
+  preparedAt: string;
+  library: ZoteroCloudLibrary;
+  libraryVersion: number;
+  requiresConfirmation: true;
+};
+
+export type ZoteroCloudTagWritePlan = ZoteroCloudWritePlanBase & {
+  kind: "tags";
+  itemKey: string;
+  itemVersion: number;
+  operation: ZoteroCloudTagOperation;
+  requestedTags: string[];
+  beforeTags: string[];
+  afterTags: string[];
+};
+
+export type ZoteroCloudCreateNoteWritePlan = ZoteroCloudWritePlanBase & {
+  kind: "note";
+  operation: "create";
+  parentItemKey: string;
+  parentItemVersion: number;
+  html: string;
+};
+
+export type ZoteroCloudUpdateNoteWritePlan = ZoteroCloudWritePlanBase & {
+  kind: "note";
+  operation: "update";
+  noteKey: string;
+  noteVersion: number;
+  beforeHtml: string;
+  html: string;
+};
+
+export type ZoteroCloudDeleteNoteWritePlan = ZoteroCloudWritePlanBase & {
+  kind: "note";
+  operation: "delete";
+  noteKey: string;
+  noteVersion: number;
+  beforeHtml: string;
+};
+
+export type ZoteroCloudWritePlan =
+  | ZoteroCloudTagWritePlan
+  | ZoteroCloudCreateNoteWritePlan
+  | ZoteroCloudUpdateNoteWritePlan
+  | ZoteroCloudDeleteNoteWritePlan;
+
+export type ZoteroCloudWriteConflict =
+  | {
+      kind: "tags";
+      itemKey: string;
+      originalVersion: number;
+      currentVersion?: number;
+      baseTags: string[];
+      localTags: string[];
+      remoteTags: string[];
+      reason: "unsafe_rebase" | "retry_exhausted";
+    }
+  | {
+      kind: "note";
+      operation: "create" | "update" | "delete";
+      noteKey?: string;
+      originalVersion?: number;
+      currentVersion?: number;
+      baseHtml?: string;
+      localHtml?: string;
+      remoteHtml?: string;
+      reason: "remote_changed" | "library_changed";
+    };
+
+export type ZoteroCloudBatchWriteSuccess = {
+  index: number;
+  key?: string;
+  version?: number;
+};
+
+export type ZoteroCloudBatchWriteFailure = {
+  index: number;
+  code?: number;
+  key?: string;
+  message: string;
+};
+
+export type ZoteroCloudWriteResult = {
+  planId: string;
+  status:
+    | "confirmation_required"
+    | "succeeded"
+    | "partial"
+    | "conflict"
+    | "forbidden"
+    | "not_found"
+    | "locked"
+    | "precondition_required"
+    | "rate_limited"
+    | "error";
+  executed: boolean;
+  libraryVersion?: number;
+  successful: ZoteroCloudBatchWriteSuccess[];
+  unchanged: ZoteroCloudBatchWriteSuccess[];
+  failed: ZoteroCloudBatchWriteFailure[];
+  retryCount: 0 | 1;
+  retryAfterSeconds?: number;
+  backoffSeconds?: number;
+  conflict?: ZoteroCloudWriteConflict;
+  error?: string;
+};
+
+export type ZoteroCloudExecuteWritePlanInput = {
+  plan: ZoteroCloudWritePlan;
+  confirmed: boolean;
+};
+
+export interface ZoteroCloudProvider {
+  getStatus(): Promise<ZoteroCloudStatus>;
+  probeIncrementalSync(input?: { sinceVersion?: number }): Promise<ZoteroCloudSyncResult>;
+  createWritePlan(intent: ZoteroCloudWriteIntent): Promise<ZoteroCloudWritePlan>;
+  executeWritePlan(input: ZoteroCloudExecuteWritePlanInput): Promise<ZoteroCloudWriteResult>;
 }

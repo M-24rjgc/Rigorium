@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -83,4 +83,55 @@ test("research settings preserve a project Zotero collection binding", async () 
   assert.equal(snapshot.effective.zotero.collectionKey, "ABCD1234");
   assert.equal(snapshot.effective.zotero.collectionName, "Project Evidence");
   assert.equal(snapshot.effective.zotero.useSelectedCollection, false);
+});
+
+test("research settings retain only non-secret Zotero cloud selection data", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rigorium-research-zotero-cloud-"));
+  const pilotHome = join(root, "pilot-home");
+  await writeResearchSettings({
+    scope: "global",
+    pilotHome,
+    settings: {
+      ...DEFAULT_RESEARCH_SETTINGS,
+      zotero: {
+        ...DEFAULT_RESEARCH_SETTINGS.zotero,
+        cloud: {
+          enabled: true,
+          libraryType: "group",
+          libraryId: "42",
+          // This deliberately simulates an untyped caller. Settings must not
+          // become a credential store even if one supplies an extra field.
+          apiKey: "must-not-be-written",
+        } as typeof DEFAULT_RESEARCH_SETTINGS.zotero.cloud,
+      },
+    },
+  });
+
+  const snapshot = await readResearchSettings({ pilotHome });
+  const raw = await readFile(snapshot.paths.global, "utf8");
+  assert.deepEqual(snapshot.effective.zotero.cloud, {
+    enabled: true,
+    libraryType: "group",
+    libraryId: "42",
+  });
+  assert.equal(raw.includes("must-not-be-written"), false);
+  assert.equal(raw.toLowerCase().includes("apikey"), false);
+});
+
+test("research settings reject invalid enabled Zotero cloud group IDs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rigorium-research-zotero-cloud-id-"));
+  await assert.rejects(
+    writeResearchSettings({
+      scope: "global",
+      pilotHome: root,
+      settings: {
+        ...DEFAULT_RESEARCH_SETTINGS,
+        zotero: {
+          ...DEFAULT_RESEARCH_SETTINGS.zotero,
+          cloud: { enabled: true, libraryType: "group", libraryId: "not-a-positive-id" },
+        },
+      },
+    }),
+    /positive integer/,
+  );
 });

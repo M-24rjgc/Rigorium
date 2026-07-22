@@ -3,13 +3,37 @@ import fetch from 'node-fetch';
 import { validateWorkspacePath } from './projects.js';
 import {
   createZoteroLibraryProvider,
+  createZoteroCloudProvider,
   readResearchSettings,
   writeResearchSettings,
   ZoteroInputError,
   ZoteroLocalApiError,
 } from '../../../src/research/index.ts';
+import {
+  createZoteroCloudTransport,
+  isAuthorizedDesktopZoteroCloudRequest,
+} from './zoteroCloudTransport.js';
 
 const router = express.Router();
+const zoteroCloudProviders = new Map();
+const protectedZoteroJsonParser = express.json({ limit: '512kb', type: 'application/json' });
+
+router.use('/zotero/cloud', (req, res, next) => {
+  if (!isAuthorizedDesktopZoteroCloudRequest(req.get('x-rigorium-zotero-cloud-session'))) {
+    return res.status(401).set('Cache-Control', 'no-store').json({ error: 'Unauthorized.' });
+  }
+  res.set('Cache-Control', 'no-store');
+  next();
+}, protectedZoteroJsonParser);
+
+router.use('/zotero/import', (req, res, next) => {
+  if (process.env.PILOTDECK_DESKTOP !== '1') return next();
+  if (!isAuthorizedDesktopZoteroCloudRequest(req.get('x-rigorium-zotero-cloud-session'))) {
+    return res.status(401).set('Cache-Control', 'no-store').json({ error: 'Unauthorized.' });
+  }
+  res.set('Cache-Control', 'no-store');
+  next();
+}, protectedZoteroJsonParser);
 
 router.get('/settings', async (req, res) => {
   try {
@@ -67,6 +91,54 @@ router.get('/zotero/status', async (req, res) => {
       fetchImpl: fetch,
     });
     res.json(await provider.getStatus());
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
+router.get('/zotero/cloud/status', async (req, res) => {
+  try {
+    const { provider } = await zoteroCloudContext(req.query.projectPath);
+    res.json(await provider.getStatus());
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
+router.get('/zotero/cloud/sync', async (req, res) => {
+  try {
+    const { provider } = await zoteroCloudContext(req.query.projectPath);
+    const sinceVersion = nonNegativeInteger(req.query.sinceVersion);
+    res.json(await provider.probeIncrementalSync(
+      sinceVersion === undefined ? {} : { sinceVersion },
+    ));
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
+router.post('/zotero/cloud/writes/preview', async (req, res) => {
+  try {
+    const { provider } = await zoteroCloudContext(req.body?.projectPath);
+    if (!req.body?.intent || typeof req.body.intent !== 'object' || Array.isArray(req.body.intent)) {
+      return res.status(400).json({ error: 'A Zotero cloud write intent is required.' });
+    }
+    res.json({ plan: await provider.createWritePlan(req.body.intent) });
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
+router.post('/zotero/cloud/writes/confirm', async (req, res) => {
+  try {
+    if (req.body?.confirmed !== true) {
+      return res.status(409).json({ error: 'Zotero cloud writes require explicit confirmation.' });
+    }
+    if (!req.body?.plan || typeof req.body.plan !== 'object' || Array.isArray(req.body.plan)) {
+      return res.status(400).json({ error: 'A reviewed Zotero cloud write plan is required.' });
+    }
+    const { provider } = await zoteroCloudContext(req.body?.projectPath);
+    res.json(await provider.executeWritePlan({ plan: req.body.plan, confirmed: true }));
   } catch (error) {
     respondError(res, error);
   }
@@ -259,6 +331,34 @@ async function zoteroContext(projectPath) {
   };
 }
 
+async function zoteroCloudContext(projectPath) {
+  const projectRoot = await validatedProjectRoot(projectPath);
+  const snapshot = await readResearchSettings({
+    pilotHome: process.env.PILOT_HOME,
+    ...(projectRoot ? { projectRoot } : {}),
+  });
+  const config = snapshot.effective.zotero.cloud;
+  const cacheKey = JSON.stringify({
+    projectRoot: projectRoot ?? null,
+    enabled: config.enabled,
+    libraryType: config.libraryType,
+    libraryId: config.libraryId,
+  });
+  let provider = zoteroCloudProviders.get(cacheKey);
+  if (!provider) {
+    provider = createZoteroCloudProvider({
+      config,
+      transport: createZoteroCloudTransport(),
+    });
+    zoteroCloudProviders.set(cacheKey, provider);
+    if (zoteroCloudProviders.size > 32) {
+      const oldest = zoteroCloudProviders.keys().next().value;
+      if (oldest) zoteroCloudProviders.delete(oldest);
+    }
+  }
+  return { provider, projectRoot, config };
+}
+
 function configuredCollection(settings) {
   return !settings.useSelectedCollection && settings.collectionKey
     ? { key: settings.collectionKey, name: settings.collectionName || settings.collectionKey }
@@ -363,6 +463,17 @@ function requestCitationStyle(value, fallback) {
 function positiveInteger(value, fallback, max) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.min(max, Math.max(1, Math.round(parsed))) : fallback;
+}
+
+function nonNegativeInteger(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    const error = new Error('Zotero sync version must be a non-negative integer.');
+    error.statusCode = 400;
+    throw error;
+  }
+  return parsed;
 }
 
 function normalizePapers(value) {

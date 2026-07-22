@@ -1,6 +1,9 @@
+import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
+import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,14 +12,133 @@ const playwrightPath = process.argv[3]
   || join(process.cwd(), 'node_modules', '.pnpm', 'playwright@1.60.0', 'node_modules', 'playwright', 'index.mjs');
 const { _electron: electron } = await import(pathToFileURL(playwrightPath).href);
 const userData = await mkdtemp(join(tmpdir(), 'rigorium-packaged-research-'));
+const pilotHome = join(userData, 'pilot-home');
 const executableName = executable.split(/[\\/]/u).at(-1)?.replace(/\.exe$/iu, '') || 'Rigorium';
+const verificationCredential = 'x'.repeat(32);
+const credentialsPath = join(userData, 'research', 'credentials.v1.json');
 
 let browserProcessCountBefore = await countBrowserProcesses();
-const app = await electron.launch({ executablePath: executable, args: [`--user-data-dir=${userData}`] });
+const mockBroker = await startVerificationZoteroBroker();
+await writeVerificationSettings(pilotHome, mockBroker.origin);
+let app;
 try {
+  app = await electron.launch({
+    executablePath: executable,
+    args: ['--verify-research', `--user-data-dir=${userData}`],
+    env: {
+      ...process.env,
+      PILOT_HOME: pilotHome,
+      RIGORIUM_VERIFY_ZOTERO_BROKER_URL: mockBroker.url,
+      RIGORIUM_VERIFY_ZOTERO_BROKER_TOKEN: mockBroker.token,
+    },
+  });
   const page = await app.firstWindow({ timeout: 90_000 });
   await page.waitForLoadState('domcontentloaded');
   await page.waitForFunction(() => typeof window.openSettings === 'function', undefined, { timeout: 60_000 });
+  await page.route('**/api/research/zotero/status**', (route) => fulfillJson(route, {
+    provider: 'zotero',
+    available: false,
+    apiReady: false,
+    connectorReady: false,
+    checkedAt: new Date().toISOString(),
+    error: 'Local API unavailable in packaged verification.',
+  }));
+  await page.route('**/api/research/zotero/collections**', (route) => fulfillJson(route, {
+    provider: 'zotero',
+    available: false,
+    collections: [],
+    total: 0,
+    truncated: false,
+    error: 'Local API unavailable in packaged verification.',
+  }));
+
+  const directCloudRequest = await page.evaluate(async () => {
+    const response = await fetch('/api/research/zotero/cloud/status');
+    return { status: response.status, body: await response.json() };
+  });
+  assert.equal(directCloudRequest.status, 401, 'Renderer reached a cloud route without the private session token.');
+  assert.equal(directCloudRequest.body?.error, 'Unauthorized.');
+  const directImportRequest = await page.evaluate(async () => {
+    const response = await fetch('/api/research/zotero/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ confirmed: true, papers: [{ id: 'unauthorized' }] }),
+    });
+    return { status: response.status, body: await response.json() };
+  });
+  assert.equal(directImportRequest.status, 401, 'Renderer reached the local Zotero write route without the private session token.');
+  assert.equal(directImportRequest.body?.error, 'Unauthorized.');
+
+  const cloudBridge = await page.evaluate(() => {
+    const bridge = window.rigoriumZoteroCloud;
+    if (!bridge) return { present: false };
+    return {
+      present: true,
+      methods: Object.keys(bridge).sort(),
+      methodTypes: [typeof bridge.status, typeof bridge.sync, typeof bridge.preview, typeof bridge.confirm],
+    };
+  });
+  assert.equal(cloudBridge.present, true, 'Packaged preload did not expose Zotero cloud access.');
+  assert.deepEqual(cloudBridge.methods, ['confirm', 'preview', 'status', 'sync']);
+  assert.deepEqual(cloudBridge.methodTypes, ['function', 'function', 'function', 'function']);
+  const libraryBridge = await page.evaluate(() => {
+    const bridge = window.rigoriumZoteroLibrary;
+    return bridge ? { present: true, methods: Object.keys(bridge).sort() } : { present: false, methods: [] };
+  });
+  assert.equal(libraryBridge.present, true, 'Packaged preload did not expose guarded Zotero library writes.');
+  assert.deepEqual(libraryBridge.methods, ['importPapers']);
+
+  const credentialBridge = await page.evaluate(async () => {
+    const bridge = window.rigoriumZoteroCredentials;
+    if (!bridge) return { present: false };
+    return {
+      present: true,
+      methods: Object.keys(bridge).sort(),
+      methodTypes: [typeof bridge.status, typeof bridge.save, typeof bridge.clear],
+      initial: await bridge.status(),
+    };
+  });
+  assert.equal(credentialBridge.present, true, 'Packaged preload did not expose Zotero credential access.');
+  assert.deepEqual(credentialBridge.methods, ['clear', 'save', 'status']);
+  assert.deepEqual(credentialBridge.methodTypes, ['function', 'function', 'function']);
+  assertCredentialStatus(credentialBridge.initial, false, 'initial credential status');
+  assert.equal(credentialBridge.initial.encryptionAvailable, true, 'Windows packaged credential storage is unavailable.');
+
+  const savedCredentialStatus = await page.evaluate(async () => {
+    return window.rigoriumZoteroCredentials.save('x'.repeat(32));
+  });
+  assertCredentialStatus(savedCredentialStatus, true, 'saved credential status');
+  const storedCredentials = JSON.parse(await readFile(credentialsPath, 'utf8'));
+  assert.deepEqual(Object.keys(storedCredentials).sort(), ['ciphertext', 'version']);
+  assert.equal(storedCredentials.version, 1);
+  assert.equal(typeof storedCredentials.ciphertext, 'string');
+  assert.equal(storedCredentials.ciphertext.length > 0, true);
+  const storedCredentialText = JSON.stringify(storedCredentials);
+  assert.equal(storedCredentialText.includes(verificationCredential), false, 'Credential fixture was stored as plaintext.');
+  assert.equal(
+    storedCredentialText.includes(Buffer.from(verificationCredential, 'utf8').toString('base64')),
+    false,
+    'Credential fixture was stored as base64 plaintext.',
+  );
+  const rejectedCredentialClear = await page.evaluate(async () => {
+    try {
+      await window.rigoriumZoteroCredentials.clear({ confirmed: false });
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  assert.equal(rejectedCredentialClear, true, 'Credential removal did not require explicit confirmation.');
+  const afterRejectedClear = await page.evaluate(() => window.rigoriumZoteroCredentials.status());
+  assertCredentialStatus(afterRejectedClear, true, 'credential status after rejected clear');
+  assert.equal((await page.content()).includes(verificationCredential), false, 'Credential fixture reached renderer markup.');
+
+  const cloudStatus = await page.evaluate(() => window.rigoriumZoteroCloud.status());
+  assert.equal(cloudStatus.provider, 'zotero-cloud');
+  assert.equal(cloudStatus.status, 'ready');
+  assert.equal(cloudStatus.available, true);
+  assert.equal(cloudStatus.writable, true);
+  assert.deepEqual(cloudStatus.library, { type: 'user', id: '4242', path: '/users/4242' });
 
   const windows = app.windows();
   if (windows.length !== 1) throw new Error(`Expected one Rigorium window, found ${windows.length}.`);
@@ -62,6 +184,11 @@ try {
           useSelectedCollection: false,
           collectionKey: 'VERIFYCOLL',
           collectionName: 'Verification Collection',
+          cloud: {
+            enabled: true,
+            libraryType: 'user',
+            libraryId: null,
+          },
         },
         citation: { style: 'apa', includeDoi: true },
         privacy: { allowRemoteMetadataSearch: true, allowRemoteFullText: false },
@@ -243,9 +370,66 @@ try {
     }
   }
 
+  const cloudPlan = await page.evaluate(async () => {
+    const result = await window.rigoriumZoteroCloud.preview({
+      kind: 'tags',
+      itemKey: 'VERIFYITEM',
+      operation: 'add',
+      tags: ['cloud-verified'],
+    });
+    return result.plan;
+  });
+  assert.equal(cloudPlan.kind, 'tags');
+  assert.equal(cloudPlan.itemKey, 'VERIFYITEM');
+  assert.equal(cloudPlan.itemVersion, 7);
+  assert.equal(cloudPlan.requiresConfirmation, true);
+  assert.deepEqual(cloudPlan.beforeTags, ['verified']);
+  assert.deepEqual(cloudPlan.afterTags, ['verified', 'cloud-verified']);
+
+  const cloudConfirmation = await page.evaluate((plan) => window.rigoriumZoteroCloud.confirm(plan), cloudPlan);
+  assert.equal(cloudConfirmation.status, 'succeeded');
+  assert.equal(cloudConfirmation.executed, true);
+  assert.equal(cloudConfirmation.retryCount, 0);
+  assert.deepEqual(cloudConfirmation.successful, [{ index: 0, key: 'VERIFYITEM', version: 8 }]);
+  assert.deepEqual(
+    mockBroker.requests.map((request) => `${request.method} ${request.path}`),
+    [
+      'GET /keys/current',
+      'GET /users/4242/items?format=versions&limit=1',
+      'GET /keys/current',
+      'GET /users/4242/items?format=versions&limit=1',
+      'GET /users/4242/items/VERIFYITEM',
+      'PATCH /users/4242/items/VERIFYITEM',
+    ],
+    'Cloud preview and confirmation did not use the expected mock broker path.',
+  );
+  const patchRequest = mockBroker.requests.at(-1);
+  assert.equal(patchRequest?.headers?.['If-Unmodified-Since-Version'], '7');
+  assert.deepEqual(patchRequest?.body, { tags: [{ tag: 'verified' }, { tag: 'cloud-verified' }] });
+  assert.equal(JSON.stringify(mockBroker.requests).includes(verificationCredential), false, 'Cloud broker received the credential fixture.');
+
+  const localImport = await page.evaluate(() => window.rigoriumZoteroLibrary.importPapers([{
+    id: 'packaged-import-verification',
+    identity: { doi: '10.1000/packaged-import' },
+    title: 'Packaged import verification',
+    authors: ['Rigorium Verification'],
+    year: 2026,
+    sourceId: 'verification',
+  }]));
+  assert.equal(localImport.importedCount, 1);
+  assert.equal(mockBroker.localRequests.some((request) => request.method === 'POST' && request.path.startsWith('/connector/import?session=')), true);
+
   await page.setViewportSize({ width: 390, height: 800 });
   const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (mobileOverflow > 1) throw new Error(`390px research settings overflow horizontally by ${mobileOverflow}px.`);
+
+  const clearedCredentialStatus = await page.evaluate(async () => {
+    return window.rigoriumZoteroCredentials.clear({ confirmed: true });
+  });
+  assertCredentialStatus(clearedCredentialStatus, false, 'cleared credential status');
+  assert.equal(await pathExists(credentialsPath), false, 'Credential ciphertext remained after explicit removal.');
+  const desktopLog = await readOptionalText(join(userData, 'desktop.log'));
+  assert.equal(desktopLog.includes(verificationCredential), false, 'Credential fixture reached the desktop log.');
 
   console.log(JSON.stringify({
     executable,
@@ -255,10 +439,175 @@ try {
     browserProcessCountAfter,
     desktopOverflow,
     mobileOverflow,
+    cloudBrokerRequests: mockBroker.requests.map((request) => `${request.method} ${request.path}`),
+    localZoteroRequests: mockBroker.localRequests.map((request) => `${request.method} ${request.path}`),
     title: await page.title(),
   }, null, 2));
 } finally {
-  await app.close().catch(() => undefined);
+  await app?.close().catch(() => undefined);
+  await mockBroker.close();
+}
+
+async function startVerificationZoteroBroker() {
+  const token = randomBytes(32).toString('base64url');
+  const requests = [];
+  const localRequests = [];
+  const server = createServer(async (request, response) => {
+    try {
+      const requestUrl = new URL(request.url || '/', 'http://127.0.0.1');
+      const bodyText = await readVerificationRequestBody(request);
+      if (requestUrl.pathname === '/v1/zotero/request') {
+        if (request.method !== 'POST' || request.headers.authorization !== `Bearer ${token}`) {
+          return writeVerificationJson(response, 401, { error: 'Unauthorized.' });
+        }
+        const payload = JSON.parse(bodyText || '{}');
+        requests.push({
+          method: payload.method,
+          path: payload.path,
+          headers: payload.headers ?? {},
+          body: payload.body,
+        });
+        const brokerResponse = verificationBrokerResponse(payload);
+        return writeVerificationJson(response, brokerResponse.status, {
+          status: brokerResponse.status,
+          headers: brokerResponse.headers ?? {},
+          body: JSON.stringify(brokerResponse.body ?? {}),
+        });
+      }
+
+      localRequests.push({ method: request.method, path: `${requestUrl.pathname}${requestUrl.search}`, body: bodyText });
+      if (requestUrl.pathname === '/connector/getSelectedCollection') {
+        return writeVerificationJson(response, 404, { error: 'No active collection in verification.' });
+      }
+      if (requestUrl.pathname === '/connector/import') {
+        if (request.method !== 'POST' || !bodyText.includes('Packaged import verification')) {
+          return writeVerificationJson(response, 400, { error: 'Invalid verification import.' });
+        }
+        return writeVerificationJson(response, 201, { imported: 1 });
+      }
+      return writeVerificationJson(response, 404, { error: 'Not found.' });
+    } catch {
+      return writeVerificationJson(response, 500, { error: 'Verification broker failed.' });
+    }
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Verification broker did not receive a port.');
+  const origin = `http://127.0.0.1:${address.port}`;
+  return {
+    url: `${origin}/v1/zotero/request`,
+    origin,
+    token,
+    requests,
+    localRequests,
+    close: () => new Promise((resolve) => server.close(resolve)),
+  };
+}
+
+function verificationBrokerResponse(payload) {
+  if (payload.method === 'GET' && payload.path === '/keys/current') {
+    return {
+      status: 200,
+      body: { userID: 4242, username: 'verification', access: { user: { library: true, write: true } } },
+    };
+  }
+  if (payload.method === 'GET' && payload.path === '/users/4242/items?format=versions&limit=1') {
+    return { status: 200, headers: { 'last-modified-version': '7' }, body: {} };
+  }
+  if (payload.method === 'GET' && payload.path === '/users/4242/items/VERIFYITEM') {
+    return {
+      status: 200,
+      headers: { 'last-modified-version': '7' },
+      body: {
+        key: 'VERIFYITEM',
+        version: 7,
+        data: { key: 'VERIFYITEM', itemType: 'journalArticle', tags: [{ tag: 'verified' }] },
+      },
+    };
+  }
+  if (payload.method === 'PATCH' && payload.path === '/users/4242/items/VERIFYITEM') {
+    return {
+      status: 200,
+      headers: { 'last-modified-version': '8' },
+      body: { successful: { 0: { key: 'VERIFYITEM', version: 8 } } },
+    };
+  }
+  return { status: 404, body: { error: 'Unhandled verification request.' } };
+}
+
+async function readVerificationRequestBody(request) {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of request) {
+    bytes += chunk.length;
+    if (bytes > 1024 * 1024) throw new Error('Verification request too large.');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function writeVerificationJson(response, status, payload) {
+  const body = JSON.stringify(payload);
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+    'cache-control': 'no-store',
+  });
+  response.end(body);
+}
+
+async function writeVerificationSettings(pilotHome, baseUrl) {
+  const settingsDirectory = join(pilotHome, 'research');
+  await mkdir(settingsDirectory, { recursive: true });
+  await writeFile(join(pilotHome, 'pilotdeck.yaml'), `schemaVersion: 1
+agent:
+  model: verification/verification
+model:
+  providers:
+    verification:
+      protocol: openai
+      url: http://127.0.0.1:9
+      apiKey: verification-not-a-secret
+      models:
+        verification:
+          capabilities:
+            maxOutputTokens: 4096
+adapters:
+  feishu:
+    enabled: false
+    appId: ""
+    appSecret: ""
+router:
+  enabled: false
+cron:
+  enabled: false
+  timezone: Asia/Shanghai
+  maxConcurrentRuns: 1
+  runTimeoutMinutes: 5
+`, 'utf8');
+  await writeFile(join(settingsDirectory, 'settings.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    literature: {
+      enabled: true,
+      sources: { openalex: { enabled: true, mailto: '' } },
+      search: { defaultLimit: 12, fromYear: null, toYear: null, sort: 'relevance' },
+      budget: { maxResultsPerSearch: 25, requestTimeoutMs: 20_000 },
+      map: { autoOpen: true, autoUpdate: true, showTopicEdges: true },
+    },
+    zotero: {
+      enabled: true,
+      baseUrl,
+      useSelectedCollection: false,
+      collectionKey: 'VERIFYCOLL',
+      collectionName: 'Verification Collection',
+      cloud: { enabled: true, libraryType: 'user', libraryId: null },
+    },
+    citation: { style: 'apa', includeDoi: true },
+    privacy: { allowRemoteMetadataSearch: true, allowRemoteFullText: false },
+  }, null, 2)}\n`, 'utf8');
 }
 
 async function countBrowserProcesses() {
@@ -287,4 +636,29 @@ async function fulfillJson(route, body, status = 200) {
     contentType: 'application/json',
     body: JSON.stringify(body),
   });
+}
+
+function assertCredentialStatus(value, configured, label) {
+  assert.deepEqual(Object.keys(value).sort(), ['configured', 'encryptionAvailable'], `${label} shape is invalid.`);
+  assert.equal(typeof value.encryptionAvailable, 'boolean', `${label} must include encryptionAvailable.`);
+  assert.equal(typeof value.configured, 'boolean', `${label} must include configured.`);
+  assert.equal(value.configured, configured, `${label} configured value is invalid.`);
+}
+
+async function pathExists(path) {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readOptionalText(path) {
+  try {
+    return await readFile(path, 'utf8');
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'ENOENT') return '';
+    throw error;
+  }
 }

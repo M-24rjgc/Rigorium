@@ -35,6 +35,11 @@ export const DEFAULT_RESEARCH_SETTINGS: ResearchSettings = {
     useSelectedCollection: true,
     collectionKey: null,
     collectionName: null,
+    cloud: {
+      enabled: false,
+      libraryType: "user",
+      libraryId: null,
+    },
   },
   citation: {
     style: "apa",
@@ -133,6 +138,7 @@ export function normalizeResearchSettings(value: unknown, base: ResearchSettings
   const budget = isRecord(literature.budget) ? literature.budget : {};
   const map = isRecord(literature.map) ? literature.map : {};
   const zotero = isRecord(root.zotero) ? root.zotero : {};
+  const cloud = isRecord(zotero.cloud) ? zotero.cloud : {};
   const citation = isRecord(root.citation) ? root.citation : {};
   const privacy = isRecord(root.privacy) ? root.privacy : {};
 
@@ -186,6 +192,15 @@ export function normalizeResearchSettings(value: unknown, base: ResearchSettings
         zoteroCollectionKey(zotero.collectionKey, base.zotero.collectionKey),
         base.zotero,
       ),
+      cloud: {
+        enabled: booleanValue(cloud.enabled, base.zotero.cloud.enabled),
+        libraryType: enumValue(
+          cloud.libraryType,
+          ["user", "group"] as const,
+          base.zotero.cloud.libraryType,
+        ),
+        libraryId: zoteroCloudLibraryId(cloud.libraryId, base.zotero.cloud.libraryId),
+      },
     },
     citation: {
       style: enumValue(
@@ -212,6 +227,13 @@ export function validateResearchSettings(settings: ResearchSettings): void {
   }
   if (settings.literature.search.defaultLimit > settings.literature.budget.maxResultsPerSearch) {
     throw new Error("Default result count cannot exceed the per-search budget.");
+  }
+  const cloud = settings.zotero.cloud;
+  if (cloud.libraryId !== null && !isPositiveLibraryId(cloud.libraryId)) {
+    throw new Error("Zotero cloud library ID must be a positive integer.");
+  }
+  if (cloud.enabled && cloud.libraryType === "group" && cloud.libraryId === null) {
+    throw new Error("A Zotero cloud group library requires a library ID.");
   }
 }
 
@@ -255,6 +277,20 @@ function zoteroCollectionName(
   if (value === null || value === "") return null;
   if (typeof value === "string") return value.trim().slice(0, 500) || null;
   return collectionKey === base.collectionKey ? base.collectionName : null;
+}
+
+function zoteroCloudLibraryId(value: unknown, fallback: string | null): string | null {
+  if (value === null || value === "") return null;
+  if (typeof value !== "string") return fallback;
+  const libraryId = value.trim();
+  if (!isPositiveLibraryId(libraryId)) {
+    throw new Error("Zotero cloud library ID must be a positive integer.");
+  }
+  return libraryId;
+}
+
+function isPositiveLibraryId(value: string): boolean {
+  return /^[1-9]\d*$/u.test(value);
 }
 
 function integerValue(value: unknown, fallback: number, min: number, max: number): number {

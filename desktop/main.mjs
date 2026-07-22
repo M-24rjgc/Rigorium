@@ -1,20 +1,218 @@
-import { app, BrowserWindow, dialog, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+import { startZoteroBroker } from './zotero-broker.mjs';
 
 const STARTUP_TIMEOUT_MS = 90_000;
 const SERVICE_STOP_TIMEOUT_MS = 8_000;
 const LOCAL_HOST = '127.0.0.1';
 const isSmokeTest = process.argv.includes('--smoke-test');
 const isWindowSmokeTest = process.argv.includes('--window-smoke-test');
+const isResearchVerification = process.argv.includes('--verify-research');
 
 let gatewayProcess;
 let uiProcess;
 let mainWindow;
 let isQuitting = false;
 let uiPort;
+let zoteroBrokerServer;
+let zoteroBrokerUrl;
+let zoteroBrokerToken;
+let zoteroCloudRouteToken;
+
+const ZOTERO_CREDENTIALS_DIRECTORY = 'research';
+const ZOTERO_CREDENTIALS_FILENAME = 'credentials.v1.json';
+const ZOTERO_CLOUD_SESSION_HEADER = 'x-rigorium-zotero-cloud-session';
+const ZOTERO_CLOUD_MAX_RESPONSE_CHARS = 2 * 1024 * 1024;
+
+function zoteroCredentialsPath() {
+  return join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY, ZOTERO_CREDENTIALS_FILENAME);
+}
+
+function parseStoredZoteroCredentials() {
+  const credentialsPath = zoteroCredentialsPath();
+  if (!existsSync(credentialsPath)) return undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(credentialsPath, 'utf8'));
+    if (!parsed || parsed.version !== 1 || typeof parsed.ciphertext !== 'string' || parsed.ciphertext.length === 0) {
+      return undefined;
+    }
+    const ciphertext = Buffer.from(parsed.ciphertext, 'base64');
+    if (ciphertext.length === 0 || ciphertext.toString('base64') !== parsed.ciphertext) return undefined;
+    return ciphertext;
+  } catch {
+    return undefined;
+  }
+}
+
+function readStoredZoteroApiKey() {
+  if (!safeStorage.isEncryptionAvailable()) return undefined;
+  const ciphertext = parseStoredZoteroCredentials();
+  if (!ciphertext) return undefined;
+  try {
+    return safeStorage.decryptString(ciphertext);
+  } catch {
+    return undefined;
+  }
+}
+
+function zoteroCredentialStatus() {
+  const encryptionAvailable = safeStorage.isEncryptionAvailable();
+  return {
+    encryptionAvailable,
+    configured: encryptionAvailable && Boolean(readStoredZoteroApiKey()),
+  };
+}
+
+function validateZoteroApiKey(value) {
+  if (typeof value !== 'string' || value !== value.trim() || !/^[A-Za-z0-9_-]{16,256}$/.test(value)) {
+    throw new Error('Enter a valid Zotero API key.');
+  }
+  return value;
+}
+
+function saveZoteroApiKey(value) {
+  const apiKey = validateZoteroApiKey(value);
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Secure credential storage is unavailable on this device.');
+  }
+  const encrypted = safeStorage.encryptString(apiKey).toString('base64');
+  const credentialsPath = zoteroCredentialsPath();
+  mkdirSync(join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY), { recursive: true });
+  writeFileSync(credentialsPath, `${JSON.stringify({ version: 1, ciphertext: encrypted })}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  return zoteroCredentialStatus();
+}
+
+function clearZoteroApiKey(options) {
+  if (!options || options.confirmed !== true) {
+    throw new Error('Credential removal requires explicit confirmation.');
+  }
+  const credentialsPath = zoteroCredentialsPath();
+  if (existsSync(credentialsPath)) unlinkSync(credentialsPath);
+  return zoteroCredentialStatus();
+}
+
+function assertTrustedMainWindowCaller(event) {
+  if (
+    event.sender !== mainWindow?.webContents
+    || event.senderFrame !== mainWindow?.webContents.mainFrame
+    || !isTrustedAppPageUrl(event.senderFrame?.url || '')
+  ) {
+    throw new Error('Zotero access is limited to the main Rigorium application.');
+  }
+}
+
+function registerZoteroIpc() {
+  ipcMain.handle('rigorium:zotero-credentials:status', (event) => {
+    assertTrustedMainWindowCaller(event);
+    return zoteroCredentialStatus();
+  });
+  ipcMain.handle('rigorium:zotero-credentials:save', (event, apiKey) => {
+    assertTrustedMainWindowCaller(event);
+    return saveZoteroApiKey(apiKey);
+  });
+  ipcMain.handle('rigorium:zotero-credentials:clear', (event, options) => {
+    assertTrustedMainWindowCaller(event);
+    return clearZoteroApiKey(options);
+  });
+  ipcMain.handle('rigorium:zotero-cloud:status', (event, options) => {
+    assertTrustedMainWindowCaller(event);
+    return requestDesktopZotero('cloud/status', { query: normalizeCloudOptions(options) });
+  });
+  ipcMain.handle('rigorium:zotero-cloud:sync', (event, options) => {
+    assertTrustedMainWindowCaller(event);
+    const normalized = normalizeCloudOptions(options);
+    const sinceVersion = options?.sinceVersion;
+    if (sinceVersion !== undefined && (!Number.isSafeInteger(sinceVersion) || sinceVersion < 0)) {
+      throw new Error('Zotero sync version must be a non-negative integer.');
+    }
+    return requestDesktopZotero('cloud/sync', {
+      query: { ...normalized, ...(sinceVersion === undefined ? {} : { sinceVersion: String(sinceVersion) }) },
+    });
+  });
+  ipcMain.handle('rigorium:zotero-cloud:preview', (event, intent, options) => {
+    assertTrustedMainWindowCaller(event);
+    if (!intent || typeof intent !== 'object' || Array.isArray(intent)) {
+      throw new Error('A Zotero cloud write intent is required.');
+    }
+    return requestDesktopZotero('cloud/writes/preview', {
+      method: 'POST',
+      body: { ...normalizeCloudOptions(options), intent },
+    });
+  });
+  ipcMain.handle('rigorium:zotero-cloud:confirm', (event, plan, options) => {
+    assertTrustedMainWindowCaller(event);
+    if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
+      throw new Error('A reviewed Zotero cloud write plan is required.');
+    }
+    return requestDesktopZotero('cloud/writes/confirm', {
+      method: 'POST',
+      body: { ...normalizeCloudOptions(options), plan, confirmed: true },
+    });
+  });
+  ipcMain.handle('rigorium:zotero-library:import', (event, papers, options) => {
+    assertTrustedMainWindowCaller(event);
+    if (!Array.isArray(papers) || papers.length < 1 || papers.length > 50) {
+      throw new Error('Select between 1 and 50 papers to import into Zotero.');
+    }
+    return requestDesktopZotero('import', {
+      method: 'POST',
+      body: { ...normalizeCloudOptions(options), papers, confirmed: true },
+    });
+  });
+}
+
+function normalizeCloudOptions(value) {
+  const projectPath = value?.projectPath;
+  if (projectPath === undefined || projectPath === null || projectPath === '') return {};
+  if (typeof projectPath !== 'string' || projectPath.length > 32_768 || projectPath !== projectPath.trim()) {
+    throw new Error('The Zotero project path is invalid.');
+  }
+  return { projectPath };
+}
+
+async function requestDesktopZotero(path, options = {}) {
+  if (!uiPort || !zoteroCloudRouteToken) throw new Error('The desktop Zotero service is not ready.');
+  const url = new URL(`/api/research/zotero/${path}`, `http://${LOCAL_HOST}:${uiPort}`);
+  for (const [name, value] of Object.entries(options.query ?? {})) url.searchParams.set(name, value);
+  const request = {
+    method: options.method ?? 'GET',
+    headers: { [ZOTERO_CLOUD_SESSION_HEADER]: zoteroCloudRouteToken },
+  };
+  if (options.body !== undefined) {
+    const body = JSON.stringify(options.body);
+    if (body.length > 512 * 1024) throw new Error('The Zotero desktop request is too large.');
+    request.headers['content-type'] = 'application/json';
+    request.body = body;
+  }
+
+  let response;
+  try {
+    response = await fetch(url, request);
+  } catch {
+    throw new Error('Unable to contact the local Zotero service.');
+  }
+  const text = await response.text();
+  if (text.length > ZOTERO_CLOUD_MAX_RESPONSE_CHARS) throw new Error('The Zotero desktop response is too large.');
+  let payload;
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error('The Zotero desktop service returned an invalid response.');
+  }
+  if (!response.ok) {
+    const message = typeof payload?.error === 'string' ? payload.error.slice(0, 400) : 'Zotero desktop request failed.';
+    throw new Error(message);
+  }
+  return payload;
+}
 
 function writeDesktopLog(label, value) {
   try {
@@ -34,20 +232,25 @@ function runtimeWorkingDirectory() {
   return app.isPackaged ? process.resourcesPath : app.getAppPath();
 }
 
-function startNodeProcess(label, args, environment, readyPattern) {
+function startNodeProcess(label, args, environment, readyPattern, options = {}) {
+  const {
+    RIGORIUM_VERIFY_ZOTERO_BROKER_URL: _verificationBrokerUrl,
+    RIGORIUM_VERIFY_ZOTERO_BROKER_TOKEN: _verificationBrokerToken,
+    ...parentEnvironment
+  } = process.env;
   const esbuildBinaryPath = app.isPackaged
     ? join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@esbuild', 'win32-x64', 'esbuild.exe')
     : undefined;
   const child = spawn(process.execPath, args, {
     cwd: runtimeWorkingDirectory(),
     env: {
-      ...process.env,
+      ...parentEnvironment,
       ...environment,
       ...(esbuildBinaryPath ? { ESBUILD_BINARY_PATH: esbuildBinaryPath } : {}),
       ELECTRON_RUN_AS_NODE: '1',
       FORCE_COLOR: '0',
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: options.ipc ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
 
@@ -81,6 +284,7 @@ function startNodeProcess(label, args, environment, readyPattern) {
 
   child.stdout?.on('data', appendOutput);
   child.stderr?.on('data', appendOutput);
+  if (options.onMessage) child.on('message', (message) => options.onMessage(message, child));
   child.once('error', (error) => {
     writeDesktopLog(label, `failed to launch: ${error.stack || error.message}`);
     if (!isReady) {
@@ -100,7 +304,87 @@ function startNodeProcess(label, args, environment, readyPattern) {
   return { child, ready };
 }
 
+async function startDesktopZoteroBroker() {
+  if (zoteroBrokerUrl) return;
+  const verificationBroker = researchVerificationBrokerConfig();
+  zoteroCloudRouteToken = randomBytes(32).toString('base64url');
+  if (verificationBroker) {
+    zoteroBrokerUrl = verificationBroker.url;
+    zoteroBrokerToken = verificationBroker.token;
+    return;
+  }
+  const token = randomBytes(32).toString('base64url');
+  const broker = await startZoteroBroker({
+    token,
+    getApiKey: readStoredZoteroApiKey,
+    host: LOCAL_HOST,
+  });
+  zoteroBrokerServer = broker.server;
+  zoteroBrokerUrl = broker.url;
+  zoteroBrokerToken = token;
+}
+
+function researchVerificationBrokerConfig() {
+  if (!isResearchVerification) return undefined;
+  const url = process.env.RIGORIUM_VERIFY_ZOTERO_BROKER_URL;
+  const token = process.env.RIGORIUM_VERIFY_ZOTERO_BROKER_TOKEN;
+  if (!url && !token) return undefined;
+  if (typeof url !== 'string' || typeof token !== 'string' || !/^[A-Za-z0-9_-]{32,256}$/u.test(token)) {
+    throw new Error('The research verification broker configuration is invalid.');
+  }
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw new Error('The research verification broker configuration is invalid.');
+  }
+  if (
+    parsedUrl.protocol !== 'http:'
+    || parsedUrl.hostname !== LOCAL_HOST
+    || !/^[1-9]\d{0,4}$/u.test(parsedUrl.port)
+    || Number(parsedUrl.port) > 65_535
+    || parsedUrl.pathname !== '/v1/zotero/request'
+    || parsedUrl.search
+    || parsedUrl.hash
+    || parsedUrl.username
+    || parsedUrl.password
+  ) {
+    throw new Error('The research verification broker must be a loopback endpoint.');
+  }
+  return { url: parsedUrl.href, token };
+}
+
+function stopDesktopZoteroBroker() {
+  const server = zoteroBrokerServer;
+  zoteroBrokerServer = undefined;
+  zoteroBrokerUrl = undefined;
+  zoteroBrokerToken = undefined;
+  zoteroCloudRouteToken = undefined;
+  if (!server) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      resolve();
+    };
+    const timeout = setTimeout(() => {
+      server.closeAllConnections?.();
+      finish();
+    }, SERVICE_STOP_TIMEOUT_MS);
+    try {
+      server.close(finish);
+      server.closeIdleConnections?.();
+    } catch {
+      finish();
+    }
+  });
+}
+
 async function startServices() {
+  await startDesktopZoteroBroker();
   const appRoot = app.getAppPath();
   const gateway = startNodeProcess(
     'gateway',
@@ -113,12 +397,13 @@ async function startServices() {
   gatewayProcess = gateway.child;
   const gatewayPort = await gateway.ready;
 
+  let uiBrokerConfigSent = false;
   const ui = startNodeProcess(
     'ui',
     [
       '--import',
       pathToFileURL(join(appRoot, 'node_modules', 'tsx', 'dist', 'loader.mjs')).href,
-      join(appRoot, 'ui', 'server', 'index.js'),
+      join(appRoot, 'desktop', 'ui-server-bootstrap.mjs'),
     ],
     {
       HOST: LOCAL_HOST,
@@ -129,6 +414,22 @@ async function startServices() {
       PILOTDECK_GATEWAY_URL: `ws://${LOCAL_HOST}:${gatewayPort}/ws`,
     },
     /Server URL:[\s\S]{0,40}?https?:\/\/(?:127\.0\.0\.1|localhost):(\d+)/i,
+    {
+      ipc: true,
+      onMessage(message, child) {
+        if (message?.type === 'rigorium:ui-bootstrap-ready' && !uiBrokerConfigSent && child.connected) {
+          uiBrokerConfigSent = true;
+          child.send({
+            type: 'rigorium:zotero-broker-config',
+            url: zoteroBrokerUrl,
+            token: zoteroBrokerToken,
+            routeToken: zoteroCloudRouteToken,
+          });
+          return;
+        }
+        if (message?.type === 'rigorium:ui-bootstrap-configured' && child.connected) child.disconnect();
+      },
+    },
   );
   uiProcess = ui.child;
   uiPort = await ui.ready;
@@ -150,13 +451,22 @@ function stopProcess(child) {
 }
 
 async function stopServices() {
-  await Promise.all([stopProcess(uiProcess), stopProcess(gatewayProcess)]);
+  await Promise.all([stopProcess(uiProcess), stopProcess(gatewayProcess), stopDesktopZoteroBroker()]);
 }
 
 function isLocalAppUrl(url) {
   try {
     const parsed = new URL(url);
     return parsed.protocol === 'http:' && parsed.hostname === LOCAL_HOST && Number(parsed.port) === uiPort;
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedAppPageUrl(url) {
+  if (!isLocalAppUrl(url)) return false;
+  try {
+    return !new URL(url).pathname.startsWith('/api/');
   } catch {
     return false;
   }
@@ -176,6 +486,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: join(app.getAppPath(), 'desktop', 'preload.cjs'),
     },
   });
 
@@ -184,9 +495,9 @@ function createWindow() {
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (!isLocalAppUrl(url)) {
+    if (!isTrustedAppPageUrl(url)) {
       event.preventDefault();
-      if (/^https?:/i.test(url)) void shell.openExternal(url);
+      if (/^https?:/i.test(url) && !isLocalAppUrl(url)) void shell.openExternal(url);
     }
   });
   mainWindow.once('ready-to-show', () => {
@@ -222,6 +533,7 @@ app.on('before-quit', (event) => {
 });
 
 app.whenReady().then(async () => {
+  registerZoteroIpc();
   try {
     await startServices();
     if (isSmokeTest) {

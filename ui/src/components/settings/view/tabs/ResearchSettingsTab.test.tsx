@@ -23,6 +23,7 @@ const settings: ResearchSettings = {
     useSelectedCollection: true,
     collectionKey: null,
     collectionName: null,
+    cloud: { enabled: false, libraryType: 'user', libraryId: null },
   },
   citation: { style: 'apa', includeDoi: true },
   privacy: { allowRemoteMetadataSearch: true, allowRemoteFullText: false },
@@ -46,10 +47,35 @@ function requestOptions(value: unknown): RequestInit {
 
 describe('ResearchSettingsTab Zotero collections', () => {
   let collectionsPayload: unknown;
+  let credentialSave: ReturnType<typeof vi.fn>;
+  let credentialClear: ReturnType<typeof vi.fn>;
 
   afterEach(() => cleanup());
 
   beforeEach(() => {
+    credentialSave = vi.fn().mockResolvedValue({ encryptionAvailable: true, configured: true });
+    credentialClear = vi.fn().mockResolvedValue({ encryptionAvailable: true, configured: false });
+    Object.defineProperty(window, 'rigoriumZoteroCredentials', {
+      configurable: true,
+      value: {
+        status: vi.fn().mockResolvedValue({ encryptionAvailable: true, configured: false }),
+        save: credentialSave,
+        clear: credentialClear,
+      },
+    });
+    Object.defineProperty(window, 'rigoriumZoteroCloud', {
+      configurable: true,
+      value: {
+        status: vi.fn().mockResolvedValue({
+          provider: 'zotero-cloud', status: 'ready', configured: true, available: true, writable: true,
+          checkedAt: '2026-07-22T00:00:00.000Z', libraryVersion: 10,
+          library: { type: 'user', id: '1', path: '/users/1' },
+        }),
+        sync: vi.fn(),
+        preview: vi.fn(),
+        confirm: vi.fn(),
+      },
+    });
     collectionsPayload = {
       provider: 'zotero',
       available: true,
@@ -119,5 +145,24 @@ describe('ResearchSettingsTab Zotero collections', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Browse collections|浏览 Collection/i }));
     expect(await screen.findByText('Zotero Desktop is not running.')).not.toBeNull();
     expect(screen.queryByText(/No collections found|没有找到 Collection/i)).toBeNull();
+  });
+
+  it('stores and removes the global cloud credential through the desktop bridge with explicit removal confirmation', async () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchSettingsTab projects={[]} />
+      </I18nextProvider>,
+    );
+
+    const credentialInput = await screen.findByLabelText('Secure API credential');
+    fireEvent.change(credentialInput, { target: { value: 'zotero-api-key-1234567890' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Store key' }));
+    await waitFor(() => expect(credentialSave).toHaveBeenCalledWith('zotero-api-key-1234567890'));
+    expect(await screen.findByRole('button', { name: 'Remove key' })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove key' }));
+    expect(credentialClear).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm remove' }));
+    await waitFor(() => expect(credentialClear).toHaveBeenCalledWith({ confirmed: true }));
   });
 });

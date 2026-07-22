@@ -5,9 +5,19 @@ import i18n from '../i18n/config';
 import { ResearchPanelProvider } from '../contexts/ResearchPanelContext';
 import { authenticatedFetch } from '../utils/api';
 import ResearchPanel from './ResearchPanel';
-import type { ResearchArtifact, ResearchSettings, ZoteroPaperMatch } from './types';
+import type {
+  ResearchArtifact,
+  ResearchSettings,
+  ZoteroCloudWriteIntent,
+  ZoteroCloudWritePlan,
+  ZoteroPaperMatch,
+} from './types';
 
 vi.mock('../utils/api', () => ({ authenticatedFetch: vi.fn() }));
+
+let cloudPreview: ReturnType<typeof vi.fn>;
+let cloudConfirm: ReturnType<typeof vi.fn>;
+let libraryImport: ReturnType<typeof vi.fn>;
 
 const artifact: ResearchArtifact = {
   schemaVersion: 1,
@@ -65,6 +75,7 @@ const researchSettings: ResearchSettings = {
     useSelectedCollection: false,
     collectionKey: 'COLL1',
     collectionName: 'Rigorium',
+    cloud: { enabled: false, libraryType: 'user', libraryId: null },
   },
   citation: { style: 'apa', includeDoi: true },
   privacy: { allowRemoteMetadataSearch: true, allowRemoteFullText: false },
@@ -197,7 +208,6 @@ function installFetchMock(
         },
       });
     }
-    if (url === '/api/research/zotero/import') return jsonResponse({ importedCount: 1 });
     return jsonResponse({ error: `Unexpected request: ${url}` }, 500);
   });
 }
@@ -208,6 +218,37 @@ describe('ResearchPanel', () => {
   beforeEach(() => {
     vi.mocked(authenticatedFetch).mockReset();
     installFetchMock();
+    cloudPreview = vi.fn().mockImplementation(async (intent: ZoteroCloudWriteIntent) => ({
+      plan: intent.kind === 'tags'
+        ? {
+            planId: 'tag-plan-1', preparedAt: '2026-07-22T00:00:00.000Z', library: { type: 'user', id: '1', path: '/users/1' }, libraryVersion: 10,
+            requiresConfirmation: true, kind: 'tags', operation: 'replace', itemKey: intent.itemKey, beforeTags: ['Methods', 'Research'], afterTags: intent.tags,
+          }
+        : {
+            planId: 'note-plan-1', preparedAt: '2026-07-22T00:00:00.000Z', library: { type: 'user', id: '1', path: '/users/1' }, libraryVersion: 10,
+            requiresConfirmation: true, kind: 'note', operation: intent.operation, parentItemKey: 'ZITEM1', noteKey: intent.noteKey,
+          },
+    }));
+    cloudConfirm = vi.fn().mockImplementation(async (plan: ZoteroCloudWritePlan) => ({
+      planId: plan.planId,
+      status: 'succeeded',
+      executed: true,
+      libraryVersion: 11,
+    }));
+    libraryImport = vi.fn().mockResolvedValue({ importedCount: 1 });
+    Object.defineProperty(window, 'rigoriumZoteroCloud', {
+      configurable: true,
+      value: {
+        status: vi.fn(),
+        sync: vi.fn(),
+        preview: cloudPreview,
+        confirm: cloudConfirm,
+      },
+    });
+    Object.defineProperty(window, 'rigoriumZoteroLibrary', {
+      configurable: true,
+      value: { importPapers: libraryImport },
+    });
   });
 
   it('renders real source data, a non-empty graph, and requires confirmation before Zotero import', async () => {
@@ -229,14 +270,11 @@ describe('ResearchPanel', () => {
     fireEvent.click(saveButton);
     expect(screen.getByText(/Write to Zotero|确认写入 Zotero/)).not.toBeNull();
     expect(screen.getByText(/This modifies Desktop Selection|这会修改 Desktop Selection/i)).not.toBeNull();
-    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => url === '/api/research/zotero/import')).toBe(false);
+    expect(libraryImport).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: /Confirm import|确认写入/ }));
-    await waitFor(() => expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => url === '/api/research/zotero/import')).toBe(true));
-    const importCall = vi.mocked(authenticatedFetch).mock.calls.find(([url]) => url === '/api/research/zotero/import');
-    expect(importCall?.[0]).toBe('/api/research/zotero/import');
-    expect(requestBody(importCall)).toContain('"confirmed":true');
-    expect(requestBody(importCall)).not.toContain('collectionKey');
+    await waitFor(() => expect(libraryImport).toHaveBeenCalledTimes(1));
+    expect(libraryImport).toHaveBeenCalledWith([expect.objectContaining({ id: 'W1' })], { projectPath: 'D:/project' });
   });
 
   it('marks matched papers and browses the collection bound in research settings', async () => {
@@ -397,5 +435,40 @@ describe('ResearchPanel', () => {
     expect(await screen.findByText('No indexed full text is available for this attachment.')).not.toBeNull();
     expect(screen.getByText('10.1000/example')).not.toBeNull();
     expect(screen.getByText('Local annotation retained in Zotero.')).not.toBeNull();
+  });
+
+  it('previews Zotero cloud tag edits before an explicit confirmation writes them', async () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={artifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    await screen.findByText('Saved collection paper');
+    fireEvent.click(screen.getByRole('button', { name: /Show details for Saved collection paper/i }));
+    await screen.findByText('Metadata');
+    expect(cloudPreview).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Zotero tags' }));
+    const tagInput = screen.getByRole('textbox', { name: 'Edit Zotero tags' });
+    fireEvent.change(tagInput, { target: { value: 'Methods, Verified' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview change' }));
+    expect(await screen.findByRole('button', { name: 'Confirm Zotero change' })).not.toBeNull();
+
+    expect(cloudPreview).toHaveBeenCalledWith(
+      { kind: 'tags', itemKey: 'ZITEM1', operation: 'replace', tags: ['Methods', 'Verified'] },
+      { projectPath: 'D:/project' },
+    );
+    expect(cloudConfirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Zotero change' }));
+    expect(await screen.findByText('Zotero changes were applied.')).not.toBeNull();
+    expect(cloudConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ planId: 'tag-plan-1' }),
+      { projectPath: 'D:/project' },
+    );
   });
 });

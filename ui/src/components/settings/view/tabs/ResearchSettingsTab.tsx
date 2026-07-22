@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, CheckCircle2, FlaskConical, FolderTree, RefreshCw, Save, Search, ServerOff } from 'lucide-react';
+import { Check, CheckCircle2, Cloud, FlaskConical, FolderTree, KeyRound, RefreshCw, Save, Search, ServerOff, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, Input } from '../../../../shared/view/ui';
 import { authenticatedFetch } from '../../../../utils/api';
+import { getZoteroCloudStatus } from '../../../../research/zoteroCloudApi';
 import type {
   ResearchSettings,
   ResearchSettingsSnapshot,
   ZoteroCollection,
   ZoteroCollectionsResult,
+  ZoteroCloudStatus,
   ZoteroStatus,
 } from '../../../../research/types';
 import type { SettingsProject } from '../../types/types';
@@ -38,6 +40,12 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
   const [collectionsResult, setCollectionsResult] = useState<ZoteroCollectionsResult | null>(null);
   const [collectionsError, setCollectionsError] = useState<string | null>(null);
   const [collectionFilter, setCollectionFilter] = useState('');
+  const [credentialStatus, setCredentialStatus] = useState<{ encryptionAvailable: boolean; configured: boolean } | null>(null);
+  const [credentialKey, setCredentialKey] = useState('');
+  const [credentialBusy, setCredentialBusy] = useState(false);
+  const [confirmCredentialClear, setConfirmCredentialClear] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<ZoteroCloudStatus | null>(null);
+  const [checkingCloud, setCheckingCloud] = useState(false);
 
   useEffect(() => {
     if (projectPath || projectOptions.length === 0) return;
@@ -51,6 +59,23 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
     setCollectionsError(null);
     setCollectionFilter('');
   }, [projectPath, scope]);
+
+  const loadCredentialStatus = useCallback(async () => {
+    const bridge = window.rigoriumZoteroCredentials;
+    if (!bridge) {
+      setCredentialStatus({ encryptionAvailable: false, configured: false });
+      return;
+    }
+    try {
+      setCredentialStatus(await bridge.status());
+    } catch {
+      setCredentialStatus({ encryptionAvailable: false, configured: false });
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCredentialStatus();
+  }, [loadCredentialStatus]);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -141,6 +166,66 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
     }
   }, [projectPath, scope]);
 
+  const checkCloud = useCallback(async () => {
+    setCheckingCloud(true);
+    setCloudStatus(null);
+    try {
+      setCloudStatus(await getZoteroCloudStatus({
+        ...(scope === 'project' && projectPath ? { projectPath } : {}),
+      }));
+    } catch (error) {
+      setCloudStatus({
+        provider: 'zotero-cloud',
+        status: 'error',
+        configured: false,
+        available: false,
+        writable: false,
+        checkedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setCheckingCloud(false);
+    }
+  }, [projectPath, scope]);
+
+  const saveCredential = useCallback(async () => {
+    const bridge = window.rigoriumZoteroCredentials;
+    if (!bridge) {
+      setMessage({ kind: 'error', text: t('research.zotero.cloud.desktopOnly', { defaultValue: 'Secure Zotero cloud credentials require the Rigorium desktop app.' }) });
+      return;
+    }
+    setCredentialBusy(true);
+    setMessage(null);
+    try {
+      const status = await bridge.save(credentialKey);
+      setCredentialStatus(status);
+      setCredentialKey('');
+      setMessage({ kind: 'success', text: t('research.zotero.cloud.credentialSaved', { defaultValue: 'Zotero cloud credential saved securely.' }) });
+    } catch (error) {
+      setMessage({ kind: 'error', text: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setCredentialBusy(false);
+    }
+  }, [credentialKey, t]);
+
+  const clearCredential = useCallback(async () => {
+    const bridge = window.rigoriumZoteroCredentials;
+    if (!bridge) return;
+    setCredentialBusy(true);
+    setMessage(null);
+    try {
+      const status = await bridge.clear({ confirmed: true });
+      setCredentialStatus(status);
+      setConfirmCredentialClear(false);
+      setCloudStatus(null);
+      setMessage({ kind: 'success', text: t('research.zotero.cloud.credentialCleared', { defaultValue: 'Zotero cloud credential removed.' }) });
+    } catch (error) {
+      setMessage({ kind: 'error', text: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setCredentialBusy(false);
+    }
+  }, [t]);
+
   const loadCollections = useCallback(async () => {
     setCollectionsOpen(true);
     setCollectionsLoading(true);
@@ -227,6 +312,12 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
           openalex: { ...current.literature.sources.openalex, ...value },
         },
       },
+    } : current);
+  };
+  const updateZoteroCloud = (value: Partial<ResearchSettings['zotero']['cloud']>) => {
+    setDraft((current) => current ? {
+      ...current,
+      zotero: { ...current.zotero, cloud: { ...current.zotero.cloud, ...value } },
     } : current);
   };
 
@@ -447,6 +538,106 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
                   ? zoteroStatus?.selectedCollection?.name || t('research.zotero.currentSelection', { defaultValue: 'Current Zotero selection' })
                   : draft.zotero.collectionName || t('research.zotero.noCollection', { defaultValue: 'No collection bound' })}
               </span>
+            </div>
+          </SettingsRow>
+        </SettingsCard>
+        <SettingsCard divided className="mt-3">
+          <SettingsRow
+            label={t('research.zotero.cloud.enabled', { defaultValue: 'Enable Zotero cloud writes' })}
+            description={t('research.zotero.cloud.enabledDescription', { defaultValue: 'Tags and notes require an explicit preview and confirmation.' })}
+          >
+            <SettingsToggle
+              checked={draft.zotero.cloud.enabled}
+              onChange={(enabled) => updateZoteroCloud({ enabled })}
+              ariaLabel={t('research.zotero.cloud.enabled', { defaultValue: 'Enable Zotero cloud writes' })}
+            />
+          </SettingsRow>
+          <SettingsRow label={t('research.zotero.cloud.libraryType', { defaultValue: 'Cloud library' })}>
+            <select
+              value={draft.zotero.cloud.libraryType}
+              onChange={(event) => updateZoteroCloud({
+                libraryType: event.target.value as ResearchSettings['zotero']['cloud']['libraryType'],
+                ...(event.target.value === 'user' ? { libraryId: null } : {}),
+              })}
+              className="h-9 w-44 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+            >
+              <option value="user">{t('research.zotero.cloud.userLibrary', { defaultValue: 'My library' })}</option>
+              <option value="group">{t('research.zotero.cloud.groupLibrary', { defaultValue: 'Group library' })}</option>
+            </select>
+          </SettingsRow>
+          {draft.zotero.cloud.libraryType === 'group' ? (
+            <SettingsRow label={t('research.zotero.cloud.libraryId', { defaultValue: 'Group library ID' })}>
+              <Input
+                inputMode="numeric"
+                value={draft.zotero.cloud.libraryId ?? ''}
+                onChange={(event) => updateZoteroCloud({ libraryId: event.target.value.trim() || null })}
+                placeholder="12345"
+                className="w-44 font-mono text-xs"
+              />
+            </SettingsRow>
+          ) : null}
+          <SettingsRow
+            label={t('research.zotero.cloud.credential', { defaultValue: 'Secure API credential' })}
+            description={credentialStatus?.encryptionAvailable
+              ? credentialStatus.configured
+                ? t('research.zotero.cloud.credentialConfigured', { defaultValue: 'Stored with Windows protection. The key is never shown again.' })
+                : t('research.zotero.cloud.credentialMissing', { defaultValue: 'A Zotero API key is required before cloud writes can connect.' })
+              : t('research.zotero.cloud.credentialUnavailable', { defaultValue: 'Secure storage is available only in the Rigorium desktop app.' })}
+          >
+            <div className="flex max-w-80 flex-wrap items-center justify-end gap-2">
+              {scope === 'global' ? (
+                <>
+                  <Input
+                    type="password"
+                    value={credentialKey}
+                    onChange={(event) => setCredentialKey(event.target.value)}
+                    placeholder={t('research.zotero.cloud.credentialPlaceholder', { defaultValue: 'Zotero API key' })}
+                    aria-label={t('research.zotero.cloud.credential', { defaultValue: 'Secure API credential' })}
+                    disabled={!credentialStatus?.encryptionAvailable || credentialBusy}
+                    className="w-44 font-mono text-xs"
+                  />
+                  <Button variant="outline" size="sm" onClick={() => void saveCredential()} disabled={!credentialKey.trim() || !credentialStatus?.encryptionAvailable || credentialBusy}>
+                    <KeyRound />
+                    {t('research.zotero.cloud.saveCredential', { defaultValue: 'Store key' })}
+                  </Button>
+                  {credentialStatus?.configured ? (
+                    confirmCredentialClear ? (
+                      <Button variant="destructive" size="sm" onClick={() => void clearCredential()} disabled={credentialBusy}>
+                        <Trash2 />
+                        {t('research.zotero.cloud.confirmClearCredential', { defaultValue: 'Confirm remove' })}
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="sm" onClick={() => setConfirmCredentialClear(true)} disabled={credentialBusy}>
+                        <Trash2 />
+                        {t('research.zotero.cloud.removeCredential', { defaultValue: 'Remove key' })}
+                      </Button>
+                    )
+                  ) : null}
+                </>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {credentialStatus?.configured
+                    ? t('research.zotero.cloud.credentialConfiguredShort', { defaultValue: 'Global credential configured' })
+                    : t('research.zotero.cloud.credentialMissingShort', { defaultValue: 'Configure the global credential first' })}
+                </span>
+              )}
+            </div>
+          </SettingsRow>
+          <SettingsRow label={t('research.zotero.cloud.connection', { defaultValue: 'Cloud connection' })}>
+            <div className="flex min-w-0 items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => void checkCloud()} disabled={checkingCloud}>
+                {checkingCloud ? <RefreshCw className="animate-spin" /> : <Cloud />}
+                {t('research.zotero.cloud.test', { defaultValue: 'Test cloud' })}
+              </Button>
+              {cloudStatus ? (
+                <span className={`max-w-64 truncate text-xs ${cloudStatus.available ? (cloudStatus.writable ? 'text-emerald-600' : 'text-amber-600') : 'text-red-600'}`}>
+                  {cloudStatus.available
+                    ? cloudStatus.writable
+                      ? t('research.zotero.cloud.ready', { defaultValue: 'Ready · {{library}}', library: cloudStatus.library?.type === 'group' ? `Group ${cloudStatus.library.id}` : 'My library' })
+                      : t('research.zotero.cloud.readOnly', { defaultValue: 'Connected, but read-only.' })
+                    : cloudStatus.error || t('research.zotero.cloud.notReady', { defaultValue: 'Zotero cloud is not ready.' })}
+                </span>
+              ) : null}
             </div>
           </SettingsRow>
         </SettingsCard>

@@ -18,6 +18,11 @@ export type ResearchSettings = {
     useSelectedCollection: boolean;
     collectionKey: string | null;
     collectionName: string | null;
+    cloud: {
+      enabled: boolean;
+      libraryType: 'user' | 'group';
+      libraryId: string | null;
+    };
   };
   citation: { style: 'apa' | 'chicago-author-date' | 'ieee' | 'mla'; includeDoi: boolean };
   privacy: { allowRemoteMetadataSearch: boolean; allowRemoteFullText: boolean };
@@ -209,6 +214,57 @@ export type ZoteroItemExportResult = {
   content?: string;
   citation?: string;
   bibliography?: string;
+};
+
+export type ZoteroCloudStatus = {
+  provider: 'zotero-cloud';
+  status: 'unconfigured' | 'ready' | 'read_only' | 'offline' | 'rate_limited' | 'error';
+  configured: boolean;
+  available: boolean;
+  writable: boolean;
+  checkedAt: string;
+  library?: { type: 'user' | 'group'; id: string; path: string };
+  libraryVersion?: number;
+  retryAfterSeconds?: number;
+  backoffSeconds?: number;
+  error?: string;
+};
+
+export type ZoteroCloudWriteIntent =
+  | { kind: 'tags'; itemKey: string; operation: 'replace' | 'add' | 'remove'; tags: string[] }
+  | { kind: 'note'; operation: 'create'; parentItemKey: string; html: string }
+  | { kind: 'note'; operation: 'update'; noteKey: string; html: string }
+  | { kind: 'note'; operation: 'delete'; noteKey: string };
+
+export type ZoteroCloudWritePlan = {
+  planId: string;
+  preparedAt: string;
+  library: { type: 'user' | 'group'; id: string; path: string };
+  libraryVersion: number;
+  requiresConfirmation: true;
+  kind: 'tags' | 'note';
+  operation: 'replace' | 'add' | 'remove' | 'create' | 'update' | 'delete';
+  itemKey?: string;
+  parentItemKey?: string;
+  noteKey?: string;
+  beforeTags?: string[];
+  afterTags?: string[];
+  beforeHtml?: string;
+  html?: string;
+};
+
+export type ZoteroCloudWriteResult = {
+  planId: string;
+  status: 'confirmation_required' | 'succeeded' | 'partial' | 'conflict' | 'forbidden' | 'not_found' | 'locked' | 'precondition_required' | 'rate_limited' | 'error';
+  executed: boolean;
+  libraryVersion?: number;
+  error?: string;
+  conflict?: {
+    kind: 'tags' | 'note';
+    reason: string;
+    remoteTags?: string[];
+    remoteHtml?: string;
+  };
 };
 
 export type ZoteroItemsResult = {
