@@ -28,3 +28,32 @@ test("historical literature_search data is projected into the WebMessage payload
   assert.equal(messages.length, 1);
   assert.deepEqual(messages[0]?.payload, artifact);
 });
+
+test("historical literature_expand data is projected into the WebMessage payload", () => {
+  const artifact = {
+    schemaVersion: 1,
+    kind: "literature_expansion",
+    artifactId: "literature-expansion-test",
+    seedPaperId: "https://openalex.org/W1",
+    papers: [],
+    edges: [],
+    sources: [],
+    directions: [],
+  };
+  const messages = flattenCanonicalMessage({
+    role: "user",
+    content: [{
+      type: "tool_result",
+      toolCallId: "call-literature-expand",
+      content: [{ type: "text", text: "done" }],
+      raw: { toolName: "literature_expand", data: artifact },
+    }],
+  } as any, {
+    index: 0,
+    sessionKey: "session",
+    now: () => new Date("2026-07-22T00:00:00.000Z"),
+  });
+
+  assert.equal(messages.length, 1);
+  assert.deepEqual(messages[0]?.payload, artifact);
+});

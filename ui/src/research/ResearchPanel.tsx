@@ -34,8 +34,10 @@ import {
   getZoteroItemExport,
 } from './zoteroItemApi';
 import { confirmZoteroCloudWrite, importPapersIntoZotero, previewZoteroCloudWrite } from './zoteroCloudApi';
+import { directedEdgeEndpoints } from './graphGeometry';
 import type {
   ResearchArtifact,
+  LiteratureExpansionDirectionResult,
   ResearchPaper,
   ResearchPaperProvenance,
   ResearchRelationEdge,
@@ -59,6 +61,10 @@ type ResearchPanelProps = {
   artifact: ResearchArtifact;
   projectPath?: string;
 };
+
+function researchGraphNodeRadius(paper: ResearchPaper): number {
+  return Math.max(9, Math.min(18, 9 + Math.log10(paper.citedByCount + 1) * 2.6));
+}
 
 type ZoteroBinding = {
   collectionKey?: string;
@@ -84,10 +90,16 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
   const [confirmingPaper, setConfirmingPaper] = useState<ResearchPaper | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const expansionSeedPaper = useMemo(
+    () => artifact.kind === 'literature_expansion'
+      ? artifact.papers.find((paper) => paper.id === artifact.seedPaperId) ?? null
+      : null,
+    [artifact],
+  );
 
   const selectedPaper = useMemo(
-    () => artifact.papers.find((paper) => paper.id === selectedPaperId) ?? artifact.papers[0] ?? null,
-    [artifact.papers, selectedPaperId],
+    () => artifact.papers.find((paper) => paper.id === selectedPaperId) ?? expansionSeedPaper ?? artifact.papers[0] ?? null,
+    [artifact.papers, expansionSeedPaper, selectedPaperId],
   );
   const selectedPaperUrl = useMemo(() => safeExternalUrl(selectedPaper?.url), [selectedPaper?.url]);
   const sourceNameById = useMemo(
@@ -272,9 +284,23 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
             <Search className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="line-clamp-2 text-[13px] font-medium leading-5 text-neutral-900 dark:text-neutral-100">
-              {artifact.plan.query}
-            </p>
+            {artifact.kind === 'literature_expansion' ? (
+              <>
+                <p className="text-[13px] font-medium leading-5 text-neutral-900 dark:text-neutral-100">
+                  {t('researchPanel.citationExpansion', { defaultValue: 'Citation expansion' })}
+                </p>
+                <p data-testid="research-expansion-seed" className="mt-0.5 line-clamp-2 break-words text-[11px] leading-4 text-neutral-600 dark:text-neutral-300">
+                  {t('researchPanel.expansionSeed', {
+                    defaultValue: 'Seed: {{title}}',
+                    title: expansionSeedPaper?.title || artifact.plan.seed.title || artifact.seedPaperId,
+                  })}
+                </p>
+              </>
+            ) : (
+              <p className="line-clamp-2 text-[13px] font-medium leading-5 text-neutral-900 dark:text-neutral-100">
+                {artifact.plan.query}
+              </p>
+            )}
             <p className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
               {t('researchPanel.resultSummary', {
                 defaultValue: '{{papers}} papers · {{edges}} relationships',
@@ -309,6 +335,9 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
         <CoverageSummary artifact={artifact} sourceNameById={sourceNameById} />
+        {artifact.kind === 'literature_expansion' ? (
+          <CitationExpansionSummary directions={artifact.directions} />
+        ) : null}
 
         {view === 'map' ? (
           <div className="space-y-3 p-3">
@@ -316,14 +345,19 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
               papers={artifact.papers}
               edges={artifact.edges}
               selectedPaperId={selectedPaper?.id ?? null}
+              seedPaperId={artifact.kind === 'literature_expansion' ? artifact.seedPaperId : null}
               onSelectPaper={selectPaper}
             />
-            <RelationshipLegend />
+            <RelationshipLegend
+              showTopicEdges={artifact.kind === 'literature_search'}
+              showSeed={artifact.kind === 'literature_expansion'}
+            />
           </div>
         ) : view === 'papers' ? (
           <PaperList
             papers={artifact.papers}
             selectedPaperId={selectedPaper?.id ?? null}
+            seedPaperId={artifact.kind === 'literature_expansion' ? artifact.seedPaperId : null}
             onSelectPaper={selectPaper}
             matches={matchByPaperId}
             sourceNameById={sourceNameById}
@@ -481,11 +515,13 @@ function LiteratureGraph({
   papers,
   edges,
   selectedPaperId,
+  seedPaperId,
   onSelectPaper,
 }: {
   papers: ResearchPaper[];
   edges: ResearchRelationEdge[];
   selectedPaperId: string | null;
+  seedPaperId: string | null;
   onSelectPaper: (paperId: string) => void;
 }) {
   const positions = useMemo(() => {
@@ -493,14 +529,21 @@ function LiteratureGraph({
     const centerY = 180;
     const radiusX = 245;
     const radiusY = 125;
-    return new Map(papers.map((paper, index) => {
-      const angle = papers.length <= 1 ? 0 : (Math.PI * 2 * index) / papers.length - Math.PI / 2;
-      return [paper.id, {
-        x: papers.length <= 1 ? centerX : centerX + Math.cos(angle) * radiusX,
-        y: papers.length <= 1 ? centerY : centerY + Math.sin(angle) * radiusY,
-      }];
-    }));
-  }, [papers]);
+    const seed = seedPaperId && papers.some((paper) => paper.id === seedPaperId) ? seedPaperId : null;
+    const surrounding = seed ? papers.filter((paper) => paper.id !== seed) : papers;
+    const next = new Map<string, { x: number; y: number }>();
+    if (seed) next.set(seed, { x: centerX, y: centerY });
+    surrounding.forEach((paper, index) => {
+      const angle = surrounding.length <= 1 ? -Math.PI / 2 : (Math.PI * 2 * index) / surrounding.length - Math.PI / 2;
+      const isStandaloneNode = !seed && surrounding.length <= 1;
+      next.set(paper.id, {
+        x: isStandaloneNode ? centerX : centerX + Math.cos(angle) * radiusX,
+        y: isStandaloneNode ? centerY : centerY + Math.sin(angle) * radiusY,
+      });
+    });
+    return next;
+  }, [papers, seedPaperId]);
+  const paperById = useMemo(() => new Map(papers.map((paper) => [paper.id, paper] as const)), [papers]);
 
   if (papers.length === 0) {
     return (
@@ -522,13 +565,26 @@ function LiteratureGraph({
           const source = positions.get(edge.source);
           const target = positions.get(edge.target);
           if (!source || !target) return null;
+          const sourcePaper = paperById.get(edge.source);
+          const targetPaper = paperById.get(edge.target);
+          const endpoints = edge.type === 'citation' && sourcePaper && targetPaper
+            ? directedEdgeEndpoints(
+                source,
+                target,
+                researchGraphNodeRadius(sourcePaper),
+                researchGraphNodeRadius(targetPaper),
+              )
+            : { source, target };
           return (
             <line
               key={edge.id}
-              x1={source.x}
-              y1={source.y}
-              x2={target.x}
-              y2={target.y}
+              data-testid={`research-edge-${edge.id}`}
+              data-source={edge.source}
+              data-target={edge.target}
+              x1={endpoints.source.x}
+              y1={endpoints.source.y}
+              x2={endpoints.target.x}
+              y2={endpoints.target.y}
               stroke={edge.type === 'citation' ? '#818cf8' : '#a3a3a3'}
               strokeWidth={edge.type === 'citation' ? 1.8 : 1.1}
               strokeDasharray={edge.inferred ? '5 5' : undefined}
@@ -542,10 +598,13 @@ function LiteratureGraph({
         {papers.map((paper) => {
           const position = positions.get(paper.id)!;
           const selected = paper.id === selectedPaperId;
-          const nodeRadius = Math.max(9, Math.min(18, 9 + Math.log10(paper.citedByCount + 1) * 2.6));
+          const isSeed = paper.id === seedPaperId;
+          const nodeRadius = researchGraphNodeRadius(paper);
           return (
             <g
               key={paper.id}
+              data-testid={`research-graph-node-${paper.id}`}
+              data-seed={isSeed ? 'true' : 'false'}
               transform={`translate(${position.x}, ${position.y})`}
               className="cursor-pointer"
               onClick={() => onSelectPaper(paper.id)}
@@ -556,21 +615,116 @@ function LiteratureGraph({
               }}
             >
               <circle
-                r={nodeRadius + (selected ? 5 : 2)}
-                fill={selected ? '#c7d2fe' : '#e5e7eb'}
-                opacity={selected ? 0.8 : 0.55}
+                r={nodeRadius + (selected || isSeed ? 5 : 2)}
+                fill={selected ? '#c7d2fe' : isSeed ? '#fde68a' : '#e5e7eb'}
+                opacity={selected || isSeed ? 0.8 : 0.55}
               />
-              <circle r={nodeRadius} fill={selected ? '#4f46e5' : '#6366f1'} stroke="white" strokeWidth="2" />
+              <circle
+                r={nodeRadius}
+                fill={selected ? '#4f46e5' : isSeed ? '#d97706' : '#6366f1'}
+                stroke={isSeed ? '#92400e' : 'white'}
+                strokeWidth={isSeed ? '2.5' : '2'}
+              />
               <text y={nodeRadius + 15} textAnchor="middle" fontSize="9" fill="currentColor" className="fill-neutral-600 dark:fill-neutral-300">
                 {shortTitle(paper.title, 28)}
               </text>
-              <title>{`${paper.title}\n${paper.citedByCount} citations`}</title>
+              <title>{`${isSeed ? 'Seed paper: ' : ''}${paper.title}\n${paper.citedByCount} citations`}</title>
             </g>
           );
         })}
       </svg>
     </div>
   );
+}
+
+function CitationExpansionSummary({ directions }: { directions: LiteratureExpansionDirectionResult[] }) {
+  const { t } = useTranslation();
+  if (directions.length === 0) return null;
+
+  return (
+    <section data-testid="research-expansion-directions" className="min-w-0 overflow-x-hidden border-b border-neutral-200 bg-white px-3 py-2.5 dark:border-neutral-800 dark:bg-neutral-950">
+      <h3 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+        {t('researchPanel.expansionDirections', { defaultValue: 'Citation directions' })}
+      </h3>
+      <div className="mt-2 grid min-w-0 gap-2">
+        {directions.map((result) => {
+          const queryUrl = safeExternalUrl(result.queryUrl);
+          const warnings = Array.isArray(result.warnings) ? result.warnings.filter(Boolean) : [];
+          const metrics = [
+            t('researchPanel.expansionReturnedCount', { defaultValue: '{{count}} returned', count: result.resultCount }),
+            typeof result.totalMatches === 'number'
+              ? t('researchPanel.expansionTotalCount', { defaultValue: '{{count}} total', count: result.totalMatches })
+              : null,
+            typeof result.requestedCount === 'number'
+              ? t('researchPanel.expansionRequestedCount', { defaultValue: '{{count}} requested', count: result.requestedCount })
+              : null,
+            typeof result.resolvedCount === 'number'
+              ? t('researchPanel.expansionResolvedCount', { defaultValue: '{{count}} resolved', count: result.resolvedCount })
+              : null,
+          ].filter((metric): metric is string => Boolean(metric));
+          return (
+            <div
+              key={result.direction}
+              data-testid={`research-expansion-direction-${result.direction}`}
+              className="min-w-0 rounded-lg border border-neutral-200 bg-neutral-50/70 px-2.5 py-2 dark:border-neutral-800 dark:bg-neutral-900/60"
+            >
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-medium text-neutral-800 dark:text-neutral-200">
+                  {result.direction === 'references'
+                    ? t('researchPanel.expansionReferences', { defaultValue: 'References' })
+                    : t('researchPanel.expansionCitations', { defaultValue: 'Citations' })}
+                </span>
+                <span className={cn('rounded border px-1.5 py-0.5 text-[9px] font-semibold', expansionDirectionStatusClass(result.status))}>
+                  {expansionDirectionStatusLabel(result.status, t)}
+                </span>
+                {result.truncated ? (
+                  <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">
+                    {t('researchPanel.expansionTruncated', { defaultValue: 'Truncated' })}
+                  </span>
+                ) : null}
+                {queryUrl ? (
+                  <a href={queryUrl} target="_blank" rel="noreferrer" className="ml-auto inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-indigo-600 hover:underline dark:text-indigo-300">
+                    {t('researchPanel.sourceQuery', { defaultValue: 'Query' })}
+                    <ArrowUpRight className="h-3 w-3" />
+                  </a>
+                ) : null}
+              </div>
+              <p className="mt-1 min-w-0 break-words text-[10px] leading-4 text-neutral-500 dark:text-neutral-400">
+                {metrics.join(' · ')}
+              </p>
+              {result.error ? (
+                <p className="mt-1 min-w-0 break-words text-[10px] leading-4 text-red-700 dark:text-red-300">
+                  <span className="font-medium">{t('researchPanel.expansionError', { defaultValue: 'Error:' })}</span> {result.error}
+                </p>
+              ) : null}
+              {warnings.length > 0 ? (
+                <p className="mt-1 min-w-0 break-words text-[10px] leading-4 text-amber-700 dark:text-amber-300">
+                  {warnings.join(' ')}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function expansionDirectionStatusLabel(
+  status: LiteratureExpansionDirectionResult['status'],
+  t: ReturnType<typeof useTranslation>['t'],
+): string {
+  if (status === 'ok') return t('researchPanel.expansionStatusOk', { defaultValue: 'Complete' });
+  if (status === 'partial') return t('researchPanel.expansionStatusPartial', { defaultValue: 'Partial' });
+  if (status === 'unavailable') return t('researchPanel.expansionStatusUnavailable', { defaultValue: 'Unavailable' });
+  return t('researchPanel.expansionStatusError', { defaultValue: 'Failed' });
+}
+
+function expansionDirectionStatusClass(status: LiteratureExpansionDirectionResult['status']): string {
+  if (status === 'ok') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-300';
+  if (status === 'partial') return 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200';
+  if (status === 'unavailable') return 'border-neutral-200 bg-white text-neutral-600 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-300';
+  return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-300';
 }
 
 function CoverageSummary({
@@ -879,12 +1033,18 @@ function PaperSourceBadges({
   );
 }
 
-function RelationshipLegend() {
+function RelationshipLegend({ showTopicEdges, showSeed }: { showTopicEdges: boolean; showSeed: boolean }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-wrap gap-3 px-1 text-[10px] text-neutral-500 dark:text-neutral-400">
-      <span className="inline-flex items-center gap-1.5"><span className="h-px w-5 bg-indigo-400" /> Citation</span>
-      <span className="inline-flex items-center gap-1.5"><span className="w-5 border-t border-dashed border-neutral-400" /> Shared topic (inferred)</span>
-      <span className="ml-auto inline-flex items-center gap-1"><Network className="h-3 w-3" /> Node size = citations</span>
+      <span className="inline-flex items-center gap-1.5"><span className="h-px w-5 bg-indigo-400" />{t('researchPanel.citationEdge', { defaultValue: 'Citation' })}</span>
+      {showTopicEdges ? (
+        <span className="inline-flex items-center gap-1.5"><span className="w-5 border-t border-dashed border-neutral-400" />{t('researchPanel.sharedTopicEdge', { defaultValue: 'Shared topic (inferred)' })}</span>
+      ) : null}
+      {showSeed ? (
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full border-2 border-amber-800 bg-amber-600" />{t('researchPanel.seedLegend', { defaultValue: 'Seed paper' })}</span>
+      ) : null}
+      <span className="ml-auto inline-flex items-center gap-1"><Network className="h-3 w-3" />{t('researchPanel.nodeSizeLegend', { defaultValue: 'Node size = citations' })}</span>
     </div>
   );
 }
@@ -1811,16 +1971,19 @@ function PaperStatusBadge({ match }: { match: ZoteroPaperMatch }) {
 function PaperList({
   papers,
   selectedPaperId,
+  seedPaperId,
   onSelectPaper,
   matches,
   sourceNameById,
 }: {
   papers: ResearchPaper[];
   selectedPaperId: string | null;
+  seedPaperId: string | null;
   onSelectPaper: (paperId: string) => void;
   matches: Map<string, ZoteroPaperMatch>;
   sourceNameById: ReadonlyMap<string, string>;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="divide-y divide-neutral-200 bg-white dark:divide-neutral-800 dark:bg-neutral-950">
       {papers.map((paper, index) => (
@@ -1837,7 +2000,14 @@ function PaperList({
             {index + 1}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="line-clamp-2 text-[12px] font-medium leading-4 text-neutral-800 dark:text-neutral-200">{paper.title}</span>
+            <span className="flex min-w-0 items-start gap-1.5">
+              <span className="line-clamp-2 min-w-0 flex-1 text-[12px] font-medium leading-4 text-neutral-800 dark:text-neutral-200">{paper.title}</span>
+              {paper.id === seedPaperId ? (
+                <span data-testid={`research-paper-seed-${paper.id}`} className="shrink-0 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">
+                  {t('researchPanel.seedBadge', { defaultValue: 'Seed' })}
+                </span>
+              ) : null}
+            </span>
             <span className="mt-1 block text-[10px] text-neutral-500 dark:text-neutral-400">
               {[paper.authors.slice(0, 2).join(', '), paper.year, `${paper.citedByCount} cited`].filter(Boolean).join(' · ')}
             </span>

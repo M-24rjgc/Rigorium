@@ -205,7 +205,17 @@ export type ResearchSourceStatus = {
   error?: string;
 };
 
-export type ResearchArtifact = {
+export type ResearchCoverage = {
+  status: "complete" | "partial" | "failed";
+  resultCount: number;
+  warnings: string[];
+  requestedSourceIds: string[];
+  successfulSourceIds: string[];
+  failedSourceIds: string[];
+};
+
+/** The original query-result artifact. Kept stable for existing consumers. */
+export type LiteratureSearchArtifact = {
   schemaVersion: 1;
   kind: "literature_search";
   artifactId: string;
@@ -215,18 +225,81 @@ export type ResearchArtifact = {
   papers: ResearchPaper[];
   edges: ResearchRelationEdge[];
   sources: ResearchSourceStatus[];
-  coverage: {
-    status: "complete" | "partial" | "failed";
-    resultCount: number;
-    warnings: string[];
-    requestedSourceIds: string[];
-    successfulSourceIds: string[];
-    failedSourceIds: string[];
-  };
+  coverage: ResearchCoverage;
   presentation: {
     autoOpen: boolean;
   };
 };
+
+/** A strong identifier supplied by a selected literature node or its artifact. */
+export type LiteratureExpansionSeed = {
+  openAlexId?: string;
+  doi?: string;
+  /** Display-only context; it never participates in seed resolution. */
+  title?: string;
+  /** Display-only context; it never participates in seed resolution. */
+  year?: number;
+  /** Display-only context; it never participates in seed resolution. */
+  authors?: string[];
+};
+
+export type LiteratureExpansionDirection = "references" | "citations";
+
+export type LiteratureExpansionPlan = {
+  seed: LiteratureExpansionSeed;
+  directions: LiteratureExpansionDirection[];
+  limitPerDirection: number;
+  /** This first expansion slice intentionally uses only the existing OpenAlex adapter. */
+  sourceIds: ["openalex"];
+};
+
+export type LiteratureExpansionDirectionStatus = "ok" | "partial" | "error" | "unavailable";
+
+/**
+ * Coverage for one directed expansion request. `truncated` is deliberate
+ * pagination or budget truncation, whereas `partial` also covers records that
+ * OpenAlex reported but could not hydrate.
+ */
+export type LiteratureExpansionDirectionResult = {
+  direction: LiteratureExpansionDirection;
+  status: LiteratureExpansionDirectionStatus;
+  resultCount: number;
+  totalMatches?: number;
+  /** Number of reference identifiers supplied by the resolved seed. */
+  requestedCount?: number;
+  /** Number of supplied reference identifiers returned as full work records. */
+  resolvedCount?: number;
+  truncated: boolean;
+  queryUrl?: string;
+  warnings?: string[];
+  error?: string;
+};
+
+/**
+ * A graph neighborhood grown from a verified seed paper. Citation edge
+ * orientation remains `citing work -> cited work` in both directions.
+ */
+export type LiteratureExpansionArtifact = {
+  schemaVersion: 1;
+  kind: "literature_expansion";
+  artifactId: string;
+  createdAt: string;
+  intent: SearchIntent;
+  plan: LiteratureExpansionPlan;
+  /** Always identifies a resolved member of `papers`; seed resolution itself is not fuzzy. */
+  seedPaperId: string;
+  papers: ResearchPaper[];
+  edges: ResearchRelationEdge[];
+  sources: ResearchSourceStatus[];
+  directions: LiteratureExpansionDirectionResult[];
+  coverage: ResearchCoverage;
+  presentation: {
+    autoOpen: boolean;
+  };
+};
+
+/** Any research artifact accepted by the renderer and persisted in a tool result. */
+export type ResearchArtifact = LiteratureSearchArtifact | LiteratureExpansionArtifact;
 
 export type LiteratureSearchResult = {
   papers: ResearchPaper[];

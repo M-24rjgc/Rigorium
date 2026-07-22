@@ -14,6 +14,8 @@ const isSmokeTest = process.argv.includes('--smoke-test');
 const isWindowSmokeTest = process.argv.includes('--window-smoke-test');
 const isResearchVerification = process.argv.includes('--verify-research');
 const shouldRunLiveArxivVerification = isResearchVerification && process.env.RIGORIUM_VERIFY_ARXIV_LIVE === '1';
+const shouldRunLiveOpenAlexExpansionVerification = isResearchVerification
+  && process.env.RIGORIUM_VERIFY_OPENALEX_EXPANSION_LIVE === '1';
 
 let gatewayProcess;
 let uiProcess;
@@ -31,6 +33,7 @@ const ZOTERO_CLOUD_SESSION_HEADER = 'x-rigorium-zotero-cloud-session';
 const ZOTERO_CLOUD_MAX_RESPONSE_CHARS = 2 * 1024 * 1024;
 const RESEARCH_VERIFICATION_DIRECTORY = 'verification';
 const ARXIV_VERIFICATION_REPORT_FILENAME = 'arxiv-adapter.v1.json';
+const OPENALEX_EXPANSION_VERIFICATION_REPORT_FILENAME = 'openalex-expansion.v1.json';
 
 function zoteroCredentialsPath() {
   return join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY, ZOTERO_CREDENTIALS_FILENAME);
@@ -317,6 +320,230 @@ async function verifyResearchArxivAdapter() {
     },
     live,
   })}\n`, { encoding: 'utf8', mode: 0o600 });
+}
+
+/**
+ * Exercises the compiled citation-expansion tool exactly as the packaged
+ * main process can load it. The transport is fixture-only: an invalid host
+ * plus an injected fetch implementation makes an accidental live request
+ * impossible while preserving the production OpenAlex normalisation path.
+ */
+async function verifyResearchOpenAlexExpansion() {
+  const appRoot = app.getAppPath();
+  const appPathType = appRoot.toLowerCase().endsWith('.asar') ? 'asar' : 'directory';
+  const toolPath = join(appRoot, 'dist', 'src', 'tool', 'builtin', 'literatureExpand.js');
+  const adapterPath = join(appRoot, 'dist', 'src', 'research', 'literature', 'openAlexExpansion.js');
+  const fixtureDirectory = join(appRoot, 'desktop', 'fixtures');
+  const seedFixturePath = join(fixtureDirectory, 'openalex-expansion-seed.json');
+  const referencesFixturePath = join(fixtureDirectory, 'openalex-expansion-references.json');
+  const citationsFixturePath = join(fixtureDirectory, 'openalex-expansion-citations.json');
+  const seedFixture = JSON.parse(readFileSync(seedFixturePath, 'utf8'));
+  const referencesFixture = JSON.parse(readFileSync(referencesFixturePath, 'utf8'));
+  const citationsFixture = JSON.parse(readFileSync(citationsFixturePath, 'utf8'));
+  const toolModule = await import(pathToFileURL(toolPath).href);
+  const adapterModule = await import(pathToFileURL(adapterPath).href);
+
+  assertResearchVerification(
+    typeof toolModule.createLiteratureExpandTool === 'function',
+    'The packaged literature_expand tool did not export createLiteratureExpandTool.',
+  );
+  assertResearchVerification(
+    typeof adapterModule.expandOpenAlexCitations === 'function',
+    'The packaged OpenAlex citation-expansion adapter did not export expandOpenAlexCitations.',
+  );
+
+  const requestedUrls = [];
+  const verificationEndpoint = 'https://verification.invalid/works';
+  const fixtureResponse = (payload) => new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: {
+      'content-length': String(Buffer.byteLength(JSON.stringify(payload), 'utf8')),
+      'content-type': 'application/json; charset=utf-8',
+    },
+  });
+  const tool = toolModule.createLiteratureExpandTool({
+    endpoint: verificationEndpoint,
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      requestedUrls.push(url.toString());
+      if (url.hostname !== 'verification.invalid') {
+        throw new Error(`Citation expansion verification attempted a non-fixture host: ${url.hostname}`);
+      }
+      const filter = url.searchParams.get('filter');
+      if (!filter) return fixtureResponse(seedFixture);
+      if (filter === 'openalex_id:W900000002|W900000003') return fixtureResponse(referencesFixture);
+      if (filter === 'cites:W900000001') return fixtureResponse(citationsFixture);
+      throw new Error(`Unexpected fixture citation-expansion filter: ${filter}`);
+    },
+  });
+  const output = await tool.execute({
+    seed: {
+      openAlexId: 'W900000001',
+      doi: '10.1234/rigorium.packaged-seed',
+      title: 'Packaged OpenAlex citation expansion seed',
+      year: 2024,
+    },
+    directions: ['references', 'citations'],
+    limitPerDirection: 2,
+  }, {
+    cwd: join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY, RESEARCH_VERIFICATION_DIRECTORY, 'project'),
+    env: { PILOT_HOME: process.env.PILOT_HOME },
+    now: () => new Date('2026-07-22T00:00:00.000Z'),
+  });
+  const artifact = output?.data;
+  assertResearchVerification(artifact?.kind === 'literature_expansion', 'The fixture did not produce a literature expansion artifact.');
+  assertResearchVerification(
+    artifact.seedPaperId === 'https://openalex.org/W900000001',
+    'The fixture seed did not normalize to its canonical OpenAlex work ID.',
+  );
+  assertResearchVerification(
+    artifact.papers?.map((paper) => paper.id).join('|')
+      === 'https://openalex.org/W900000001|https://openalex.org/W900000002|https://openalex.org/W900000004',
+    'The fixture did not retain the seed, hydrated reference, and citing work in the expected order.',
+  );
+  assertResearchVerification(artifact.coverage?.status === 'partial', 'The fixture did not expose partial citation-expansion coverage.');
+  assertResearchVerification(artifact.sources?.length === 1, 'The fixture did not produce exactly one OpenAlex source status.');
+  assertResearchVerification(
+    artifact.sources[0]?.id === 'openalex' && artifact.sources[0]?.status === 'ok' && artifact.sources[0]?.resultCount === 3,
+    'The fixture did not preserve its successful OpenAlex source status.',
+  );
+
+  const directionsByName = new Map(artifact.directions?.map((direction) => [direction.direction, direction]));
+  const references = directionsByName.get('references');
+  const citations = directionsByName.get('citations');
+  assertResearchVerification(
+    references?.status === 'partial'
+      && references.resultCount === 1
+      && references.requestedCount === 3
+      && references.resolvedCount === 1
+      && references.truncated === true,
+    'The fixture did not preserve partial/truncated reference coverage.',
+  );
+  assertResearchVerification(
+    citations?.status === 'partial'
+      && citations.resultCount === 1
+      && citations.totalMatches === 2
+      && citations.truncated === true,
+    'The fixture did not preserve partial/truncated citing-work coverage.',
+  );
+  assertResearchVerification(
+    artifact.edges?.map((edge) => `${edge.source}=>${edge.target}`).join('|')
+      === 'https://openalex.org/W900000001=>https://openalex.org/W900000002|https://openalex.org/W900000004=>https://openalex.org/W900000001',
+    'The fixture did not preserve citing-work to cited-work edge orientation.',
+  );
+
+  const parsedRequests = requestedUrls.map((value) => new URL(value));
+  const seedRequest = parsedRequests.find((url) => !url.searchParams.has('filter'));
+  const referenceRequest = parsedRequests.find((url) => url.searchParams.get('filter') === 'openalex_id:W900000002|W900000003');
+  const citationRequest = parsedRequests.find((url) => url.searchParams.get('filter') === 'cites:W900000001');
+  assertResearchVerification(requestedUrls.length === 3, 'The local OpenAlex fixtures were not requested exactly three times.');
+  assertResearchVerification(
+    parsedRequests.every((url) => url.protocol === 'https:' && url.hostname === 'verification.invalid'),
+    'The packaged citation-expansion verification attempted a non-fixture endpoint.',
+  );
+  assertResearchVerification(
+    decodeURIComponent(seedRequest?.pathname ?? '').endsWith('/https://openalex.org/W900000001'),
+    'The packaged citation-expansion tool did not resolve the configured strong seed identifier.',
+  );
+  assertResearchVerification(referenceRequest?.searchParams.get('per-page') === '2', 'The packaged tool did not retain the reference limit.');
+  assertResearchVerification(citationRequest?.searchParams.get('per-page') === '2', 'The packaged tool did not retain the citation limit.');
+  const live = shouldRunLiveOpenAlexExpansionVerification
+    ? await verifyResearchOpenAlexExpansionLiveTool(toolModule)
+    : { requested: false };
+
+  const reportDirectory = join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY, RESEARCH_VERIFICATION_DIRECTORY);
+  mkdirSync(reportDirectory, { recursive: true });
+  writeFileSync(join(reportDirectory, OPENALEX_EXPANSION_VERIFICATION_REPORT_FILENAME), `${JSON.stringify({
+    schemaVersion: 1,
+    packaged: app.isPackaged,
+    appPathType,
+    toolLoadedFromAppAsar: appPathType === 'asar',
+    adapterLoadedFromAppAsar: appPathType === 'asar',
+    fixtures: {
+      seed: 'openalex-expansion-seed.json',
+      references: 'openalex-expansion-references.json',
+      citations: 'openalex-expansion-citations.json',
+    },
+    source: artifact.sources[0],
+    seed: {
+      id: artifact.seedPaperId,
+      title: artifact.papers[0]?.title,
+      doi: artifact.papers[0]?.identity?.doi,
+    },
+    directions: artifact.directions,
+    edges: artifact.edges,
+    coverage: artifact.coverage,
+    artifact,
+    live,
+  })}\n`, { encoding: 'utf8', mode: 0o600 });
+}
+
+/**
+ * Opt-in production transport smoke for the exact compiled tool above. A
+ * high-citation seed makes one citing work sufficient to prove the live
+ * adapter's seed resolution, neighbour normalisation, and edge direction.
+ */
+async function verifyResearchOpenAlexExpansionLiveTool(toolModule) {
+  try {
+    const tool = toolModule.createLiteratureExpandTool();
+    const output = await tool.execute({
+      seed: { openAlexId: 'W2626778328' },
+      directions: ['citations'],
+      limitPerDirection: 1,
+    }, {
+      cwd: join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY, RESEARCH_VERIFICATION_DIRECTORY, 'live-project'),
+      env: { PILOT_HOME: process.env.PILOT_HOME },
+      now: () => new Date(),
+    });
+    const artifact = output?.data;
+    const seed = artifact?.papers?.find((paper) => paper.id === artifact.seedPaperId);
+    const neighbor = artifact?.papers?.find((paper) => paper.id !== artifact.seedPaperId);
+    const citationEdge = artifact?.edges?.find((edge) => (
+      edge.type === 'citation'
+      && edge.inferred === false
+      && edge.source === neighbor?.id
+      && edge.target === seed?.id
+    ));
+    const citations = artifact?.directions?.find((direction) => direction.direction === 'citations');
+
+    assertResearchVerification(artifact?.kind === 'literature_expansion', 'The live OpenAlex tool did not return a literature expansion artifact.');
+    assertResearchVerification(seed?.id === 'https://openalex.org/W2626778328', 'The live OpenAlex seed did not resolve canonically.');
+    assertResearchVerification(Boolean(neighbor?.id), 'The live OpenAlex expansion returned no neighbouring paper.');
+    assertResearchVerification(
+      citations?.status === 'ok' || citations?.status === 'partial',
+      'The live OpenAlex citing-work direction did not succeed.',
+    );
+    assertResearchVerification(citations?.resultCount >= 1, 'The live OpenAlex citing-work direction returned no papers.');
+    assertResearchVerification(Boolean(citationEdge), 'The live OpenAlex expansion did not return a real citing-work to cited-work edge.');
+
+    return {
+      requested: true,
+      source: {
+        id: artifact.sources?.[0]?.id,
+        status: artifact.sources?.[0]?.status,
+        resultCount: artifact.sources?.[0]?.resultCount,
+      },
+      seed: { id: seed.id, title: seed.title },
+      neighbor: { id: neighbor.id, title: neighbor.title },
+      edge: {
+        source: citationEdge.source,
+        target: citationEdge.target,
+        type: citationEdge.type,
+        inferred: citationEdge.inferred,
+      },
+      direction: {
+        status: citations.status,
+        resultCount: citations.resultCount,
+        truncated: citations.truncated,
+      },
+    };
+  } catch (error) {
+    return {
+      requested: true,
+      source: { id: 'openalex', status: 'error', resultCount: 0 },
+      error: researchVerificationErrorMessage(error),
+    };
+  }
 }
 
 /**
@@ -676,7 +903,10 @@ app.on('before-quit', (event) => {
 app.whenReady().then(async () => {
   registerZoteroIpc();
   try {
-    if (isResearchVerification) await verifyResearchArxivAdapter();
+    if (isResearchVerification) {
+      await verifyResearchArxivAdapter();
+      await verifyResearchOpenAlexExpansion();
+    }
     await startServices();
     if (isSmokeTest) {
       isQuitting = true;

@@ -8,7 +8,7 @@ import { readResearchSettings } from "../../research/settings.js";
 import type {
   LiteratureSearchResult,
   LiteratureSource,
-  ResearchArtifact,
+  LiteratureSearchArtifact,
   SearchClassification,
   SearchPlan,
 } from "../../research/types.js";
@@ -43,7 +43,7 @@ export type CreateLiteratureSearchToolOptions = {
 
 export function createLiteratureSearchTool(
   options: CreateLiteratureSearchToolOptions = {},
-): PilotDeckToolDefinition<LiteratureSearchInput, ResearchArtifact> {
+): PilotDeckToolDefinition<LiteratureSearchInput, LiteratureSearchArtifact> {
   return {
     name: "literature_search",
     title: "Search Academic Literature",
@@ -248,7 +248,7 @@ The result includes normalized paper identities, source provenance, real citatio
         limit,
         sourcePriority: ["openalex", "arxiv", "crossref"],
       });
-      const artifact: ResearchArtifact = {
+      const artifact: LiteratureSearchArtifact = {
         schemaVersion: 1,
         kind: "literature_search",
         artifactId: `literature-${randomUUID()}`,
@@ -268,7 +268,7 @@ The result includes normalized paper identities, source provenance, real citatio
   };
 }
 
-function formatToolOutput(artifact: ResearchArtifact): PilotDeckToolExecutionOutput<ResearchArtifact> {
+function formatToolOutput(artifact: LiteratureSearchArtifact): PilotDeckToolExecutionOutput<LiteratureSearchArtifact> {
   const sourceSummary = artifact.sources.map((source) => `${source.name} (${source.status})`).join(", ");
   const lines = [
     `Academic literature search: ${artifact.plan.query}`,

@@ -5,6 +5,7 @@ import i18n from '../i18n/config';
 import { ResearchPanelProvider } from '../contexts/ResearchPanelContext';
 import { authenticatedFetch } from '../utils/api';
 import ResearchPanel from './ResearchPanel';
+import { directedEdgeEndpoints, RESEARCH_CITATION_MARKER_BUFFER } from './graphGeometry';
 import {
   isResearchArtifact,
   type ResearchArtifact,
@@ -185,6 +186,90 @@ const arxivArtifact: ResearchArtifact = {
     successfulSourceIds: ['arxiv'],
     failedSourceIds: [],
   },
+};
+
+const expansionArtifact: ResearchArtifact = {
+  schemaVersion: 1,
+  kind: 'literature_expansion',
+  artifactId: 'literature-expansion-panel-test',
+  createdAt: '2026-07-22T00:00:00.000Z',
+  intent: { text: 'Expand the citation neighborhood of the seed paper.' },
+  plan: {
+    seed: { openAlexId: 'https://openalex.org/Wseed', title: 'Seed research paper', year: 2025 },
+    directions: ['references', 'citations'],
+    limitPerDirection: 20,
+    sourceIds: ['openalex'],
+  },
+  seedPaperId: 'Wseed',
+  papers: [
+    {
+      id: 'Wseed',
+      title: 'Seed research paper',
+      authors: ['Ada Lovelace'],
+      year: 2025,
+      citedByCount: 12,
+      topics: [],
+      sourceId: 'openalex',
+    },
+    {
+      id: 'Wreference',
+      title: 'Reference paper',
+      authors: ['Grace Hopper'],
+      year: 2024,
+      citedByCount: 5,
+      topics: [],
+      sourceId: 'openalex',
+    },
+    {
+      id: 'Wciting',
+      title: 'Citing paper',
+      authors: ['Katherine Johnson'],
+      year: 2026,
+      citedByCount: 1,
+      topics: [],
+      sourceId: 'openalex',
+    },
+  ],
+  edges: [
+    { id: 'citation:Wseed:Wreference', source: 'Wseed', target: 'Wreference', type: 'citation', weight: 1, inferred: false },
+    { id: 'citation:Wciting:Wseed', source: 'Wciting', target: 'Wseed', type: 'citation', weight: 1, inferred: false },
+  ],
+  sources: [{
+    id: 'openalex',
+    name: 'OpenAlex',
+    status: 'ok',
+    retrievedAt: '2026-07-22T00:00:00.000Z',
+    resultCount: 3,
+    coverage: 'Citation expansion returned a seed and directed citation neighbors.',
+  }],
+  directions: [
+    {
+      direction: 'references',
+      status: 'ok',
+      resultCount: 1,
+      requestedCount: 1,
+      resolvedCount: 1,
+      truncated: false,
+    },
+    {
+      direction: 'citations',
+      status: 'partial',
+      resultCount: 1,
+      totalMatches: 6600,
+      truncated: true,
+      error: 'Only the first page of citing papers was available.',
+      warnings: ['More citing papers are available from OpenAlex.'],
+    },
+  ],
+  coverage: {
+    status: 'partial',
+    resultCount: 3,
+    warnings: ['Citation expansion has partial coverage.'],
+    requestedSourceIds: ['openalex'],
+    successfulSourceIds: ['openalex'],
+    failedSourceIds: [],
+  },
+  presentation: { autoOpen: true },
 };
 
 const researchSettings: ResearchSettings = {
@@ -390,6 +475,7 @@ describe('ResearchPanel', () => {
     expect(screen.getByTestId('research-source-openalex')).not.toBeNull();
     expect(container.querySelector('svg')).not.toBeNull();
     expect(container.querySelectorAll('svg line').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Seed paper', { exact: true })).toBeNull();
     const saveButton = screen.getByRole('button', { name: /Save to Zotero|收藏到 Zotero/i }) as HTMLButtonElement;
     await waitFor(() => expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => url === '/api/research/zotero/match')).toBe(true));
     await waitFor(() => expect(saveButton.disabled).toBe(false));
@@ -503,6 +589,67 @@ describe('ResearchPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Papers|论文/i }));
     expect(screen.getAllByLabelText('Sources: arXiv').length).toBeGreaterThan(0);
     expect(screen.getByTestId('paper-provenance-arxiv:2607.00001').textContent).toContain('arXiv');
+  });
+
+  it('renders a directed citation expansion around its seed without hiding partial-direction results', async () => {
+    expect(isResearchArtifact(expansionArtifact)).toBe(true);
+    expect(isResearchArtifact({
+      ...expansionArtifact,
+      seedPaperId: 'missing-seed',
+    })).toBe(false);
+
+    const { container } = render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={expansionArtifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    expect(screen.getByTestId('research-expansion-seed').textContent).toContain('Seed research paper');
+    expect(screen.getByText('Seed paper', { exact: true })).not.toBeNull();
+    const directions = screen.getByTestId('research-expansion-directions');
+    expect(directions.textContent).toContain('References');
+    expect(directions.textContent).toContain('Complete');
+    expect(directions.textContent).toContain('1 returned');
+    expect(directions.textContent).toContain('1 requested');
+    expect(directions.textContent).toContain('1 resolved');
+    expect(directions.textContent).toContain('Citations');
+    expect(directions.textContent).toContain('Partial');
+    expect(directions.textContent).toContain('6600 total');
+    expect(directions.textContent).toContain('Truncated');
+    expect(directions.textContent).toContain('Only the first page of citing papers was available.');
+    expect(directions.className).toContain('min-w-0');
+
+    const seedNode = screen.getByTestId('research-graph-node-Wseed');
+    expect(seedNode.getAttribute('data-seed')).toBe('true');
+    expect(screen.getByTestId('research-graph-node-Wreference').getAttribute('data-seed')).toBe('false');
+    const referenceEdge = screen.getByTestId('research-edge-citation:Wseed:Wreference');
+    expect(referenceEdge.getAttribute('data-source')).toBe('Wseed');
+    expect(referenceEdge.getAttribute('data-target')).toBe('Wreference');
+    expect(referenceEdge.getAttribute('marker-end')).toContain('research-arrow');
+    const citationEdge = screen.getByTestId('research-edge-citation:Wciting:Wseed');
+    expect(citationEdge.getAttribute('data-source')).toBe('Wciting');
+    expect(citationEdge.getAttribute('data-target')).toBe('Wseed');
+    expect(container.textContent).not.toContain('Shared topic (inferred)');
+
+    fireEvent.click(screen.getByRole('button', { name: /Papers|文献/i }));
+    expect(screen.getByTestId('research-paper-seed-Wseed').textContent).toContain('Seed');
+    expect(screen.getByText('Reference paper')).not.toBeNull();
+    expect(screen.getByText('Citing paper')).not.toBeNull();
+  });
+
+  it('keeps a citation arrow endpoint outside the target node and marker buffer', () => {
+    const targetRadius = 14;
+    const endpoints = directedEdgeEndpoints(
+      { x: 40, y: 90 },
+      { x: 280, y: 210 },
+      11,
+      targetRadius,
+    );
+    const distanceFromTargetCenter = Math.hypot(280 - endpoints.target.x, 210 - endpoints.target.y);
+    expect(distanceFromTargetCenter).toBeGreaterThanOrEqual(targetRadius + RESEARCH_CITATION_MARKER_BUFFER - 1e-8);
+    expect(endpoints.source).not.toEqual({ x: 40, y: 90 });
   });
 
   it('marks matched papers and browses the collection bound in research settings', async () => {

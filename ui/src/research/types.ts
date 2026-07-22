@@ -112,39 +112,89 @@ export type ResearchSourceStatus = {
   };
 };
 
-export type ResearchArtifact = {
+export type ResearchCoverage = {
+  status: 'complete' | 'partial' | 'failed';
+  resultCount: number;
+  warnings: string[];
+  // Optional here only to support artifacts emitted before multi-source
+  // coverage accounting. New artifacts populate all three arrays.
+  requestedSourceIds?: string[];
+  successfulSourceIds?: string[];
+  failedSourceIds?: string[];
+};
+
+type ResearchArtifactBase = {
   schemaVersion: 1;
-  kind: 'literature_search';
   artifactId: string;
   createdAt: string;
   intent: { text: string };
-  plan: {
-    query: string;
-    limit: number;
-    fromYear?: number;
-    toYear?: number;
-    sort: string;
-    sourceIds: string[];
-    classifications?: Array<{
-      scheme: 'arxiv';
-      include: string[];
-    }>;
-  };
   papers: ResearchPaper[];
   edges: ResearchRelationEdge[];
   sources: ResearchSourceStatus[];
-  coverage: {
-    status: 'complete' | 'partial' | 'failed';
-    resultCount: number;
-    warnings: string[];
-    // Optional here only to support artifacts emitted before multi-source
-    // coverage accounting. New search artifacts populate all three arrays.
-    requestedSourceIds?: string[];
-    successfulSourceIds?: string[];
-    failedSourceIds?: string[];
-  };
+  coverage: ResearchCoverage;
   presentation?: { autoOpen?: boolean };
 };
+
+export type LiteratureSearchPlan = {
+  query: string;
+  limit: number;
+  fromYear?: number;
+  toYear?: number;
+  sort: string;
+  sourceIds: string[];
+  classifications?: Array<{
+    scheme: 'arxiv';
+    include: string[];
+  }>;
+};
+
+/** Existing discovery artifact. Keep this shape stable for persisted results. */
+export type LiteratureSearchArtifact = ResearchArtifactBase & {
+  kind: 'literature_search';
+  plan: LiteratureSearchPlan;
+};
+
+export type LiteratureExpansionDirection = 'references' | 'citations';
+
+export type LiteratureExpansionDirectionResult = {
+  direction: LiteratureExpansionDirection;
+  status: 'ok' | 'partial' | 'error' | 'unavailable';
+  queryUrl?: string;
+  error?: string;
+  resultCount: number;
+  totalMatches?: number;
+  requestedCount?: number;
+  resolvedCount?: number;
+  truncated: boolean;
+  warnings?: string[];
+};
+
+export type LiteratureExpansionPlan = {
+  seed: {
+    openAlexId?: string;
+    doi?: string;
+    title?: string;
+    year?: number;
+    authors?: string[];
+  };
+  directions: LiteratureExpansionDirection[];
+  limitPerDirection: number;
+  sourceIds: ['openalex'];
+};
+
+/**
+ * Directed, seed-centred citation expansion. The paper referenced by
+ * `seedPaperId` is always included in `papers`, even when both directions
+ * fail, so the panel can explain partial coverage without losing context.
+ */
+export type LiteratureExpansionArtifact = ResearchArtifactBase & {
+  kind: 'literature_expansion';
+  plan: LiteratureExpansionPlan;
+  seedPaperId: string;
+  directions: LiteratureExpansionDirectionResult[];
+};
+
+export type ResearchArtifact = LiteratureSearchArtifact | LiteratureExpansionArtifact;
 
 export type ResearchSettingsSnapshot = {
   global: ResearchSettings;
@@ -341,12 +391,218 @@ export type ZoteroPaperMatch = {
 };
 
 export function isResearchArtifact(value: unknown): value is ResearchArtifact {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const artifact = value as Partial<ResearchArtifact>;
-  return artifact.schemaVersion === 1
-    && artifact.kind === 'literature_search'
-    && typeof artifact.artifactId === 'string'
-    && Array.isArray(artifact.papers)
-    && Array.isArray(artifact.edges)
-    && Array.isArray(artifact.sources);
+  if (!isResearchArtifactBase(value)) return false;
+  if (value.kind === 'literature_search') return isLiteratureSearchPlan(value.plan);
+  if (value.kind !== 'literature_expansion') return false;
+  if (!isLiteratureExpansionPlan(value.plan)
+    || !isNonEmptyString(value.seedPaperId)
+    || !value.papers.some((paper) => isRecord(paper) && paper.id === value.seedPaperId)
+    || !Array.isArray(value.directions)
+    || !value.directions.every(isLiteratureExpansionDirectionResult)) {
+    return false;
+  }
+  const plannedDirections = new Set(value.plan.directions);
+  const reportedDirections = new Set(value.directions.map((direction) => direction.direction));
+  return plannedDirections.size === value.plan.directions.length
+    && reportedDirections.size === value.directions.length
+    && plannedDirections.size === reportedDirections.size
+    && [...plannedDirections].every((direction) => reportedDirections.has(direction));
+}
+
+function isResearchArtifactBase(value: unknown): value is Record<string, unknown> & {
+  schemaVersion: 1;
+  kind: string;
+  artifactId: string;
+  papers: unknown[];
+  edges: unknown[];
+  sources: unknown[];
+} {
+  if (!isRecord(value)
+    || value.schemaVersion !== 1
+    || typeof value.kind !== 'string'
+    || !isNonEmptyString(value.artifactId)
+    || !isNonEmptyString(value.createdAt)
+    || !isRecord(value.intent)
+    || typeof value.intent.text !== 'string'
+    || !Array.isArray(value.papers)
+    || !value.papers.every(isResearchPaper)
+    || !Array.isArray(value.edges)
+    || !value.edges.every(isResearchRelationEdge)
+    || !Array.isArray(value.sources)
+    || !value.sources.every(isResearchSourceStatus)
+    || !isResearchCoverage(value.coverage)) {
+    return false;
+  }
+  return value.presentation === undefined
+    || (isRecord(value.presentation)
+      && (value.presentation.autoOpen === undefined || typeof value.presentation.autoOpen === 'boolean'));
+}
+
+function isLiteratureSearchPlan(value: unknown): value is LiteratureSearchPlan {
+  return isRecord(value)
+    && typeof value.query === 'string'
+    && isPositiveFiniteNumber(value.limit)
+    && (value.fromYear === undefined || isFiniteNumber(value.fromYear))
+    && (value.toYear === undefined || isFiniteNumber(value.toYear))
+    && typeof value.sort === 'string'
+    && isStringArray(value.sourceIds)
+    && (value.classifications === undefined
+      || (Array.isArray(value.classifications) && value.classifications.every(isSearchClassification)));
+}
+
+function isLiteratureExpansionPlan(value: unknown): value is LiteratureExpansionPlan {
+  if (!isRecord(value) || !isRecord(value.seed)) return false;
+  const hasStableSeedIdentity = isNonEmptyString(value.seed.openAlexId) || isNonEmptyString(value.seed.doi);
+  return hasStableSeedIdentity
+    && (value.seed.title === undefined || typeof value.seed.title === 'string')
+    && (value.seed.year === undefined || isFiniteNumber(value.seed.year))
+    && (value.seed.authors === undefined || isStringArray(value.seed.authors))
+    && Array.isArray(value.directions)
+    && value.directions.length >= 1
+    && value.directions.length <= 2
+    && value.directions.every(isLiteratureExpansionDirection)
+    && isPositiveFiniteNumber(value.limitPerDirection)
+    && Array.isArray(value.sourceIds)
+    && value.sourceIds.length === 1
+    && value.sourceIds[0] === 'openalex';
+}
+
+function isLiteratureExpansionDirection(value: unknown): value is LiteratureExpansionDirection {
+  return value === 'references' || value === 'citations';
+}
+
+function isLiteratureExpansionDirectionResult(value: unknown): value is LiteratureExpansionDirectionResult {
+  if (!isRecord(value)) return false;
+  return isLiteratureExpansionDirection(value.direction)
+    && (value.status === 'ok' || value.status === 'partial' || value.status === 'error' || value.status === 'unavailable')
+    && isNonNegativeFiniteNumber(value.resultCount)
+    && typeof value.truncated === 'boolean'
+    && (value.queryUrl === undefined || typeof value.queryUrl === 'string')
+    && (value.error === undefined || typeof value.error === 'string')
+    && (value.totalMatches === undefined || isNonNegativeFiniteNumber(value.totalMatches))
+    && (value.requestedCount === undefined || isNonNegativeFiniteNumber(value.requestedCount))
+    && (value.resolvedCount === undefined || isNonNegativeFiniteNumber(value.resolvedCount))
+    && (value.warnings === undefined || isStringArray(value.warnings));
+}
+
+function isResearchCoverage(value: unknown): value is ResearchCoverage {
+  return isRecord(value)
+    && (value.status === 'complete' || value.status === 'partial' || value.status === 'failed')
+    && isNonNegativeFiniteNumber(value.resultCount)
+    && isStringArray(value.warnings)
+    && isOptionalStringArray(value.requestedSourceIds)
+    && isOptionalStringArray(value.successfulSourceIds)
+    && isOptionalStringArray(value.failedSourceIds);
+}
+
+function isResearchPaper(value: unknown): value is ResearchPaper {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && typeof value.title === 'string'
+    && isStringArray(value.authors)
+    && isNonNegativeFiniteNumber(value.citedByCount)
+    && Array.isArray(value.topics)
+    && value.topics.every(isResearchTopic)
+    && isNonEmptyString(value.sourceId)
+    && (value.identity === undefined || isRecord(value.identity))
+    && (value.year === undefined || isFiniteNumber(value.year))
+    && isOptionalString(value.publicationDate)
+    && isOptionalString(value.updatedAt)
+    && isOptionalString(value.type)
+    && isOptionalString(value.venue)
+    && isOptionalString(value.doi)
+    && isOptionalString(value.url)
+    && (value.isOpenAccess === undefined || typeof value.isOpenAccess === 'boolean')
+    && isOptionalString(value.abstract)
+    && isOptionalStringArray(value.referencedWorkIds)
+    && isOptionalStringArray(value.sourceIds)
+    && (value.provenance === undefined
+      || (Array.isArray(value.provenance) && value.provenance.every(isResearchPaperProvenance)));
+}
+
+function isResearchTopic(value: unknown): value is ResearchTopic {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && typeof value.name === 'string'
+    && (value.score === undefined || isFiniteNumber(value.score));
+}
+
+function isResearchPaperProvenance(value: unknown): value is ResearchPaperProvenance {
+  return isRecord(value)
+    && isNonEmptyString(value.sourceId)
+    && isNonEmptyString(value.retrievedAt)
+    && isOptionalString(value.sourceRecordId)
+    && (value.rank === undefined || isNonNegativeFiniteNumber(value.rank))
+    && isOptionalString(value.queryUrl);
+}
+
+function isResearchRelationEdge(value: unknown): value is ResearchRelationEdge {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.source)
+    && isNonEmptyString(value.target)
+    && (value.type === 'citation' || value.type === 'shared_topic')
+    && isNonNegativeFiniteNumber(value.weight)
+    && typeof value.inferred === 'boolean'
+    && isOptionalStringArray(value.evidence);
+}
+
+function isResearchSourceStatus(value: unknown): value is ResearchSourceStatus {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && typeof value.name === 'string'
+    && (value.status === 'ok' || value.status === 'error' || value.status === 'disabled')
+    && isNonEmptyString(value.retrievedAt)
+    && isNonNegativeFiniteNumber(value.resultCount)
+    && typeof value.coverage === 'string'
+    && isOptionalString(value.queryUrl)
+    && (value.totalMatches === undefined || isNonNegativeFiniteNumber(value.totalMatches))
+    && isOptionalStringArray(value.warnings)
+    && isOptionalString(value.error)
+    && (value.applied === undefined || isResearchSourceApplied(value.applied));
+}
+
+function isResearchSourceApplied(value: unknown): boolean {
+  return isRecord(value)
+    && (value.dateField === undefined || value.dateField === 'submitted')
+    && isOptionalString(value.sort)
+    && isOptionalStringArray(value.classifications);
+}
+
+function isSearchClassification(value: unknown): boolean {
+  return isRecord(value)
+    && value.scheme === 'arxiv'
+    && isStringArray(value.include);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function isOptionalStringArray(value: unknown): boolean {
+  return value === undefined || isStringArray(value);
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0;
+}
+
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value > 0;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

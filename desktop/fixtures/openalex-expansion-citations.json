@@ -1,0 +1,46 @@
+{
+  "meta": {
+    "count": 2
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W900000004",
+      "doi": "https://doi.org/10.1234/rigorium.packaged-citation",
+      "display_name": "Packaged OpenAlex citing paper",
+      "publication_year": 2025,
+      "publication_date": "2025-03-20",
+      "type": "article",
+      "cited_by_count": 7,
+      "authorships": [
+        {
+          "author": {
+            "display_name": "Citing Author"
+          }
+        }
+      ],
+      "primary_location": {
+        "landing_page_url": "https://example.invalid/citing",
+        "source": {
+          "display_name": "Verification Venue"
+        }
+      },
+      "open_access": {
+        "is_oa": false
+      },
+      "topics": [
+        {
+          "id": "https://openalex.org/T9001",
+          "display_name": "Citation verification",
+          "score": 0.91
+        }
+      ],
+      "referenced_works": [
+        "https://openalex.org/W900000001"
+      ],
+      "ids": {
+        "openalex": "https://openalex.org/W900000004",
+        "doi": "https://doi.org/10.1234/rigorium.packaged-citation"
+      }
+    }
+  ]
+}

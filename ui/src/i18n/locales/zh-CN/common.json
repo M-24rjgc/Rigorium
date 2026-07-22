@@ -581,6 +581,26 @@
     "sourceRank": "排名 {{rank}}",
     "moreSources": "+{{count}}",
     "paperSourceCount_one": "{{count}} 个来源",
-    "paperSourceCount_other": "{{count}} 个来源"
+    "paperSourceCount_other": "{{count}} 个来源",
+    "citationExpansion": "引文扩展",
+    "expansionSeed": "种子论文：{{title}}",
+    "expansionDirections": "引文方向",
+    "expansionReferences": "参考文献",
+    "expansionCitations": "被引文献",
+    "expansionStatusOk": "完整",
+    "expansionStatusPartial": "部分完成",
+    "expansionStatusError": "失败",
+    "expansionStatusUnavailable": "不可用",
+    "expansionReturnedCount": "返回 {{count}} 条",
+    "expansionTotalCount": "共 {{count}} 条",
+    "expansionRequestedCount": "请求 {{count}} 条",
+    "expansionResolvedCount": "已解析 {{count}} 条",
+    "expansionTruncated": "已截断",
+    "expansionError": "错误：",
+    "citationEdge": "引用",
+    "sharedTopicEdge": "共享主题（推断）",
+    "seedLegend": "种子论文",
+    "seedBadge": "种子",
+    "nodeSizeLegend": "节点大小 = 被引次数"
   }
 }

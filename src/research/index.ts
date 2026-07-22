@@ -3,6 +3,7 @@ export * from "./settings.js";
 export * from "./identity.js";
 export * from "./literature/arxivSource.js";
 export * from "./literature/openAlexSource.js";
+export * from "./literature/openAlexExpansion.js";
 export * from "./literature/crossrefSource.js";
 export * from "./literature/candidatePool.js";
 export * from "./library/zoteroProvider.js";

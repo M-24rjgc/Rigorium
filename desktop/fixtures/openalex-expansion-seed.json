@@ -1,0 +1,41 @@
+{
+  "id": "https://openalex.org/W900000001",
+  "doi": "https://doi.org/10.1234/rigorium.packaged-seed",
+  "display_name": "Packaged OpenAlex citation expansion seed",
+  "publication_year": 2024,
+  "publication_date": "2024-01-15",
+  "type": "article",
+  "cited_by_count": 42,
+  "authorships": [
+    {
+      "author": {
+        "display_name": "Rigorium Verification"
+      }
+    }
+  ],
+  "primary_location": {
+    "landing_page_url": "https://example.invalid/seed",
+    "source": {
+      "display_name": "Verification Venue"
+    }
+  },
+  "open_access": {
+    "is_oa": true
+  },
+  "topics": [
+    {
+      "id": "https://openalex.org/T9001",
+      "display_name": "Citation verification",
+      "score": 0.99
+    }
+  ],
+  "referenced_works": [
+    "https://openalex.org/W900000002",
+    "https://openalex.org/W900000003",
+    "https://openalex.org/W900000005"
+  ],
+  "ids": {
+    "openalex": "https://openalex.org/W900000001",
+    "doi": "https://doi.org/10.1234/rigorium.packaged-seed"
+  }
+}

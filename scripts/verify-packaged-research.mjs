@@ -17,7 +17,9 @@ const executableName = executable.split(/[\\/]/u).at(-1)?.replace(/\.exe$/iu, ''
 const verificationCredential = 'x'.repeat(32);
 const credentialsPath = join(userData, 'research', 'credentials.v1.json');
 const arxivVerificationReportPath = join(userData, 'research', 'verification', 'arxiv-adapter.v1.json');
+const openAlexExpansionVerificationReportPath = join(userData, 'research', 'verification', 'openalex-expansion.v1.json');
 const verifyLiveArxiv = process.env.RIGORIUM_VERIFY_ARXIV_LIVE === '1';
+const verifyLiveOpenAlexExpansion = process.env.RIGORIUM_VERIFY_OPENALEX_EXPANSION_LIVE === '1';
 
 let browserProcessCountBefore = await countBrowserProcesses();
 const mockBroker = await startVerificationZoteroBroker();
@@ -35,6 +37,7 @@ try {
     },
   });
   const arxivVerification = await readArxivVerificationReport(arxivVerificationReportPath);
+  const openAlexExpansionVerification = await readOpenAlexExpansionVerificationReport(openAlexExpansionVerificationReportPath);
   assert.equal(arxivVerification.schemaVersion, 1, 'The packaged arXiv verification report has an unexpected schema.');
   assert.equal(arxivVerification.packaged, true, 'The arXiv adapter verification did not run inside a packaged Electron app.');
   assert.equal(arxivVerification.appPathType, 'asar', 'The arXiv adapter was not loaded from app.asar.');
@@ -62,6 +65,94 @@ try {
     assert.equal(arxivVerification.live.paper.title.trim().length > 0, true, 'The packaged live arXiv title was empty.');
   } else {
     assert.equal(arxivVerification.live?.requested, false, 'The deterministic packaged check unexpectedly made a live arXiv request.');
+  }
+  assert.equal(openAlexExpansionVerification.schemaVersion, 1, 'The packaged OpenAlex expansion verification report has an unexpected schema.');
+  assert.equal(openAlexExpansionVerification.packaged, true, 'The OpenAlex expansion verification did not run inside a packaged Electron app.');
+  assert.equal(openAlexExpansionVerification.appPathType, 'asar', 'The OpenAlex expansion tool was not loaded from app.asar.');
+  assert.equal(openAlexExpansionVerification.toolLoadedFromAppAsar, true, 'The packaged literature_expand tool did not load from app.asar.');
+  assert.equal(openAlexExpansionVerification.adapterLoadedFromAppAsar, true, 'The packaged OpenAlex expansion adapter did not load from app.asar.');
+  assert.deepEqual(openAlexExpansionVerification.fixtures, {
+    seed: 'openalex-expansion-seed.json',
+    references: 'openalex-expansion-references.json',
+    citations: 'openalex-expansion-citations.json',
+  });
+  assert.equal(openAlexExpansionVerification.source?.id, 'openalex');
+  assert.equal(openAlexExpansionVerification.source?.status, 'ok');
+  assert.equal(openAlexExpansionVerification.source?.resultCount, 3);
+  assert.deepEqual(openAlexExpansionVerification.seed, {
+    id: 'https://openalex.org/W900000001',
+    title: 'Packaged OpenAlex citation expansion seed',
+    doi: '10.1234/rigorium.packaged-seed',
+  });
+  assert.deepEqual(
+    openAlexExpansionVerification.directions?.map((direction) => ({
+      direction: direction.direction,
+      status: direction.status,
+      resultCount: direction.resultCount,
+      totalMatches: direction.totalMatches,
+      requestedCount: direction.requestedCount,
+      resolvedCount: direction.resolvedCount,
+      truncated: direction.truncated,
+    })),
+    [{
+      direction: 'references',
+      status: 'partial',
+      resultCount: 1,
+      totalMatches: undefined,
+      requestedCount: 3,
+      resolvedCount: 1,
+      truncated: true,
+    }, {
+      direction: 'citations',
+      status: 'partial',
+      resultCount: 1,
+      totalMatches: 2,
+      requestedCount: undefined,
+      resolvedCount: undefined,
+      truncated: true,
+    }],
+    'The packaged citation directions did not retain partial/truncated coverage details.',
+  );
+  assert.deepEqual(
+    openAlexExpansionVerification.edges?.map((edge) => [edge.source, edge.target, edge.type, edge.inferred]),
+    [
+      ['https://openalex.org/W900000001', 'https://openalex.org/W900000002', 'citation', false],
+      ['https://openalex.org/W900000004', 'https://openalex.org/W900000001', 'citation', false],
+    ],
+    'The packaged citation graph did not retain cited-work edge orientation.',
+  );
+  assert.equal(openAlexExpansionVerification.coverage?.status, 'partial');
+  assert.equal(openAlexExpansionVerification.coverage?.resultCount, 3);
+  assert.equal(Array.isArray(openAlexExpansionVerification.coverage?.warnings), true);
+  assert.equal(openAlexExpansionVerification.coverage.warnings.length >= 2, true, 'The packaged expansion did not expose truncation warnings.');
+  assert.equal(openAlexExpansionVerification.artifact?.kind, 'literature_expansion');
+  assert.equal(openAlexExpansionVerification.artifact?.presentation?.autoOpen, true);
+  for (const direction of openAlexExpansionVerification.directions ?? []) {
+    const queryUrl = new URL(direction.queryUrl);
+    assert.equal(queryUrl.protocol, 'https:');
+    assert.equal(queryUrl.hostname, 'verification.invalid', 'The packaged expansion verification used a live OpenAlex endpoint.');
+  }
+  if (verifyLiveOpenAlexExpansion) {
+    assert.equal(openAlexExpansionVerification.live?.requested, true, 'The packaged live OpenAlex expansion smoke was not requested.');
+    assert.equal(
+      openAlexExpansionVerification.live?.source?.status,
+      'ok',
+      `The packaged live OpenAlex expansion smoke failed: ${openAlexExpansionVerification.live?.error || 'unknown error'}`,
+    );
+    assert.equal(openAlexExpansionVerification.live?.seed?.id, 'https://openalex.org/W2626778328');
+    assert.equal(typeof openAlexExpansionVerification.live?.seed?.title, 'string');
+    assert.equal(openAlexExpansionVerification.live.seed.title.trim().length > 0, true, 'The packaged live OpenAlex seed title was empty.');
+    assert.equal(typeof openAlexExpansionVerification.live?.neighbor?.id, 'string', 'The packaged live OpenAlex expansion returned no neighbour.');
+    assert.equal(openAlexExpansionVerification.live.neighbor.id.trim().length > 0, true, 'The packaged live OpenAlex neighbour identifier was empty.');
+    assert.deepEqual(openAlexExpansionVerification.live?.edge, {
+      source: openAlexExpansionVerification.live.neighbor.id,
+      target: 'https://openalex.org/W2626778328',
+      type: 'citation',
+      inferred: false,
+    }, 'The packaged live OpenAlex expansion did not retain a real citing-work edge.');
+    assert.equal(openAlexExpansionVerification.live?.direction?.resultCount >= 1, true, 'The packaged live OpenAlex expansion returned no citing work.');
+  } else {
+    assert.equal(openAlexExpansionVerification.live?.requested, false, 'The deterministic packaged check unexpectedly made a live OpenAlex expansion request.');
   }
   const page = await app.firstWindow({ timeout: 90_000 });
   await page.waitForLoadState('domcontentloaded');
@@ -508,6 +599,39 @@ try {
   assert.equal(localImport.importedCount, 1);
   assert.equal(mockBroker.localRequests.some((request) => request.method === 'POST' && request.path.startsWith('/connector/import?session=')), true);
 
+  await page.evaluate((artifact) => {
+    window.dispatchEvent(new CustomEvent('rigorium:research-artifact', {
+      detail: { artifact },
+    }));
+  }, openAlexExpansionVerification.artifact);
+  const expansionSeed = page.getByTestId('research-expansion-seed');
+  await expansionSeed.waitFor({ timeout: 30_000 });
+  await expansionSeed.getByText('Packaged OpenAlex citation expansion seed', { exact: false }).waitFor({ timeout: 30_000 });
+  const referenceDirection = page.getByTestId('research-expansion-direction-references');
+  const citationDirection = page.getByTestId('research-expansion-direction-citations');
+  await referenceDirection.getByText(/Partial|部分完成/u).waitFor({ timeout: 30_000 });
+  await citationDirection.getByText(/Partial|部分完成/u).waitFor({ timeout: 30_000 });
+  await referenceDirection.getByText(/Truncated|已截断/u).waitFor({ timeout: 30_000 });
+  await citationDirection.getByText(/Truncated|已截断/u).waitFor({ timeout: 30_000 });
+  await page.getByRole('button', { name: /Map|地图/u }).click();
+  await page.getByRole('img', { name: 'Literature relationship map' }).waitFor({ timeout: 30_000 });
+  assert.equal(
+    await page.getByTestId('research-graph-node-https://openalex.org/W900000001').getAttribute('data-seed'),
+    'true',
+    'The packaged citation expansion did not mark the resolved seed node.',
+  );
+  const renderedExpansionEdges = await page.locator('svg[aria-label="Literature relationship map"] line[data-source][data-target]').evaluateAll((lines) => (
+    lines.map((line) => [line.getAttribute('data-source'), line.getAttribute('data-target')])
+  ));
+  assert.deepEqual(
+    renderedExpansionEdges,
+    [
+      ['https://openalex.org/W900000001', 'https://openalex.org/W900000002'],
+      ['https://openalex.org/W900000004', 'https://openalex.org/W900000001'],
+    ],
+    'The packaged research panel did not render the compiled citation edge directions.',
+  );
+
   await page.setViewportSize({ width: 390, height: 800 });
   const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (mobileOverflow > 1) throw new Error(`390px research settings overflow horizontally by ${mobileOverflow}px.`);
@@ -529,6 +653,7 @@ try {
     desktopOverflow,
     mobileOverflow,
     arxivVerification,
+    openAlexExpansionVerification,
     cloudBrokerRequests: mockBroker.requests.map((request) => `${request.method} ${request.path}`),
     localZoteroRequests: mockBroker.localRequests.map((request) => `${request.method} ${request.path}`),
     title: await page.title(),
@@ -758,6 +883,14 @@ async function readOptionalText(path) {
 }
 
 async function readArxivVerificationReport(path, timeoutMs = 30_000) {
+  return readResearchVerificationReport(path, 'arXiv adapter', timeoutMs);
+}
+
+async function readOpenAlexExpansionVerificationReport(path, timeoutMs = 30_000) {
+  return readResearchVerificationReport(path, 'OpenAlex expansion', timeoutMs);
+}
+
+async function readResearchVerificationReport(path, label, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
@@ -771,5 +904,5 @@ async function readArxivVerificationReport(path, timeoutMs = 30_000) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
-  throw new Error(`Packaged arXiv adapter verification did not produce a report within ${timeoutMs}ms: ${lastError?.message || 'unknown error'}`);
+  throw new Error(`Packaged ${label} verification did not produce a report within ${timeoutMs}ms: ${lastError?.message || 'unknown error'}`);
 }

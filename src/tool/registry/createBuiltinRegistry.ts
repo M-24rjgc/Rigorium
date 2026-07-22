@@ -13,6 +13,10 @@ import {
   createLiteratureSearchTool,
   type CreateLiteratureSearchToolOptions,
 } from "../builtin/literatureSearch.js";
+import {
+  createLiteratureExpandTool,
+  type CreateLiteratureExpandToolOptions,
+} from "../builtin/literatureExpand.js";
 import { createSendAttachmentTool } from "../builtin/sendAttachment.js";
 import { createEnterPlanModeTool, createExitPlanModeTool } from "../builtin/planMode.js";
 import { createStructuredOutputTool } from "../builtin/structuredOutput.js";
@@ -86,6 +90,8 @@ export type CreateBuiltinRegistryOptions = {
   readSkill?: ReadSkillDeps | false;
   /** Rigorium academic metadata search. Registered by default. */
   literatureSearch?: CreateLiteratureSearchToolOptions | false;
+  /** Rigorium OpenAlex citation expansion. Registered by default. */
+  literatureExpansion?: CreateLiteratureExpandToolOptions | false;
   /**
    * `enter_plan_mode` / `exit_plan_mode` builtins. Registered by default —
    * these lightweight skeleton tools let the model request a permission-mode
@@ -114,6 +120,9 @@ export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): T
   }
   if (options?.literatureSearch !== false) {
     registry.register(createLiteratureSearchTool(options?.literatureSearch));
+  }
+  if (options?.literatureExpansion !== false) {
+    registry.register(createLiteratureExpandTool(options?.literatureExpansion));
   }
   if (options?.agent !== false) {
     const agentOpts = options?.agent === true || options?.agent === undefined ? undefined : options.agent;

@@ -1,0 +1,44 @@
+{
+  "meta": {
+    "count": 3
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W900000002",
+      "doi": "https://doi.org/10.1234/rigorium.packaged-reference",
+      "display_name": "Packaged OpenAlex hydrated reference",
+      "publication_year": 2023,
+      "publication_date": "2023-09-01",
+      "type": "article",
+      "cited_by_count": 12,
+      "authorships": [
+        {
+          "author": {
+            "display_name": "Reference Author"
+          }
+        }
+      ],
+      "primary_location": {
+        "landing_page_url": "https://example.invalid/reference",
+        "source": {
+          "display_name": "Verification Venue"
+        }
+      },
+      "open_access": {
+        "is_oa": true
+      },
+      "topics": [
+        {
+          "id": "https://openalex.org/T9001",
+          "display_name": "Citation verification",
+          "score": 0.93
+        }
+      ],
+      "referenced_works": [],
+      "ids": {
+        "openalex": "https://openalex.org/W900000002",
+        "doi": "https://doi.org/10.1234/rigorium.packaged-reference"
+      }
+    }
+  ]
+}

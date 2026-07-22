@@ -583,6 +583,26 @@
     "sourceRank": "Rank {{rank}}",
     "moreSources": "+{{count}}",
     "paperSourceCount_one": "{{count}} source",
-    "paperSourceCount_other": "{{count}} sources"
+    "paperSourceCount_other": "{{count}} sources",
+    "citationExpansion": "Citation expansion",
+    "expansionSeed": "Seed: {{title}}",
+    "expansionDirections": "Citation directions",
+    "expansionReferences": "References",
+    "expansionCitations": "Citations",
+    "expansionStatusOk": "Complete",
+    "expansionStatusPartial": "Partial",
+    "expansionStatusError": "Failed",
+    "expansionStatusUnavailable": "Unavailable",
+    "expansionReturnedCount": "{{count}} returned",
+    "expansionTotalCount": "{{count}} total",
+    "expansionRequestedCount": "{{count}} requested",
+    "expansionResolvedCount": "{{count}} resolved",
+    "expansionTruncated": "Truncated",
+    "expansionError": "Error:",
+    "citationEdge": "Citation",
+    "sharedTopicEdge": "Shared topic (inferred)",
+    "seedLegend": "Seed paper",
+    "seedBadge": "Seed",
+    "nodeSizeLegend": "Node size = citations"
   }
 }

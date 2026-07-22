@@ -21,7 +21,8 @@ export type CreateOpenAlexSourceOptions = {
 
 const DEFAULT_ENDPOINT = "https://api.openalex.org/works";
 const DEFAULT_TIMEOUT_MS = 20_000;
-const OPENALEX_FIELDS = [
+/** Shared select-list for OpenAlex search and citation-expansion retrievals. */
+export const OPENALEX_WORK_FIELDS = [
   "id",
   "doi",
   "title",
@@ -90,7 +91,7 @@ export function createOpenAlexSource(options: CreateOpenAlexSourceOptions = {}):
           retrievedAt,
           queryUrl: url.toString(),
           resultCount: papers.length,
-          totalMatches: finiteNumber(raw.meta?.count),
+          totalMatches: nonNegativeFiniteNumber(raw.meta?.count),
           coverage: "Ranked OpenAlex metadata results for the submitted query and filters.",
         };
         return { papers, edges, source };
@@ -109,7 +110,7 @@ function buildOpenAlexUrl(endpoint: string, plan: SearchPlan, mailto?: string): 
   const url = new URL(endpoint);
   url.searchParams.set("search", plan.query);
   url.searchParams.set("per-page", String(plan.limit));
-  url.searchParams.set("select", OPENALEX_FIELDS);
+  url.searchParams.set("select", OPENALEX_WORK_FIELDS);
   if (mailto?.trim()) url.searchParams.set("mailto", mailto.trim());
 
   const filters: string[] = [];
@@ -121,7 +122,7 @@ function buildOpenAlexUrl(endpoint: string, plan: SearchPlan, mailto?: string): 
   return url;
 }
 
-function normalizeOpenAlexWork(
+export function normalizeOpenAlexWork(
   work: OpenAlexWork,
   provenance: Omit<ResearchPaperProvenance, "sourceId" | "sourceRecordId">,
 ): ResearchPaper | null {
@@ -178,7 +179,7 @@ function normalizeOpenAlexWork(
     ...(stringValue(source.display_name) ? { venue: stringValue(source.display_name) } : {}),
     ...(doi ? { doi } : {}),
     ...(paperUrl ? { url: paperUrl } : {}),
-    citedByCount: finiteNumber(work.cited_by_count) ?? 0,
+    citedByCount: nonNegativeFiniteNumber(work.cited_by_count) ?? 0,
     ...(typeof openAccess.is_oa === "boolean" ? { isOpenAccess: openAccess.is_oa } : {}),
     ...(reconstructAbstract(work.abstract_inverted_index) ? { abstract: reconstructAbstract(work.abstract_inverted_index) } : {}),
     topics,
@@ -323,6 +324,11 @@ function finiteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function nonNegativeFiniteNumber(value: unknown): number | undefined {
+  const number = finiteNumber(value);
+  return number !== undefined && number >= 0 ? number : undefined;
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -340,7 +346,7 @@ type OpenAlexResponse = {
   results?: OpenAlexWork[];
 };
 
-type OpenAlexWork = Record<string, unknown> & {
+export type OpenAlexWork = Record<string, unknown> & {
   id?: unknown;
   doi?: unknown;
   title?: unknown;

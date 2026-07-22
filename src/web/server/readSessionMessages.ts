@@ -1022,5 +1022,5 @@ function readSearchToolData(raw: unknown): Record<string, unknown> | undefined {
 
 function isSearchToolName(name: unknown): boolean {
   const normalized = typeof name === "string" ? name.toLowerCase() : "";
-  return normalized === "grep" || normalized === "glob" || normalized === "literature_search";
+  return normalized === "grep" || normalized === "glob" || normalized === "literature_search" || normalized === "literature_expand";
 }
