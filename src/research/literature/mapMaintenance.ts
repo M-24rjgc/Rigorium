@@ -5,6 +5,7 @@ import type {
   ResearchPaperProvenance,
   ResearchRelationEdge,
   ResearchTopic,
+  ResearchVenueEvidence,
 } from "../types.js";
 
 export type LiteratureMapOrigin = "search" | "zotero" | "monitor";
@@ -324,9 +325,22 @@ function resolvePaperId(paper: ResearchPaper, index: Map<string, string>): strin
 function resolveRecordId(recordId: string, index: Map<string, string>): string | undefined {
   const raw = cleanString(recordId);
   if (!raw) return undefined;
-  return index.get(`record:${raw.toLocaleLowerCase("en-US")}`)
-    ?? index.get(`doi:${normalizeDoi(raw)}`)
-    ?? index.get(`arxiv:${normalizeArxiv(raw)}`);
+  const normalized = raw.toLocaleLowerCase("en-US");
+  const doi = normalizeDoi(raw);
+  const arxiv = normalizeArxiv(raw);
+  const directMatch = index.get(`record:${normalized}`)
+    ?? (doi ? index.get(`doi:${doi}`) : undefined)
+    ?? (arxiv ? index.get(`arxiv:${arxiv}`) : undefined);
+  if (directMatch) return directMatch;
+
+  // These values are not self-describing like DOI and arXiv identifiers. Use
+  // them only when they identify one node unambiguously.
+  const matches = new Set<string>();
+  for (const namespace of ["openalex", "openreview", "pmid", "pmcid", "zotero"]) {
+    const match = index.get(`${namespace}:${normalized}`);
+    if (match) matches.add(match);
+  }
+  return matches.size === 1 ? [...matches][0] : undefined;
 }
 
 function buildIdentityIndex(nodes: LiteratureMapNode[]): Map<string, string> {
@@ -365,6 +379,7 @@ function pushToken(target: string[], namespace: string, value: unknown): void {
 
 function mergePaper(existing: ResearchPaper, incoming: ResearchPaper, canonicalId: string): ResearchPaper {
   const identity = mergeIdentity(existing.identity, incoming.identity, existing.doi, incoming.doi);
+  const venueEvidence = mergeVenueEvidence(existing.venueEvidence, incoming.venueEvidence);
   return {
     ...existing,
     id: canonicalId,
@@ -378,6 +393,7 @@ function mergePaper(existing: ResearchPaper, incoming: ResearchPaper, canonicalI
     ...(existing.updatedAt || incoming.updatedAt ? { updatedAt: laterDate(existing.updatedAt, incoming.updatedAt) } : {}),
     ...(existing.type || incoming.type ? { type: incoming.type ?? existing.type } : {}),
     ...(existing.venue || incoming.venue ? { venue: incoming.venue ?? existing.venue } : {}),
+    ...(venueEvidence ? { venueEvidence } : {}),
     ...(identity.doi ? { doi: identity.doi } : {}),
     ...(existing.url || incoming.url ? { url: incoming.url ?? existing.url } : {}),
     citedByCount: Math.max(existing.citedByCount, incoming.citedByCount),
@@ -428,6 +444,27 @@ function mergeTopics(existing: ResearchTopic[], incoming: ResearchTopic[]): Rese
   return [...topics.values()];
 }
 
+function mergeVenueEvidence(
+  existing: ResearchVenueEvidence[] | undefined,
+  incoming: ResearchVenueEvidence[] | undefined,
+): ResearchVenueEvidence[] | undefined {
+  const entries = new Map<string, ResearchVenueEvidence>();
+  for (const item of [...(existing ?? []), ...(incoming ?? [])]) {
+    const key = [
+      item.sourceId,
+      item.evidence,
+      item.venue,
+      item.year ?? "",
+      item.track ?? "",
+      item.status,
+      item.officialVenueId ?? "",
+    ].join("\u0000");
+    if (!entries.has(key)) entries.set(key, { ...item });
+  }
+  const merged = [...entries.values()];
+  return merged.length > 0 ? merged : undefined;
+}
+
 function mergeProvenance(
   existing: ResearchPaperProvenance[],
   incoming: ResearchPaperProvenance[],
@@ -455,12 +492,15 @@ function normalizeEdge(edge: ResearchRelationEdge, source: string, target: strin
 }
 
 function mergeEdge(existing: LiteratureMapEdge, incoming: ResearchRelationEdge): ResearchRelationEdge {
+  const evidence = uniqueStrings([...(existing.evidence ?? []), ...(incoming.evidence ?? [])]);
   return {
-    ...incoming,
     id: existing.id,
+    source: incoming.source,
+    target: incoming.target,
+    type: incoming.type,
     weight: Math.max(existing.weight, incoming.weight),
     inferred: existing.inferred && incoming.inferred,
-    evidence: uniqueStrings([...(existing.evidence ?? []), ...(incoming.evidence ?? [])]),
+    ...(evidence.length > 0 ? { evidence } : {}),
   };
 }
 
@@ -646,6 +686,7 @@ function clonePaper(paper: ResearchPaper): ResearchPaper {
     referencedWorkIds: [...paper.referencedWorkIds],
     sourceIds: [...paper.sourceIds],
     provenance: paper.provenance.map((entry) => ({ ...entry })),
+    ...(paper.venueEvidence ? { venueEvidence: paper.venueEvidence.map((entry) => ({ ...entry })) } : {}),
   };
 }
 
