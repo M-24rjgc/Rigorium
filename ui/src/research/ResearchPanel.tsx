@@ -23,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { authenticatedFetch } from '../utils/api';
 import { cn } from '../lib/utils';
 import { useResearchPanel } from '../contexts/ResearchPanelContext';
@@ -44,6 +45,8 @@ import type {
   ResearchRelationEdge,
   ResearchSettingsSnapshot,
   ResearchSourceStatus,
+  ResearchTerminologyCandidate,
+  ResearchTerminologySummary,
   ZoteroAttachmentFullTextResult,
   ZoteroCloudWriteIntent,
   ZoteroCloudWritePlan,
@@ -337,7 +340,10 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
         <CoverageSummary artifact={artifact} sourceNameById={sourceNameById} />
         {artifact.kind === 'literature_search' ? (
-          <QueryAuditSummary artifact={artifact} sourceNameById={sourceNameById} />
+          <>
+            <QueryAuditSummary artifact={artifact} sourceNameById={sourceNameById} />
+            <TerminologySummary terminology={artifact.terminology} />
+          </>
         ) : null}
         {artifact.kind === 'literature_expansion' ? (
           <CitationExpansionSummary directions={artifact.directions} />
@@ -853,6 +859,7 @@ function SourceCoverageList({
                 })
                 : null,
             ].filter((detail): detail is string => Boolean(detail));
+            const rateLimitDetails = sourceRateLimitDetails(source, t);
             const warnings = Array.isArray(source.warnings) ? source.warnings.filter(Boolean) : [];
             const statusLabel = source.status === 'ok'
               ? t('researchPanel.sourceAvailable', { defaultValue: 'Available' })
@@ -901,6 +908,17 @@ function SourceCoverageList({
                       {t('researchPanel.sourceApplied', { defaultValue: 'Applied:' })}
                     </span>
                     <span className="min-w-0 break-words">{appliedDetails.join(' · ')}</span>
+                  </div>
+                ) : null}
+                {rateLimitDetails.length > 0 ? (
+                  <div
+                    data-testid={`research-source-rate-limit-${source.id}`}
+                    className="mt-1 flex min-w-0 gap-1.5 break-words text-[10px] leading-4 text-neutral-500 dark:text-neutral-400"
+                  >
+                    <span className="shrink-0 font-medium text-neutral-600 dark:text-neutral-300">
+                      {t('researchPanel.sourceRateLimitDetails', { defaultValue: 'Rate limit:' })}
+                    </span>
+                    <span className="min-w-0 break-words">{rateLimitDetails.join(' · ')}</span>
                   </div>
                 ) : null}
                 {source.error ? (
@@ -991,6 +1009,7 @@ function QueryAuditSummary({
           const categoryLabel = variant?.category
             ? t(`researchPanel.queryCategory.${variant.category}`, { defaultValue: variant.category })
             : null;
+          const rateLimitDetails = sourceRateLimitDetails(run, t);
           return (
             <div
               key={`${run.queryVariantId ?? 'query'}:${run.id}:${index}`}
@@ -1038,6 +1057,17 @@ function QueryAuditSummary({
                   {run.error}
                 </p>
               ) : null}
+              {rateLimitDetails.length > 0 ? (
+                <p
+                  data-testid={`research-query-rate-limit-${run.queryVariantId ?? index}-${run.id}`}
+                  className="mt-0.5 break-words text-[10px] leading-4 text-neutral-500 dark:text-neutral-400"
+                >
+                  {t('researchPanel.sourceRateLimitInline', {
+                    defaultValue: 'Rate limit: {{details}}',
+                    details: rateLimitDetails.join(' · '),
+                  })}
+                </p>
+              ) : null}
               <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-neutral-400">
                 <span className="min-w-0 break-words">{formatResearchTimestamp(run.retrievedAt)}</span>
                 {queryUrl ? (
@@ -1057,6 +1087,158 @@ function QueryAuditSummary({
         })}
       </div>
     </section>
+  );
+}
+
+function TerminologySummary({ terminology }: { terminology?: ResearchTerminologySummary }) {
+  const { t } = useTranslation();
+  if (!terminology || terminology.candidates.length === 0) return null;
+  const kinds: ResearchTerminologyCandidate['kind'][] = [
+    'observed_keyword',
+    'observed_topic',
+    'adjacent_field',
+  ];
+
+  return (
+    <section
+      data-testid="research-terminology-summary"
+      className="mx-3 mb-3 min-w-0 rounded-lg border border-neutral-200 bg-white p-2.5 dark:border-neutral-800 dark:bg-neutral-950"
+    >
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+          {t('researchPanel.terminologyTitle', { defaultValue: 'Observed terminology' })}
+        </h3>
+        <span className="ml-auto rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300">
+          {terminology.candidates.length}
+          {terminology.truncated
+            ? t('researchPanel.terminologyTruncatedSuffix', { defaultValue: ' of {{total}}', total: terminology.totalCandidateCount })
+            : null}
+        </span>
+      </div>
+      <p className="mt-1.5 break-words text-[10px] leading-4 text-neutral-500 dark:text-neutral-400">
+        {t('researchPanel.terminologyDisclaimer', {
+          defaultValue: 'Observed OpenAlex metadata and taxonomy only. These are not synonyms or author keywords, and no search was run automatically.',
+        })}
+      </p>
+      <div className="mt-2 space-y-3">
+        {kinds.map((kind) => {
+          const candidates = terminology.candidates.filter((candidate) => candidate.kind === kind);
+          if (candidates.length === 0) return null;
+          return (
+            <div key={kind} data-testid={`research-terminology-group-${kind}`} className="min-w-0">
+              <h4 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+                {terminologyKindLabel(kind, t)}
+              </h4>
+              <div className="mt-1.5 space-y-1.5">
+                {candidates.map((candidate, index) => (
+                  <TerminologyCandidateCard key={candidate.id} candidate={candidate} index={index} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function TerminologyCandidateCard({
+  candidate,
+  index,
+}: {
+  candidate: ResearchTerminologyCandidate;
+  index: number;
+}) {
+  const { t } = useTranslation();
+  const maxScore = candidate.evidence.reduce<number | undefined>((best, evidence) => (
+    evidence.providerScore === undefined || (best !== undefined && best >= evidence.providerScore)
+      ? best
+      : evidence.providerScore
+  ), undefined);
+  const filteredByScoreCount = (candidate.observationTruncation ?? [])
+    .reduce((total, observation) => total + observation.filteredByScoreCount, 0);
+  const truncatedObservationCount = (candidate.observationTruncation ?? [])
+    .filter((observation) => observation.truncatedByLimit).length;
+
+  return (
+    <div
+      data-testid={`research-terminology-candidate-${candidate.kind}-${index}`}
+      className="min-w-0 rounded-md border border-neutral-200 p-2 dark:border-neutral-800"
+    >
+      <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
+        <span className="min-w-0 flex-1 break-words text-[11px] font-medium leading-4 text-neutral-800 dark:text-neutral-200">
+          {candidate.text}
+        </span>
+        <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300">
+          {t('researchPanel.terminologySupport', {
+            defaultValue: '{{papers}} papers · {{evidence}} evidence',
+            papers: candidate.supportingPaperIds.length,
+            evidence: candidate.totalEvidenceCount,
+          })}
+        </span>
+      </div>
+      <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-0.5 text-[10px] leading-4 text-neutral-500 dark:text-neutral-400">
+        {maxScore !== undefined ? (
+          <span>{t('researchPanel.terminologyScore', { defaultValue: 'OpenAlex score {{score}}', score: maxScore.toFixed(3) })}</span>
+        ) : null}
+        {filteredByScoreCount > 0 ? (
+          <span>{t('researchPanel.terminologyFiltered', { defaultValue: '{{count}} low-score records excluded', count: filteredByScoreCount })}</span>
+        ) : null}
+        {candidate.evidenceTruncated || truncatedObservationCount > 0 ? (
+          <span className="text-amber-700 dark:text-amber-300">
+            {t('researchPanel.terminologyEvidenceTruncated', { defaultValue: 'Evidence truncated' })}
+          </span>
+        ) : null}
+      </div>
+      {candidate.inference ? (
+        <p data-testid={`research-terminology-inference-${index}`} className="mt-1 break-words text-[10px] leading-4 text-indigo-700 dark:text-indigo-300">
+          {t('researchPanel.terminologyInference', {
+            defaultValue: 'Taxonomy contrast at {{level}} level against core {{core}}; requires at least {{minimum}} independent papers.',
+            level: candidate.inference.level,
+            core: candidate.inference.coreText,
+            minimum: candidate.inference.minimumSupportingPapers,
+          })}
+        </p>
+      ) : null}
+      <details className="mt-1.5 min-w-0 text-[10px]">
+        <summary className="cursor-pointer select-none font-medium text-indigo-600 dark:text-indigo-300">
+          {t('researchPanel.terminologyEvidence', { defaultValue: 'Evidence details' })}
+        </summary>
+        <div className="mt-1 space-y-1">
+          {candidate.evidence.map((evidence, evidenceIndex) => {
+            const providerUrl = safeExternalUrl(evidence.providerUrl);
+            const retrievalUrl = safeExternalUrl(evidence.retrievalUrl);
+            return (
+              <div
+                key={`${evidence.providerRecordId}:${evidence.supportingPaperId}:${evidence.queryVariantId ?? ''}:${evidence.providerField}:${evidenceIndex}`}
+                className="min-w-0 rounded bg-neutral-50 p-1.5 leading-4 text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400"
+              >
+                <p className="break-words">
+                  {t('researchPanel.terminologyEvidenceLine', {
+                    defaultValue: '{{field}} · {{time}}',
+                    field: terminologyProviderFieldLabel(evidence.providerField, t),
+                    time: formatResearchTimestamp(evidence.retrievedAt),
+                  })}
+                </p>
+                <div className="mt-0.5 flex min-w-0 flex-wrap gap-x-2 gap-y-0.5">
+                  {providerUrl ? (
+                    <a href={providerUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-300">
+                      {t('researchPanel.terminologyOpenAlexRecord', { defaultValue: 'OpenAlex record' })}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  ) : null}
+                  {retrievalUrl ? (
+                    <a href={retrievalUrl} target="_blank" rel="noreferrer" className="font-medium text-indigo-600 hover:underline dark:text-indigo-300">
+                      {t('researchPanel.terminologyRetrieval', { defaultValue: 'Retrieval query' })}
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </details>
+    </div>
   );
 }
 
@@ -2203,6 +2385,70 @@ function sourceDisplayName(sourceId: string, sourceNameById: ReadonlyMap<string,
   if (sourceId.toLocaleLowerCase() === 'crossref') return 'Crossref';
   if (sourceId.toLocaleLowerCase() === 'arxiv') return 'arXiv';
   return sourceId.replace(/[-_]+/gu, ' ');
+}
+
+function sourceRateLimitDetails(source: ResearchSourceStatus, t: TFunction): string[] {
+  const rateLimit = source.rateLimit;
+  if (!rateLimit) return [];
+  return [
+    rateLimit.limit !== undefined || rateLimit.remaining !== undefined
+      ? t('researchPanel.sourceRateLimitQuota', {
+        defaultValue: '{{remaining}} / {{limit}} requests remaining',
+        remaining: rateLimit.remaining ?? '—',
+        limit: rateLimit.limit ?? '—',
+      })
+      : null,
+    rateLimit.resetSeconds !== undefined
+      ? t('researchPanel.sourceRateLimitReset', {
+        defaultValue: 'reset in {{seconds}}s',
+        seconds: rateLimit.resetSeconds,
+      })
+      : null,
+    rateLimit.retryAfterSeconds !== undefined
+      ? t('researchPanel.sourceRateLimitRetry', {
+        defaultValue: 'retry after {{seconds}}s',
+        seconds: rateLimit.retryAfterSeconds,
+      })
+      : null,
+    rateLimit.costUsd !== undefined
+      ? t('researchPanel.sourceRateLimitCost', {
+        defaultValue: 'cost ${{amount}}',
+        amount: formatResearchUsd(rateLimit.costUsd),
+      })
+      : null,
+    rateLimit.remainingUsd !== undefined
+      ? t('researchPanel.sourceRateLimitRemainingUsd', {
+        defaultValue: '${{amount}} remaining',
+        amount: formatResearchUsd(rateLimit.remainingUsd),
+      })
+      : null,
+  ].filter((detail): detail is string => Boolean(detail));
+}
+
+function terminologyKindLabel(kind: ResearchTerminologyCandidate['kind'], t: TFunction): string {
+  if (kind === 'observed_keyword') {
+    return t('researchPanel.terminologyObservedKeywords', { defaultValue: 'Observed OpenAlex keywords' });
+  }
+  if (kind === 'observed_topic') {
+    return t('researchPanel.terminologyObservedTopics', { defaultValue: 'Observed OpenAlex topics' });
+  }
+  return t('researchPanel.terminologyAdjacentFields', { defaultValue: 'Taxonomy-adjacent fields' });
+}
+
+function terminologyProviderFieldLabel(
+  field: ResearchTerminologyCandidate['evidence'][number]['providerField'],
+  t: TFunction,
+): string {
+  if (field === 'keywords') return t('researchPanel.terminologyFieldKeywords', { defaultValue: 'keywords' });
+  if (field === 'topics') return t('researchPanel.terminologyFieldTopics', { defaultValue: 'topics' });
+  if (field.endsWith('.subfield')) {
+    return t('researchPanel.terminologyFieldSubfield', { defaultValue: 'topic taxonomy subfield' });
+  }
+  return t('researchPanel.terminologyFieldField', { defaultValue: 'topic taxonomy field' });
+}
+
+function formatResearchUsd(value: number): string {
+  return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 });
 }
 
 function isRateLimitedSource(source: ResearchSourceStatus): boolean {

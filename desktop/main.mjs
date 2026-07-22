@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeF
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { terminologyVerificationFixture } from './research-verification-fixtures.mjs';
 import { startZoteroBroker } from './zotero-broker.mjs';
 
 const STARTUP_TIMEOUT_MS = 90_000;
@@ -34,6 +35,7 @@ const ZOTERO_CLOUD_MAX_RESPONSE_CHARS = 2 * 1024 * 1024;
 const RESEARCH_VERIFICATION_DIRECTORY = 'verification';
 const ARXIV_VERIFICATION_REPORT_FILENAME = 'arxiv-adapter.v1.json';
 const OPENALEX_EXPANSION_VERIFICATION_REPORT_FILENAME = 'openalex-expansion.v1.json';
+const TERMINOLOGY_VERIFICATION_REPORT_FILENAME = 'terminology-search.v1.json';
 
 function zoteroCredentialsPath() {
   return join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY, ZOTERO_CREDENTIALS_FILENAME);
@@ -479,6 +481,221 @@ async function verifyResearchOpenAlexExpansion() {
 }
 
 /**
+ * Verify the complete compiled terminology path in the exact app.asar module
+ * graph. The fixture transport is intentionally unreachable on the public
+ * network, while the explicit project override keeps every non-OpenAlex source
+ * disabled for this one deterministic diagnostic.
+ */
+async function verifyResearchTerminology() {
+  const appRoot = app.getAppPath();
+  const appPathType = appRoot.toLowerCase().endsWith('.asar') ? 'asar' : 'directory';
+  const toolPath = join(appRoot, 'dist', 'src', 'tool', 'builtin', 'literatureSearch.js');
+  const adapterPath = join(appRoot, 'dist', 'src', 'research', 'literature', 'openAlexSource.js');
+  const candidatePoolPath = join(appRoot, 'dist', 'src', 'research', 'literature', 'candidatePool.js');
+  const terminologyPath = join(appRoot, 'dist', 'src', 'research', 'literature', 'terminology.js');
+  const settingsPath = join(appRoot, 'dist', 'src', 'research', 'settings.js');
+  const [toolModule, adapterModule, candidatePoolModule, terminologyModule, settingsModule] = await Promise.all([
+    import(pathToFileURL(toolPath).href),
+    import(pathToFileURL(adapterPath).href),
+    import(pathToFileURL(candidatePoolPath).href),
+    import(pathToFileURL(terminologyPath).href),
+    import(pathToFileURL(settingsPath).href),
+  ]);
+  assertResearchVerification(
+    typeof toolModule.createLiteratureSearchTool === 'function',
+    'The packaged literature_search tool did not export createLiteratureSearchTool.',
+  );
+  assertResearchVerification(
+    typeof adapterModule.createOpenAlexSource === 'function',
+    'The packaged OpenAlex adapter did not export createOpenAlexSource.',
+  );
+  assertResearchVerification(
+    typeof candidatePoolModule.mergeLiteratureSearchResults === 'function',
+    'The packaged candidate pool did not export mergeLiteratureSearchResults.',
+  );
+  assertResearchVerification(
+    typeof terminologyModule.buildLiteratureTerminology === 'function',
+    'The packaged terminology module did not export buildLiteratureTerminology.',
+  );
+  assertResearchVerification(
+    typeof settingsModule.writeResearchSettings === 'function',
+    'The packaged research settings module did not export writeResearchSettings.',
+  );
+
+  const retrievedAt = '2026-07-23T00:00:00.000Z';
+  const verificationEndpoint = 'https://verification.invalid/works?apiKey=fixture-secret';
+  const fixture = terminologyVerificationFixture();
+  const fixtureJson = JSON.stringify(fixture);
+  const requestedUrls = [];
+  const fetchImpl = async (input) => {
+    const url = new URL(String(input));
+    requestedUrls.push(url.toString());
+    if (url.protocol !== 'https:' || url.hostname !== 'verification.invalid') {
+      throw new Error(`Terminology verification attempted a non-fixture host: ${url.hostname}`);
+    }
+    return new Response(fixtureJson, {
+      status: 200,
+      headers: {
+        'content-length': String(Buffer.byteLength(fixtureJson, 'utf8')),
+        'content-type': 'application/json; charset=utf-8',
+      },
+    });
+  };
+  const source = adapterModule.createOpenAlexSource({
+    endpoint: verificationEndpoint,
+    fetchImpl,
+    mailto: 'private@example.test',
+  });
+  const rawResult = await source.search({
+    query: 'packaged terminology verification',
+    limit: 3,
+    sort: 'relevance',
+    sourceIds: ['openalex'],
+  }, { now: () => new Date(retrievedAt) });
+  const rawObservations = rawResult.terminologyObservations ?? [];
+  assertResearchVerification(rawResult.source.status === 'ok', 'The fixture did not produce a successful OpenAlex result.');
+  assertResearchVerification(rawResult.papers.length === 3, 'The fixture did not retain all source records before final selection.');
+  assertResearchVerification(rawObservations.length === 3, 'The OpenAlex adapter did not retain raw terminology observations.');
+  assertResearchVerification(
+    rawObservations.every((observation) => !observation.retrievalUrl.includes('fixture-secret')),
+    'The raw OpenAlex terminology observations retained a private retrieval parameter.',
+  );
+
+  const directPool = candidatePoolModule.mergeLiteratureSearchResults({
+    requestedSourceIds: ['openalex'],
+    results: [rawResult],
+    limit: 1,
+    sourcePriority: ['openalex'],
+  });
+  const directTerminology = terminologyModule.buildLiteratureTerminology(directPool.terminologyObservations);
+  assertResearchVerification(directPool.papers.length === 1, 'The final candidate limit did not retain exactly one paper.');
+  assertResearchVerification(
+    directPool.papers[0]?.id === 'https://openalex.org/W-TERM-1'
+      && directPool.papers[0]?.identity?.doi === '10.1000/rigorium-terminology-fixture',
+    'The final pool did not retain the canonical strong-identity paper.',
+  );
+  assertResearchVerification(
+    directPool.terminologyObservations.length === 2
+      && directPool.terminologyObservations.every((observation) => observation.supportingPaperId === 'https://openalex.org/W-TERM-1'),
+    'The final pool did not map duplicate-identity terminology observations to the selected paper.',
+  );
+  assertResearchVerification(
+    directTerminology?.totalCandidateCount === 16
+      && directTerminology.candidates.length === 8
+      && directTerminology.truncated === true,
+    'The compiled terminology path did not enforce the candidate budget.',
+  );
+
+  const verificationProjectRoot = join(
+    app.getPath('userData'),
+    ZOTERO_CREDENTIALS_DIRECTORY,
+    RESEARCH_VERIFICATION_DIRECTORY,
+    'terminology-project',
+  );
+  const defaults = settingsModule.DEFAULT_RESEARCH_SETTINGS;
+  await settingsModule.writeResearchSettings({
+    scope: 'project',
+    pilotHome: process.env.PILOT_HOME,
+    projectRoot: verificationProjectRoot,
+    settings: {
+      ...defaults,
+      literature: {
+        ...defaults.literature,
+        sources: {
+          openalex: { ...defaults.literature.sources.openalex, enabled: true, mailto: 'private@example.test' },
+          arxiv: { ...defaults.literature.sources.arxiv, enabled: false },
+          crossref: { ...defaults.literature.sources.crossref, enabled: false, mailto: '' },
+        },
+        search: { ...defaults.literature.search, defaultLimit: 1 },
+      },
+    },
+  });
+  const tool = toolModule.createLiteratureSearchTool({ endpoint: verificationEndpoint, fetchImpl });
+  const toolOutput = await tool.execute({
+    query: 'packaged terminology verification',
+    limit: 1,
+  }, {
+    cwd: verificationProjectRoot,
+    env: { PILOT_HOME: process.env.PILOT_HOME },
+    now: () => new Date(retrievedAt),
+  });
+  const artifact = toolOutput?.data;
+  const terminology = artifact?.terminology;
+  assertResearchVerification(artifact?.kind === 'literature_search', 'The fixture did not produce a literature search artifact.');
+  assertResearchVerification(
+    JSON.stringify(artifact?.plan?.sourceIds) === JSON.stringify(['openalex'])
+      && artifact?.queryAudit?.length === 1
+      && artifact?.sources?.length === 1,
+    'The packaged terminology tool did not keep non-OpenAlex sources disabled.',
+  );
+  assertResearchVerification(
+    artifact?.papers?.length === 1
+      && artifact.papers[0]?.id === 'https://openalex.org/W-TERM-1'
+      && artifact.papers[0]?.identity?.doi === '10.1000/rigorium-terminology-fixture',
+    'The packaged literature_search tool did not preserve final-pool identity and limit behavior.',
+  );
+  assertResearchVerification(
+    terminology?.totalCandidateCount === 16
+      && terminology.candidates.length === 8
+      && terminology.truncated === true
+      && terminology.candidates.every((candidate) => candidate.kind === 'observed_keyword')
+      && terminology.candidates.every((candidate) => candidate.evidence.length <= 32)
+      && terminology.candidates.every((candidate) => candidate.text.startsWith('Fixture Alpha keyword')),
+    'The packaged literature_search artifact did not enforce the terminology candidate budget.',
+  );
+  assertResearchVerification(
+    terminology?.sourcePaperIds?.join('|') === 'https://openalex.org/W-TERM-1',
+    'The packaged terminology summary retained source IDs that were not backed by retained evidence.',
+  );
+  assertResearchVerification(
+    !JSON.stringify({
+      source: artifact?.sources,
+      queryAudit: artifact?.queryAudit,
+      terminology,
+    }).includes('fixture-secret'),
+    'The packaged literature_search artifact retained a private retrieval parameter.',
+  );
+  assertResearchVerification(
+    requestedUrls.length === 2
+      && requestedUrls.every((value) => {
+        const url = new URL(value);
+        return url.hostname === 'verification.invalid'
+          && url.searchParams.get('apiKey') === 'fixture-secret'
+          && url.searchParams.get('mailto') === 'private@example.test';
+      }),
+    'The fixture transport did not receive the expected controlled OpenAlex requests.',
+  );
+
+  const reportDirectory = join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY, RESEARCH_VERIFICATION_DIRECTORY);
+  mkdirSync(reportDirectory, { recursive: true });
+  writeFileSync(join(reportDirectory, TERMINOLOGY_VERIFICATION_REPORT_FILENAME), `${JSON.stringify({
+    schemaVersion: 1,
+    packaged: app.isPackaged,
+    appPathType,
+    toolLoadedFromAppAsar: appPathType === 'asar',
+    adapterLoadedFromAppAsar: appPathType === 'asar',
+    candidatePoolLoadedFromAppAsar: appPathType === 'asar',
+    terminologyLoadedFromAppAsar: appPathType === 'asar',
+    fixture: {
+      sourceRecordCount: fixture.results.length,
+      requestCount: requestedUrls.length,
+      host: 'verification.invalid',
+      liveNetwork: false,
+    },
+    rawObservation: {
+      count: rawObservations.length,
+      sourcePaperIds: rawObservations.map((observation) => observation.sourcePaperId),
+      retrievalUrlsSanitized: rawObservations.every((observation) => !observation.retrievalUrl.includes('fixture-secret')),
+    },
+    finalPool: {
+      paperIds: directPool.papers.map((paper) => paper.id),
+      terminologySupportingPaperIds: directPool.terminologyObservations.map((observation) => observation.supportingPaperId),
+    },
+    artifact,
+  })}\n`, { encoding: 'utf8', mode: 0o600 });
+}
+
+/**
  * Opt-in production transport smoke for the exact compiled tool above. A
  * high-citation seed makes one citing work sufficient to prove the live
  * adapter's seed resolution, neighbour normalisation, and edge direction.
@@ -906,6 +1123,7 @@ app.whenReady().then(async () => {
     if (isResearchVerification) {
       await verifyResearchArxivAdapter();
       await verifyResearchOpenAlexExpansion();
+      await verifyResearchTerminology();
     }
     await startServices();
     if (isSmokeTest) {

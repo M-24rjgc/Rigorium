@@ -30,6 +30,10 @@ export type ResearchSettings = {
         /** Optional address used only to opt into Crossref's documented polite pool. */
         mailto: string;
       };
+      /** Optional for backward-compatible persisted settings; normalized settings always supply it. */
+      openreview?: {
+        enabled: boolean;
+      };
     };
     search: {
       defaultLimit: number;
@@ -97,6 +101,49 @@ export type SearchClassification = {
   include: string[];
 };
 
+/** A decision stage requested from a conference venue. */
+export type SearchVenueStatus = "accepted" | "submission";
+
+/**
+ * One conference, journal, or track constraint selected by the agent from a
+ * natural-language request. `openReviewVenueId` is an official OpenReview
+ * venue identifier when the constraint can be checked against primary data.
+ */
+export type SearchVenueConstraint = {
+  id: string;
+  name: string;
+  aliases?: string[];
+  year?: number;
+  track?: string;
+  /** Requested decision stage. A non-OpenReview source must not claim it as verified. */
+  status?: SearchVenueStatus;
+  /** Legacy spelling retained for callers that already pass a boolean decision state. */
+  accepted?: boolean;
+  openReviewVenueId?: string;
+};
+
+/** A named, auditable set of venue constraints used by one search plan. */
+export type SearchVenueSet = {
+  id: string;
+  name: string;
+  venues: SearchVenueConstraint[];
+};
+
+/**
+ * Venue evidence carried with an individual paper. `official` is reserved for
+ * an OpenReview record returned through an explicit official venue ID; other
+ * providers can only contribute `metadata` evidence and an unknown decision.
+ */
+export type ResearchVenueEvidence = {
+  sourceId: string;
+  evidence: "official" | "metadata";
+  venue: string;
+  year?: number;
+  track?: string;
+  status: SearchVenueStatus | "unknown";
+  officialVenueId?: string;
+};
+
 /**
  * One concrete query formulation chosen by the agent for a single literature
  * search. The primary formulation remains in `SearchPlan.query` for existing
@@ -128,6 +175,7 @@ export type SearchPlan = {
   toYear?: number;
   sort: "relevance" | "cited_by_count" | "publication_date";
   classifications?: SearchClassification[];
+  venueSet?: SearchVenueSet;
   sourceIds: string[];
   /** Executed query formulations, including the primary query when available. */
   queryVariants?: SearchQueryVariant[];
@@ -179,6 +227,8 @@ export type ResearchPaper = {
   updatedAt?: string;
   type?: string;
   venue?: string;
+  /** Per-source venue evidence. Never infer an accepted decision from arXiv metadata. */
+  venueEvidence?: ResearchVenueEvidence[];
   doi?: string;
   url?: string;
   citedByCount: number;
@@ -215,6 +265,29 @@ export type ResearchSourceApplied = {
   sort?: string;
   /** Canonical source classifications added to the submitted query. */
   classifications?: string[];
+  /** Venue constraints actually applied by this particular provider. */
+  venueSet?: {
+    id: string;
+    name: string;
+    constraintIds: string[];
+    requestedStatuses?: SearchVenueStatus[];
+    enforcement: "official" | "metadata";
+  };
+};
+
+/**
+ * Provider quota information captured with one retrieval attempt. Values are
+ * provider-reported and deliberately remain separate from search coverage.
+ */
+export type ResearchSourceRateLimit = {
+  limit?: number;
+  remaining?: number;
+  /** Seconds until the provider's reported quota reset. */
+  resetSeconds?: number;
+  /** Seconds requested by the provider before another attempt. */
+  retryAfterSeconds?: number;
+  costUsd?: number;
+  remainingUsd?: number;
 };
 
 export type ResearchSourceStatus = {
@@ -223,6 +296,8 @@ export type ResearchSourceStatus = {
   /** Present only for one query-source attempt in a query audit. */
   queryVariantId?: string;
   status: "ok" | "error" | "disabled";
+  /** A successful response with known incomplete provider coverage. */
+  partial?: boolean;
   retrievedAt: string;
   queryUrl?: string;
   resultCount: number;
@@ -232,6 +307,8 @@ export type ResearchSourceStatus = {
   warnings?: string[];
   /** Provider-specific query constraints or ranking actually applied. */
   applied?: ResearchSourceApplied;
+  /** Provider-reported quota state, when the response supplied it. */
+  rateLimit?: ResearchSourceRateLimit;
   error?: string;
 };
 
@@ -242,6 +319,126 @@ export type ResearchCoverage = {
   requestedSourceIds: string[];
   successfulSourceIds: string[];
   failedSourceIds: string[];
+};
+
+/**
+ * A normalized provider-native terminology record held only while search
+ * attempts are merged. It is intentionally distinct from ResearchPaper.topics
+ * so multi-provider paper merging cannot manufacture terminology evidence.
+ */
+export type LiteratureTerminologyTaxonomyLevelRecord = {
+  providerRecordId: string;
+  text: string;
+  providerUrl?: string;
+};
+
+export type LiteratureTerminologySourceRecord = {
+  providerRecordId: string;
+  text: string;
+  providerUrl?: string;
+  score?: number;
+  subfield?: LiteratureTerminologyTaxonomyLevelRecord;
+  field?: LiteratureTerminologyTaxonomyLevelRecord;
+};
+
+/** Raw-array accounting retained while malformed provider entries are removed. */
+export type LiteratureTerminologySourceFieldCounts = {
+  sourceRecordCount: number;
+  invalidRecordCount: number;
+};
+
+/** Raw OpenAlex terminology metadata associated with one source work record. */
+export type LiteratureTerminologySourceObservation = {
+  providerId: "openalex";
+  /** Provider work record before the candidate pool maps it to a final paper. */
+  sourcePaperId: string;
+  queryVariantId?: string;
+  /** Sanitized provider request URL. */
+  retrievalUrl: string;
+  retrievedAt: string;
+  isParatext: boolean;
+  keywords: LiteratureTerminologySourceRecord[];
+  topics: LiteratureTerminologySourceRecord[];
+  fieldCounts: {
+    keywords: LiteratureTerminologySourceFieldCounts;
+    topics: LiteratureTerminologySourceFieldCounts;
+  };
+  primaryTopic?: LiteratureTerminologySourceRecord;
+};
+
+/** A provider-native observation retained after the final-pool identity map. */
+export type LiteratureTerminologyObservation = Omit<LiteratureTerminologySourceObservation, "sourcePaperId"> & {
+  supportingPaperId: string;
+};
+
+export type LiteratureTerminologyCandidateKind =
+  | "observed_keyword"
+  | "observed_topic"
+  | "adjacent_field";
+
+export type LiteratureTerminologyProviderField =
+  | "keywords"
+  | "topics"
+  | "primary_topic.subfield"
+  | "primary_topic.field"
+  | "topics.subfield"
+  | "topics.field";
+
+export type LiteratureTerminologyEvidence = {
+  supportingPaperId: string;
+  queryVariantId?: string;
+  retrievalUrl: string;
+  retrievedAt: string;
+  providerScore?: number;
+  providerId: "openalex";
+  providerRecordId: string;
+  providerUrl: string;
+  providerField: LiteratureTerminologyProviderField;
+};
+
+/** Per-paper provider filtering before an observed keyword or topic is retained. */
+export type LiteratureTerminologyObservationTruncation = {
+  supportingPaperId: string;
+  queryVariantId?: string;
+  providerField: "keywords" | "topics";
+  scoreThreshold: number;
+  perPaperLimit: 8;
+  sourceRecordCount: number;
+  validRecordCount: number;
+  eligibleCount: number;
+  retainedCount: number;
+  filteredByScoreCount: number;
+  invalidRecordCount: number;
+  truncatedByLimit: boolean;
+};
+
+export type LiteratureTerminologyInference = {
+  basis: "multi_paper_taxonomy_contrast";
+  level: "subfield" | "field";
+  coreRecordId: string;
+  coreText: string;
+  minimumSupportingPapers: 2;
+};
+
+export type LiteratureTerminologyCandidate = {
+  /** `provider:kind:upstream-record-id`; never a text-derived identity. */
+  id: string;
+  text: string;
+  kind: LiteratureTerminologyCandidateKind;
+  supportingPaperIds: string[];
+  evidence: LiteratureTerminologyEvidence[];
+  totalEvidenceCount: number;
+  evidenceTruncated: boolean;
+  observationTruncation?: LiteratureTerminologyObservationTruncation[];
+  inference?: LiteratureTerminologyInference;
+};
+
+export type LiteratureTerminology = {
+  candidates: LiteratureTerminologyCandidate[];
+  /** Final-pool papers with at least one retained terminology observation. */
+  sourcePaperIds: string[];
+  totalCandidateCount: number;
+  truncated: boolean;
 };
 
 /** The original query-result artifact. Kept stable for existing consumers. */
@@ -257,6 +454,8 @@ export type LiteratureSearchArtifact = {
   sources: ResearchSourceStatus[];
   /** One source status per executed query variant, before source aggregation. */
   queryAudit?: ResearchSourceStatus[];
+  /** Evidence-backed OpenAlex terminology observations from the final paper pool. */
+  terminology?: LiteratureTerminology;
   coverage: ResearchCoverage;
   presentation: {
     autoOpen: boolean;
@@ -337,6 +536,8 @@ export type LiteratureSearchResult = {
   papers: ResearchPaper[];
   edges: ResearchRelationEdge[];
   source: ResearchSourceStatus;
+  /** Provider-native observations, kept outside merged ResearchPaper metadata. */
+  terminologyObservations?: LiteratureTerminologySourceObservation[];
 };
 
 export interface LiteratureSource {

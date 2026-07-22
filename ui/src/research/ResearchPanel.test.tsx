@@ -133,6 +133,13 @@ const queryVariantArtifact: ResearchArtifact = {
     resultCount: 1,
     coverage: '1/2 query variants returned usable OpenAlex results.',
     warnings: ['Query variant alternative-1: HTTP 400'],
+    rateLimit: {
+      limit: 1000,
+      remaining: 998,
+      resetSeconds: 60,
+      costUsd: 0.001,
+      remainingUsd: 0.0998,
+    },
   }],
   queryAudit: [
     {
@@ -140,6 +147,13 @@ const queryVariantArtifact: ResearchArtifact = {
       queryVariantId: 'primary',
       queryUrl: 'https://api.openalex.org/works?search=research+agents',
       resultCount: 1,
+      rateLimit: {
+        limit: 1000,
+        remaining: 998,
+        resetSeconds: 60,
+        costUsd: 0.001,
+        remainingUsd: 0.0998,
+      },
     },
     {
       ...artifact.sources[0],
@@ -158,6 +172,109 @@ const queryVariantArtifact: ResearchArtifact = {
     requestedSourceIds: ['openalex'],
     successfulSourceIds: ['openalex'],
     failedSourceIds: [],
+  },
+};
+
+const terminologyArtifact: ResearchArtifact = {
+  ...queryVariantArtifact,
+  artifactId: 'literature-panel-terminology-test',
+  terminology: {
+    sourcePaperIds: ['W1', 'W2'],
+    totalCandidateCount: 3,
+    truncated: false,
+    candidates: [
+      {
+        id: 'openalex:observed_keyword:https://openalex.org/keywords/agentic-systems',
+        text: 'Agentic systems',
+        kind: 'observed_keyword',
+        supportingPaperIds: ['W1'],
+        totalEvidenceCount: 1,
+        evidenceTruncated: false,
+        observationTruncation: [{
+          supportingPaperId: 'W1',
+          queryVariantId: 'primary',
+          providerField: 'keywords',
+          scoreThreshold: 0.3,
+          perPaperLimit: 8,
+          sourceRecordCount: 3,
+          validRecordCount: 2,
+          eligibleCount: 1,
+          retainedCount: 1,
+          filteredByScoreCount: 1,
+          invalidRecordCount: 1,
+          truncatedByLimit: false,
+        }],
+        evidence: [{
+          supportingPaperId: 'W1',
+          queryVariantId: 'primary',
+          retrievalUrl: 'https://api.openalex.org/works?search=research+agents',
+          retrievedAt: '2026-07-22T00:00:00.000Z',
+          providerScore: 0.91,
+          providerId: 'openalex',
+          providerRecordId: 'https://openalex.org/keywords/agentic-systems',
+          providerUrl: 'https://openalex.org/keywords/agentic-systems',
+          providerField: 'keywords',
+        }],
+      },
+      {
+        id: 'openalex:observed_topic:https://openalex.org/T1',
+        text: 'Autonomous research agents',
+        kind: 'observed_topic',
+        supportingPaperIds: ['W1'],
+        totalEvidenceCount: 1,
+        evidenceTruncated: false,
+        evidence: [{
+          supportingPaperId: 'W1',
+          queryVariantId: 'primary',
+          retrievalUrl: 'https://api.openalex.org/works?search=research+agents',
+          retrievedAt: '2026-07-22T00:00:00.000Z',
+          providerScore: 0.82,
+          providerId: 'openalex',
+          providerRecordId: 'https://openalex.org/T1',
+          providerUrl: 'https://openalex.org/T1',
+          providerField: 'topics',
+        }],
+      },
+      {
+        id: 'openalex:adjacent_field:https://openalex.org/subfields/1702',
+        text: 'Artificial Intelligence',
+        kind: 'adjacent_field',
+        supportingPaperIds: ['W1', 'W2'],
+        totalEvidenceCount: 2,
+        evidenceTruncated: false,
+        inference: {
+          basis: 'multi_paper_taxonomy_contrast',
+          level: 'subfield',
+          coreRecordId: 'https://openalex.org/subfields/1708',
+          coreText: 'Hardware and Architecture',
+          minimumSupportingPapers: 2,
+        },
+        evidence: [
+          {
+            supportingPaperId: 'W1',
+            queryVariantId: 'primary',
+            retrievalUrl: 'https://api.openalex.org/works?search=research+agents',
+            retrievedAt: '2026-07-22T00:00:00.000Z',
+            providerScore: 0.77,
+            providerId: 'openalex',
+            providerRecordId: 'https://openalex.org/subfields/1702',
+            providerUrl: 'https://openalex.org/subfields/1702',
+            providerField: 'topics.subfield',
+          },
+          {
+            supportingPaperId: 'W2',
+            queryVariantId: 'alternative-1',
+            retrievalUrl: 'https://api.openalex.org/works?search=agentic+systems',
+            retrievedAt: '2026-07-22T00:00:01.000Z',
+            providerScore: 0.73,
+            providerId: 'openalex',
+            providerRecordId: 'https://openalex.org/subfields/1702',
+            providerUrl: 'https://openalex.org/subfields/1702',
+            providerField: 'topics.subfield',
+          },
+        ],
+      },
+    ],
   },
 };
 
@@ -640,11 +757,63 @@ describe('ResearchPanel', () => {
     expect(screen.getByTestId('research-query-category-adjacent_field').textContent).toContain('Adjacent field');
     expect(audit.textContent).toContain('Common adjacent terminology');
     expect(audit.textContent).toContain('OpenAlex API error (400)');
+    expect(screen.getByTestId('research-query-rate-limit-primary-openalex').textContent).toContain('998 / 1000');
+    expect(screen.getByTestId('research-source-rate-limit-openalex').textContent).toContain('998 / 1000');
     const links = screen.getAllByRole('link', { name: /Open query|打开查询/i });
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
       'https://api.openalex.org/works?search=research+agents',
       'https://api.openalex.org/works?search=agentic+systems',
     ]);
+  });
+
+  it('validates and renders evidence-backed terminology without a search action', () => {
+    expect(isResearchArtifact(terminologyArtifact)).toBe(true);
+
+    const mismatchedField = structuredClone(terminologyArtifact) as any;
+    mismatchedField.terminology.candidates[0].evidence[0].providerField = 'topics';
+    expect(isResearchArtifact(mismatchedField)).toBe(false);
+
+    const unknownSupportingPaper = structuredClone(terminologyArtifact) as any;
+    unknownSupportingPaper.terminology.candidates[0].supportingPaperIds = ['missing-paper'];
+    unknownSupportingPaper.terminology.candidates[0].evidence[0].supportingPaperId = 'missing-paper';
+    expect(isResearchArtifact(unknownSupportingPaper)).toBe(false);
+
+    const privateRetrievalUrl = structuredClone(terminologyArtifact) as any;
+    privateRetrievalUrl.terminology.candidates[0].evidence[0].retrievalUrl = 'https://api.openalex.org/works?apiKey=secret';
+    expect(isResearchArtifact(privateRetrievalUrl)).toBe(false);
+
+    const inconsistentEvidenceTruncation = structuredClone(terminologyArtifact) as any;
+    inconsistentEvidenceTruncation.terminology.candidates[0].totalEvidenceCount = 2;
+    inconsistentEvidenceTruncation.terminology.candidates[0].evidenceTruncated = false;
+    expect(isResearchArtifact(inconsistentEvidenceTruncation)).toBe(false);
+
+    const staleTerminologySource = structuredClone(terminologyArtifact) as any;
+    staleTerminologySource.terminology.candidates = staleTerminologySource.terminology.candidates.slice(0, 2);
+    staleTerminologySource.terminology.totalCandidateCount = 2;
+    expect(isResearchArtifact(staleTerminologySource)).toBe(false);
+
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={terminologyArtifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    const summary = screen.getByTestId('research-terminology-summary');
+    expect(summary.textContent).toContain('Observed terminology');
+    expect(summary.textContent).toContain('not synonyms or author keywords');
+    expect(screen.getByTestId('research-terminology-group-observed_keyword').textContent).toContain('Agentic systems');
+    expect(screen.getByTestId('research-terminology-group-observed_topic').textContent).toContain('Autonomous research agents');
+    expect(screen.getByTestId('research-terminology-group-adjacent_field').textContent).toContain('Artificial Intelligence');
+    expect(screen.getByTestId('research-terminology-inference-0').textContent).toContain('Hardware and Architecture');
+    expect(summary.textContent).toContain('1 low-score records excluded');
+    expect(screen.queryByRole('button', { name: /search terminology|搜索术语/i })).toBeNull();
+
+    fireEvent.click(screen.getAllByText(/Evidence details|展开证据/i)[0]);
+    const openAlexRecord = screen.getAllByRole('link', { name: /OpenAlex record|OpenAlex 记录/i })[0];
+    expect(openAlexRecord?.getAttribute('href')).toBe('https://openalex.org/keywords/agentic-systems');
+    expect(openAlexRecord?.getAttribute('href')).not.toContain('api_key');
   });
 
   it('keeps a disabled source out of failure reporting while retaining real failure reporting', () => {

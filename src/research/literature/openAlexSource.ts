@@ -1,11 +1,15 @@
 import { networkFetch } from "../../network/fetch.js";
 import { normalizeArxivIdentifier, normalizeDoi } from "../identity.js";
+import { sanitizeRetrievalUrl } from "./terminology.js";
 import type {
   LiteratureSearchResult,
   LiteratureSource,
+  LiteratureTerminologySourceObservation,
+  LiteratureTerminologySourceRecord,
   ResearchPaper,
   ResearchPaperProvenance,
   ResearchRelationEdge,
+  ResearchSourceRateLimit,
   ResearchSourceStatus,
   ResearchTopic,
   SearchPlan,
@@ -21,7 +25,8 @@ export type CreateOpenAlexSourceOptions = {
 
 const DEFAULT_ENDPOINT = "https://api.openalex.org/works";
 const DEFAULT_TIMEOUT_MS = 20_000;
-/** Shared select-list for OpenAlex search and citation-expansion retrievals. */
+const OPENALEX_TRANSIENT_RETRY_STATUSES = [408, 409, 425, 500, 502, 503, 504] as const;
+/** Citation-expansion projection. Keep this stable and payload-minimal. */
 export const OPENALEX_WORK_FIELDS = [
   "id",
   "doi",
@@ -39,6 +44,13 @@ export const OPENALEX_WORK_FIELDS = [
   "ids",
   "abstract_inverted_index",
 ].join(",");
+/** Search-only projection with terminology metadata unavailable to expansion. */
+export const OPENALEX_SEARCH_FIELDS = [
+  OPENALEX_WORK_FIELDS,
+  "keywords",
+  "primary_topic",
+  "is_paratext",
+].join(",");
 
 export function createOpenAlexSource(options: CreateOpenAlexSourceOptions = {}): LiteratureSource {
   const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
@@ -51,6 +63,8 @@ export function createOpenAlexSource(options: CreateOpenAlexSourceOptions = {}):
     async search(plan, context = {}) {
       const retrievedAt = (context.now?.() ?? new Date()).toISOString();
       const url = buildOpenAlexUrl(endpoint, plan, options.mailto);
+      const persistedQueryUrl = sanitizeRetrievalUrl(url.toString());
+      let responseRateLimit: ResearchSourceRateLimit | undefined;
 
       try {
         const response = await networkFetch(url.toString(), {
@@ -64,42 +78,73 @@ export function createOpenAlexSource(options: CreateOpenAlexSourceOptions = {}):
           timeoutMs,
           signal: context.signal,
           fetchImpl,
-          retry: { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 4_000 },
+          // 429 carries quota state. Never let a bounded generic retry issue
+          // an early follow-up request before the provider permits it.
+          retry: {
+            maxRetries: 2,
+            baseDelayMs: 500,
+            maxDelayMs: 4_000,
+            retryStatuses: OPENALEX_TRANSIENT_RETRY_STATUSES,
+          },
         });
+        responseRateLimit = openAlexRateLimit(response.headers);
 
         if (!response.ok) {
           const detail = await response.text().catch(() => response.statusText);
-          return failedResult(retrievedAt, url, `OpenAlex API error (${response.status}): ${truncate(detail, 400)}`);
+          return failedResult(
+            retrievedAt,
+            url,
+            `OpenAlex API error (${response.status}): ${truncate(detail, 400)}`,
+            responseRateLimit,
+          );
         }
 
-        const raw = await response.json() as OpenAlexResponse;
-        const papers = Array.isArray(raw.results)
-          ? raw.results.flatMap((work, index) => {
-              const paper = normalizeOpenAlexWork(work, {
-                rank: index + 1,
-                retrievedAt,
-                queryUrl: url.toString(),
-              });
-              return paper ? [paper] : [];
-            })
-          : [];
+        const parsed = await response.json() as unknown;
+        const raw = isRecord(parsed) ? parsed : {};
+        const works = Array.isArray(raw.results) ? raw.results : [];
+        const papers: ResearchPaper[] = [];
+        const terminologyObservations: LiteratureTerminologySourceObservation[] = [];
+        for (let index = 0; index < works.length; index += 1) {
+          const work = works[index];
+          if (!isRecord(work)) continue;
+          const paper = normalizeOpenAlexWork(work as OpenAlexWork, {
+            rank: index + 1,
+            retrievedAt,
+            ...(persistedQueryUrl ? { queryUrl: persistedQueryUrl } : {}),
+          });
+          if (!paper) continue;
+          papers.push(paper);
+          const observation = observeOpenAlexTerminology(work as OpenAlexWork, {
+            sourcePaperId: paper.id,
+            retrievedAt,
+            retrievalUrl: persistedQueryUrl,
+          });
+          if (observation) terminologyObservations.push(observation);
+        }
         const edges = buildRelationshipEdges(papers, options.includeTopicEdges !== false);
         const source: ResearchSourceStatus = {
           id: "openalex",
           name: "OpenAlex",
           status: "ok",
           retrievedAt,
-          queryUrl: url.toString(),
+          ...(persistedQueryUrl ? { queryUrl: persistedQueryUrl } : {}),
           resultCount: papers.length,
-          totalMatches: nonNegativeFiniteNumber(raw.meta?.count),
-          coverage: "Ranked OpenAlex metadata results for the submitted query and filters.",
+          totalMatches: nonNegativeFiniteNumber(isRecord(raw.meta) ? raw.meta.count : undefined),
+          coverage: openAlexCoverage("Ranked OpenAlex metadata results for the submitted query and filters.", responseRateLimit),
+          ...(responseRateLimit ? { rateLimit: responseRateLimit } : {}),
         };
-        return { papers, edges, source };
+        return {
+          papers,
+          edges,
+          source,
+          ...(terminologyObservations.length > 0 ? { terminologyObservations } : {}),
+        };
       } catch (error) {
         return failedResult(
           retrievedAt,
           url,
           `OpenAlex request failed: ${error instanceof Error ? error.message : String(error)}`,
+          responseRateLimit,
         );
       }
     },
@@ -110,7 +155,7 @@ function buildOpenAlexUrl(endpoint: string, plan: SearchPlan, mailto?: string): 
   const url = new URL(endpoint);
   url.searchParams.set("search", plan.query);
   url.searchParams.set("per-page", String(plan.limit));
-  url.searchParams.set("select", OPENALEX_WORK_FIELDS);
+  url.searchParams.set("select", OPENALEX_SEARCH_FIELDS);
   if (mailto?.trim()) url.searchParams.set("mailto", mailto.trim());
 
   const filters: string[] = [];
@@ -192,6 +237,108 @@ export function normalizeOpenAlexWork(
       ...provenance,
     }],
   };
+}
+
+/**
+ * Capture only provider-native terminology fields from an unmerged OpenAlex
+ * work response. The candidate pool later maps `sourcePaperId` to a visible
+ * final paper, which prevents rejected source results from contributing terms.
+ */
+export function observeOpenAlexTerminology(
+  work: OpenAlexWork,
+  context: {
+    sourcePaperId: string;
+    retrievedAt: string;
+    retrievalUrl?: string;
+  },
+): LiteratureTerminologySourceObservation | undefined {
+  if (work.is_paratext === true) return undefined;
+  const sourcePaperId = stringValue(context.sourcePaperId);
+  const retrievalUrl = sanitizeRetrievalUrl(context.retrievalUrl);
+  if (!sourcePaperId || !retrievalUrl) return undefined;
+  const primaryTopic = normalizeTerminologyRecord(work.primary_topic);
+  const keywords = normalizeTerminologyRecords(work.keywords);
+  const topics = normalizeTerminologyRecords(work.topics);
+  return {
+    providerId: "openalex",
+    sourcePaperId,
+    retrievalUrl,
+    retrievedAt: context.retrievedAt,
+    isParatext: false,
+    keywords: keywords.records,
+    topics: topics.records,
+    fieldCounts: {
+      keywords: keywords.fieldCounts,
+      topics: topics.fieldCounts,
+    },
+    ...(primaryTopic ? { primaryTopic } : {}),
+  };
+}
+
+function normalizeTerminologyRecords(value: unknown): {
+  records: LiteratureTerminologySourceRecord[];
+  fieldCounts: { sourceRecordCount: number; invalidRecordCount: number };
+} {
+  const entries = Array.isArray(value) ? value : [];
+  const records: LiteratureTerminologySourceRecord[] = [];
+  let invalidRecordCount = 0;
+  for (const entry of entries) {
+    const record = normalizeTerminologyRecord(entry);
+    if (record) records.push(record);
+    else invalidRecordCount += 1;
+  }
+  return {
+    records,
+    fieldCounts: { sourceRecordCount: entries.length, invalidRecordCount },
+  };
+}
+
+function normalizeTerminologyRecord(value: unknown): LiteratureTerminologySourceRecord | undefined {
+  if (!isRecord(value)) return undefined;
+  const providerRecordId = stringValue(value.id);
+  const text = stringValue(value.display_name) ?? stringValue(value.name);
+  if (!providerRecordId || !text) return undefined;
+  const score = normalizedTerminologyScore(value.score);
+  if (score === undefined) return undefined;
+  const providerUrl = sanitizeRetrievalUrl(
+    safeHttpUrl(value.url) ?? safeHttpUrl(value.id),
+  );
+  if (!providerUrl) return undefined;
+  const subfield = normalizeTaxonomyLevelRecord(value.subfield);
+  const field = normalizeTaxonomyLevelRecord(value.field);
+  return {
+    providerRecordId,
+    text,
+    providerUrl,
+    score,
+    ...(subfield ? { subfield } : {}),
+    ...(field ? { field } : {}),
+  };
+}
+
+function normalizeTaxonomyLevelRecord(value: unknown): {
+  providerRecordId: string;
+  text: string;
+  providerUrl?: string;
+} | undefined {
+  if (!isRecord(value)) return undefined;
+  const providerRecordId = stringValue(value.id);
+  const text = stringValue(value.display_name) ?? stringValue(value.name);
+  if (!providerRecordId || !text) return undefined;
+  const providerUrl = sanitizeRetrievalUrl(
+    safeHttpUrl(value.url) ?? safeHttpUrl(value.id),
+  );
+  if (!providerUrl) return undefined;
+  return {
+    providerRecordId,
+    text,
+    providerUrl,
+  };
+}
+
+function normalizedTerminologyScore(value: unknown): number | undefined {
+  const score = finiteNumber(value);
+  return score !== undefined && score >= 0 && score <= 1 ? score : undefined;
 }
 
 function buildRelationshipEdges(papers: ResearchPaper[], includeTopicEdges: boolean): ResearchRelationEdge[] {
@@ -280,7 +427,13 @@ function reconstructAbstract(value: unknown): string | undefined {
   return truncate(abstract, 1_200);
 }
 
-function failedResult(retrievedAt: string, url: URL, error: string): LiteratureSearchResult {
+function failedResult(
+  retrievedAt: string,
+  url: URL,
+  error: string,
+  rateLimit?: ResearchSourceRateLimit,
+): LiteratureSearchResult {
+  const queryUrl = sanitizeRetrievalUrl(url.toString());
   return {
     papers: [],
     edges: [],
@@ -289,12 +442,60 @@ function failedResult(retrievedAt: string, url: URL, error: string): LiteratureS
       name: "OpenAlex",
       status: "error",
       retrievedAt,
-      queryUrl: url.toString(),
+      ...(queryUrl ? { queryUrl } : {}),
       resultCount: 0,
-      coverage: "OpenAlex did not return usable results for this request.",
+      coverage: openAlexCoverage("OpenAlex did not return usable results for this request.", rateLimit),
+      ...(rateLimit ? { rateLimit } : {}),
       error,
     },
   };
+}
+
+function openAlexRateLimit(headers: Headers): ResearchSourceRateLimit | undefined {
+  const limit = nonNegativeHeaderNumber(headers, "x-ratelimit-limit");
+  const remaining = nonNegativeHeaderNumber(headers, "x-ratelimit-remaining");
+  const resetSeconds = nonNegativeHeaderNumber(headers, "x-ratelimit-reset");
+  const retryAfter = retryAfterSeconds(headers.get("retry-after"));
+  const costUsd = nonNegativeHeaderNumber(headers, "x-ratelimit-cost-usd");
+  const remainingUsd = nonNegativeHeaderNumber(headers, "x-ratelimit-remaining-usd");
+  const rateLimit: ResearchSourceRateLimit = {
+    ...(limit !== undefined ? { limit } : {}),
+    ...(remaining !== undefined ? { remaining } : {}),
+    ...(resetSeconds !== undefined ? { resetSeconds } : {}),
+    ...(retryAfter !== undefined ? { retryAfterSeconds: retryAfter } : {}),
+    ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(remainingUsd !== undefined ? { remainingUsd } : {}),
+  };
+  return Object.keys(rateLimit).length > 0 ? rateLimit : undefined;
+}
+
+function nonNegativeHeaderNumber(headers: Headers, name: string): number | undefined {
+  const raw = headers.get(name);
+  if (!raw?.trim()) return undefined;
+  const value = Number(raw.trim());
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function retryAfterSeconds(value: string | null): number | undefined {
+  if (!value?.trim()) return undefined;
+  const numeric = Number(value.trim());
+  if (Number.isFinite(numeric) && numeric >= 0) return numeric;
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return undefined;
+  return Math.max(0, Math.ceil((timestamp - Date.now()) / 1_000));
+}
+
+function openAlexCoverage(base: string, rateLimit: ResearchSourceRateLimit | undefined): string {
+  if (!rateLimit) return base;
+  const details = [
+    rateLimit.limit !== undefined ? `limit ${rateLimit.limit}` : undefined,
+    rateLimit.remaining !== undefined ? `remaining ${rateLimit.remaining}` : undefined,
+    rateLimit.resetSeconds !== undefined ? `reset in ${rateLimit.resetSeconds}s` : undefined,
+    rateLimit.retryAfterSeconds !== undefined ? `retry after ${rateLimit.retryAfterSeconds}s` : undefined,
+    rateLimit.costUsd !== undefined ? `cost USD ${rateLimit.costUsd}` : undefined,
+    rateLimit.remainingUsd !== undefined ? `remaining USD ${rateLimit.remainingUsd}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+  return details.length > 0 ? `${base} OpenAlex rate limit: ${details.join(", ")}.` : base;
 }
 
 function safeHttpUrl(value: unknown): string | undefined {
@@ -359,6 +560,9 @@ export type OpenAlexWork = Record<string, unknown> & {
   primary_location?: unknown;
   open_access?: unknown;
   topics?: unknown;
+  keywords?: unknown;
+  primary_topic?: unknown;
+  is_paratext?: unknown;
   referenced_works?: unknown;
   ids?: unknown;
   abstract_inverted_index?: unknown;

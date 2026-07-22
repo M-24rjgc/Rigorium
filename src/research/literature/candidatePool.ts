@@ -6,11 +6,13 @@ import {
 } from "../identity.js";
 import type {
   LiteratureSearchResult,
+  LiteratureTerminologyObservation,
   PaperIdentity,
   ResearchPaper,
   ResearchPaperProvenance,
   ResearchRelationEdge,
   ResearchSourceStatus,
+  ResearchVenueEvidence,
 } from "../types.js";
 
 const RRF_K = 60;
@@ -27,6 +29,8 @@ export type LiteratureCandidatePool = {
   papers: ResearchPaper[];
   edges: ResearchRelationEdge[];
   sources: ResearchSourceStatus[];
+  /** Raw provider observations mapped only to the selected final papers. */
+  terminologyObservations: LiteratureTerminologyObservation[];
   coverage: {
     status: "complete" | "partial" | "failed";
     resultCount: number;
@@ -113,13 +117,16 @@ export function mergeLiteratureSearchResults(input: LiteratureCandidatePoolInput
   const selected = merged.slice(0, Math.max(0, input.limit));
   const papers = selected.map((candidate) => candidate.paper);
   const edges = mergeEdges(input.results, selected);
-  const hasFailedAttempt = requestedSourceIds.some((id) => {
+  const terminologyObservations = mapSelectedTerminologyObservations(input.results, selected);
+  const hasIncompleteAttempt = requestedSourceIds.some((id) => {
     const attempts = resultsBySourceId.get(id);
-    return !attempts || attempts.some((result) => result.source.status !== "ok");
+    return !attempts || attempts.some((result) => (
+      result.source.status !== "ok" || result.source.partial === true
+    ));
   });
   const coverageStatus = successfulSourceIds.length === 0
     ? "failed"
-    : hasFailedAttempt
+    : hasIncompleteAttempt
       ? "partial"
       : "complete";
 
@@ -127,6 +134,7 @@ export function mergeLiteratureSearchResults(input: LiteratureCandidatePoolInput
     papers,
     edges,
     sources,
+    terminologyObservations,
     coverage: {
       status: coverageStatus,
       resultCount: papers.length,
@@ -136,6 +144,58 @@ export function mergeLiteratureSearchResults(input: LiteratureCandidatePoolInput
       failedSourceIds: uniqueStrings(failedSourceIds),
     },
   };
+}
+
+/**
+ * Preserve provider-native terminology observations only for records that the
+ * candidate pool actually selected. This map is intentionally separate from
+ * `ResearchPaper.topics`, which can be merged across providers and therefore
+ * is not suitable terminology evidence.
+ */
+function mapSelectedTerminologyObservations(
+  results: LiteratureSearchResult[],
+  selected: MergedCandidate[],
+): LiteratureTerminologyObservation[] {
+  const finalPaperByProviderRecord = new Map<string, string>();
+  for (const candidate of selected) {
+    for (const entry of candidate.entries) {
+      finalPaperByProviderRecord.set(providerRecordKey(entry.source.id, entry.paper.id), candidate.paper.id);
+      for (const provenance of entry.provenance) {
+        const recordId = provenance.sourceRecordId;
+        if (!recordId) continue;
+        finalPaperByProviderRecord.set(providerRecordKey(provenance.sourceId, recordId), candidate.paper.id);
+      }
+    }
+  }
+
+  const retained: LiteratureTerminologyObservation[] = [];
+  for (const result of results) {
+    if (result.source.status !== "ok") continue;
+    for (const observation of result.terminologyObservations ?? []) {
+      if (observation.providerId !== result.source.id) continue;
+      const supportingPaperId = finalPaperByProviderRecord.get(
+        providerRecordKey(observation.providerId, observation.sourcePaperId),
+      );
+      if (!supportingPaperId) continue;
+      retained.push({
+        providerId: observation.providerId,
+        supportingPaperId,
+        ...(observation.queryVariantId ? { queryVariantId: observation.queryVariantId } : {}),
+        retrievalUrl: observation.retrievalUrl,
+        retrievedAt: observation.retrievedAt,
+        isParatext: observation.isParatext,
+        keywords: observation.keywords,
+        topics: observation.topics,
+        fieldCounts: observation.fieldCounts,
+        ...(observation.primaryTopic ? { primaryTopic: observation.primaryTopic } : {}),
+      });
+    }
+  }
+  return retained;
+}
+
+function providerRecordKey(providerId: string, recordId: string): string {
+  return `${providerId}\u0000${recordId}`;
 }
 
 function groupResultsBySourceId(results: LiteratureSearchResult[]): Map<string, LiteratureSearchResult[]> {
@@ -171,6 +231,8 @@ function aggregateSourceStatus(attempts: LiteratureSearchResult[]): ResearchSour
       ? "disabled"
       : "error";
   const failures = sourceAttempts.filter((source) => source.status !== "ok");
+  const partial = successful.some((source) => source.partial === true)
+    || (successful.length > 0 && failures.length > 0);
   const warnings = uniqueStrings([
     ...sourceAttempts.flatMap((source) => (source.warnings ?? []).map((warning) =>
       `${queryVariantLabel(source)}: ${warning}`,
@@ -188,6 +250,7 @@ function aggregateSourceStatus(attempts: LiteratureSearchResult[]): ResearchSour
     id: representative.id,
     name: representative.name,
     status,
+    ...(partial ? { partial: true } : {}),
     retrievedAt: sourceAttempts.reduce((latest, source) => source.retrievedAt > latest ? source.retrievedAt : latest, first.retrievedAt),
     resultCount: sourceAttempts.reduce((sum, source) => sum + Math.max(0, source.resultCount), 0),
     ...(totalMatches !== undefined ? { totalMatches } : {}),
@@ -196,6 +259,7 @@ function aggregateSourceStatus(attempts: LiteratureSearchResult[]): ResearchSour
       : `No query variant returned usable ${representative.name} results.`,
     ...(warnings.length > 0 ? { warnings } : {}),
     ...(representative.applied ? { applied: representative.applied } : {}),
+    ...(representative.rateLimit ? { rateLimit: representative.rateLimit } : {}),
     ...(status !== "ok" && errors.length > 0 ? { error: errors.join(" ") } : {}),
   };
 }
@@ -260,6 +324,10 @@ function mergeCandidateGroup(group: CandidateGroup, sourcePriority: Map<string, 
   const identities = mergeIdentities(ordered.map((entry) => entry.paper.identity));
   const doi = normalizeDoi(identities.doi ?? primary.paper.doi ?? firstDefined(ordered, (entry) => entry.paper.doi));
   if (doi) identities.doi = doi;
+  const venueEvidence = mergeVenueEvidence(
+    ordered.flatMap((entry) => entry.paper.venueEvidence ?? []),
+    sourcePriority,
+  );
 
   const abstracts = ordered.map((entry) => entry.paper.abstract).filter((value): value is string => Boolean(value));
   const candidatesByChannel = new Map<string, ResearchPaperProvenance>();
@@ -288,6 +356,7 @@ function mergeCandidateGroup(group: CandidateGroup, sourcePriority: Map<string, 
       : {}),
     ...(firstDefined(ordered, (entry) => entry.paper.type) ? { type: firstDefined(ordered, (entry) => entry.paper.type) } : {}),
     ...(firstDefined(ordered, (entry) => entry.paper.venue) ? { venue: firstDefined(ordered, (entry) => entry.paper.venue) } : {}),
+    ...(venueEvidence.length > 0 ? { venueEvidence } : {}),
     ...(doi ? { doi } : {}),
     ...(firstDefined(ordered, (entry) => entry.paper.url) ? { url: firstDefined(ordered, (entry) => entry.paper.url) } : {}),
     citedByCount: Math.max(...ordered.map((entry) => entry.paper.citedByCount), 0),
@@ -444,6 +513,41 @@ function mergeTopics(topicLists: ResearchPaper["topics"][]): ResearchPaper["topi
     if (!previous || (topic.score ?? 0) > (previous.score ?? 0)) topics.set(topic.id, topic);
   }
   return [...topics.values()].sort((left, right) => (right.score ?? 0) - (left.score ?? 0) || compareText(left.id, right.id));
+}
+
+function mergeVenueEvidence(
+  evidence: ResearchVenueEvidence[],
+  sourcePriority: Map<string, number>,
+): ResearchVenueEvidence[] {
+  const byKey = new Map<string, ResearchVenueEvidence>();
+  for (const item of evidence) {
+    const normalized: ResearchVenueEvidence = {
+      sourceId: item.sourceId,
+      evidence: item.evidence,
+      venue: item.venue,
+      ...(item.year !== undefined ? { year: item.year } : {}),
+      ...(item.track ? { track: item.track } : {}),
+      status: item.status,
+      ...(item.officialVenueId ? { officialVenueId: item.officialVenueId } : {}),
+    };
+    const key = [
+      normalized.sourceId,
+      normalized.evidence,
+      normalized.venue,
+      normalized.year ?? "",
+      normalized.track ?? "",
+      normalized.status,
+      normalized.officialVenueId ?? "",
+    ].join("\u0000");
+    if (!byKey.has(key)) byKey.set(key, normalized);
+  }
+  return [...byKey.values()].sort((left, right) => {
+    if (left.evidence !== right.evidence) return left.evidence === "official" ? -1 : 1;
+    const priority = priorityOf(left.sourceId, sourcePriority) - priorityOf(right.sourceId, sourcePriority);
+    if (priority !== 0) return priority;
+    const venue = compareText(left.venue, right.venue);
+    return venue !== 0 ? venue : compareText(left.officialVenueId ?? "", right.officialVenueId ?? "");
+  });
 }
 
 function mergedOpenAccess(values: Array<boolean | undefined>): Pick<ResearchPaper, "isOpenAccess"> | Record<string, never> {

@@ -18,6 +18,7 @@ const verificationCredential = 'x'.repeat(32);
 const credentialsPath = join(userData, 'research', 'credentials.v1.json');
 const arxivVerificationReportPath = join(userData, 'research', 'verification', 'arxiv-adapter.v1.json');
 const openAlexExpansionVerificationReportPath = join(userData, 'research', 'verification', 'openalex-expansion.v1.json');
+const terminologyVerificationReportPath = join(userData, 'research', 'verification', 'terminology-search.v1.json');
 const verifyLiveArxiv = process.env.RIGORIUM_VERIFY_ARXIV_LIVE === '1';
 const verifyLiveOpenAlexExpansion = process.env.RIGORIUM_VERIFY_OPENALEX_EXPANSION_LIVE === '1';
 
@@ -38,6 +39,7 @@ try {
   });
   const arxivVerification = await readArxivVerificationReport(arxivVerificationReportPath);
   const openAlexExpansionVerification = await readOpenAlexExpansionVerificationReport(openAlexExpansionVerificationReportPath);
+  const terminologyVerification = await readTerminologyVerificationReport(terminologyVerificationReportPath);
   assert.equal(arxivVerification.schemaVersion, 1, 'The packaged arXiv verification report has an unexpected schema.');
   assert.equal(arxivVerification.packaged, true, 'The arXiv adapter verification did not run inside a packaged Electron app.');
   assert.equal(arxivVerification.appPathType, 'asar', 'The arXiv adapter was not loaded from app.asar.');
@@ -154,6 +156,51 @@ try {
   } else {
     assert.equal(openAlexExpansionVerification.live?.requested, false, 'The deterministic packaged check unexpectedly made a live OpenAlex expansion request.');
   }
+  assert.equal(terminologyVerification.schemaVersion, 1, 'The packaged terminology verification report has an unexpected schema.');
+  assert.equal(terminologyVerification.packaged, true, 'The terminology verification did not run inside a packaged Electron app.');
+  assert.equal(terminologyVerification.appPathType, 'asar', 'The terminology verification was not loaded from app.asar.');
+  assert.equal(terminologyVerification.toolLoadedFromAppAsar, true, 'The packaged literature_search tool did not load from app.asar.');
+  assert.equal(terminologyVerification.adapterLoadedFromAppAsar, true, 'The packaged OpenAlex adapter did not load from app.asar.');
+  assert.equal(terminologyVerification.candidatePoolLoadedFromAppAsar, true, 'The packaged candidate pool did not load from app.asar.');
+  assert.equal(terminologyVerification.terminologyLoadedFromAppAsar, true, 'The packaged terminology builder did not load from app.asar.');
+  assert.deepEqual(terminologyVerification.fixture, {
+    sourceRecordCount: 3,
+    requestCount: 2,
+    host: 'verification.invalid',
+    liveNetwork: false,
+  });
+  assert.deepEqual(terminologyVerification.rawObservation?.sourcePaperIds, [
+    'https://openalex.org/W-TERM-1',
+    'https://openalex.org/W-TERM-2',
+    'https://openalex.org/W-TERM-3',
+  ]);
+  assert.equal(terminologyVerification.rawObservation?.count, 3);
+  assert.equal(terminologyVerification.rawObservation?.retrievalUrlsSanitized, true, 'The packaged raw terminology observation exposed a private URL parameter.');
+  assert.deepEqual(terminologyVerification.finalPool, {
+    paperIds: ['https://openalex.org/W-TERM-1'],
+    terminologySupportingPaperIds: ['https://openalex.org/W-TERM-1', 'https://openalex.org/W-TERM-1'],
+  });
+  const packagedTerminologyArtifact = terminologyVerification.artifact;
+  const packagedTerminology = packagedTerminologyArtifact?.terminology;
+  assert.equal(packagedTerminologyArtifact?.kind, 'literature_search');
+  assert.deepEqual(packagedTerminologyArtifact?.plan?.sourceIds, ['openalex']);
+  assert.equal(packagedTerminologyArtifact?.papers?.length, 1);
+  assert.equal(packagedTerminologyArtifact?.papers?.[0]?.id, 'https://openalex.org/W-TERM-1');
+  assert.equal(packagedTerminologyArtifact?.papers?.[0]?.identity?.doi, '10.1000/rigorium-terminology-fixture');
+  assert.equal(packagedTerminology?.totalCandidateCount, 16);
+  assert.equal(packagedTerminology?.candidates?.length, 8, 'The packaged terminology budget leaked too many cards to the renderer.');
+  assert.equal(packagedTerminology?.truncated, true);
+  assert.equal(packagedTerminology?.candidates?.every((candidate) => (
+    candidate.kind === 'observed_keyword'
+    && candidate.evidence.length <= 32
+    && candidate.text.startsWith('Fixture Alpha keyword')
+  )), true);
+  assert.deepEqual(packagedTerminology?.sourcePaperIds, ['https://openalex.org/W-TERM-1']);
+  assert.equal(
+    JSON.stringify(packagedTerminologyArtifact).includes('fixture-secret'),
+    false,
+    'The packaged terminology artifact exposed a private retrieval parameter.',
+  );
   const page = await app.firstWindow({ timeout: 90_000 });
   await page.waitForLoadState('domcontentloaded');
   await page.waitForFunction(() => typeof window.openSettings === 'function', undefined, { timeout: 60_000 });
@@ -435,7 +482,7 @@ try {
     return fulfillJson(route, { error: `Unhandled verification request: ${url.pathname}` }, 500);
   });
   const query = 'packaged research verification';
-  await page.evaluate((artifactQuery) => {
+  await page.evaluate(({ artifactQuery, artifactTerminology }) => {
     const retrievedAt = new Date().toISOString();
     const queryVariants = [{
       id: 'primary',
@@ -467,6 +514,15 @@ try {
       queryUrl: `https://verification.invalid/${source.id}?q=${encodeURIComponent(variant.query)}`,
       resultCount: 1,
       coverage: `Packaged ${source.name} ${variant.id} query verification.`,
+      ...(source.id === 'openalex' ? {
+        rateLimit: {
+          limit: 1000,
+          remaining: 998,
+          resetSeconds: 60,
+          costUsd: 0.001,
+          remainingUsd: 0.0998,
+        },
+      } : {}),
     })));
     const paper = {
       id: 'verification-paper',
@@ -499,6 +555,22 @@ try {
         retrievedAt,
       }],
     };
+    const secondPaper = {
+      ...paper,
+      id: 'verification-paper-2',
+      identity: { doi: '10.1000/verification-second' },
+      title: 'Second packaged terminology support paper',
+      citedByCount: 0,
+      sourceIds: ['openalex'],
+      provenance: [{
+        sourceId: 'openalex',
+        sourceRecordId: 'https://openalex.org/W-VERIFY-2',
+        rank: 2,
+        queryVariantId: 'alternative-1',
+        retrievedAt,
+      }],
+    };
+    const terminology = artifactTerminology;
     window.dispatchEvent(new CustomEvent('rigorium:research-artifact', {
       detail: {
         artifact: {
@@ -515,15 +587,22 @@ try {
             sourceIds: ['openalex', 'arxiv', 'crossref'],
             queryVariants,
           },
-          papers: [paper],
+          papers: [paper, secondPaper],
           edges: [],
           sources: [{
             id: 'openalex',
             name: 'OpenAlex',
             status: 'ok',
             retrievedAt,
-            resultCount: 1,
+            resultCount: 2,
             coverage: 'Packaged OpenAlex verification artifact.',
+            rateLimit: {
+              limit: 1000,
+              remaining: 998,
+              resetSeconds: 60,
+              costUsd: 0.001,
+              remainingUsd: 0.0998,
+            },
           }, {
             id: 'arxiv',
             name: 'arXiv',
@@ -545,9 +624,10 @@ try {
             coverage: 'Packaged Crossref verification artifact.',
           }],
           queryAudit,
+          terminology,
           coverage: {
             status: 'complete',
-            resultCount: 1,
+            resultCount: 2,
             warnings: [],
             requestedSourceIds: ['openalex', 'arxiv', 'crossref'],
             successfulSourceIds: ['openalex', 'arxiv', 'crossref'],
@@ -557,7 +637,7 @@ try {
         },
       },
     }));
-  }, query);
+  }, { artifactQuery: query, artifactTerminology: packagedTerminology });
   await page.getByText(query, { exact: true }).first().waitFor({ timeout: 30_000 });
   await page.getByText(/Coverage complete|覆盖完整/u, { exact: true }).waitFor({ timeout: 30_000 });
   await page.getByText('OpenAlex', { exact: true }).first().waitFor({ timeout: 30_000 });
@@ -583,6 +663,30 @@ try {
       .every((href) => href?.startsWith('https://verification.invalid/')),
     true,
     'The packaged query audit exposed an unexpected query URL.',
+  );
+  await queryAudit.getByTestId('research-query-rate-limit-primary-openalex').getByText(/998 \/ 1000/u).waitFor({ timeout: 30_000 });
+  await page.getByTestId('research-source-rate-limit-openalex').getByText(/998 \/ 1000/u).waitFor({ timeout: 30_000 });
+
+  const terminology = page.getByTestId('research-terminology-summary');
+  await terminology.waitFor({ state: 'visible', timeout: 30_000 });
+  await terminology.getByText(/not synonyms or author keywords|不是同义词或作者关键词/u).waitFor({ timeout: 30_000 });
+  await terminology.getByText('Fixture Alpha keyword 01', { exact: true }).waitFor({ timeout: 30_000 });
+  await terminology.getByText('Fixture Alpha keyword 08', { exact: true }).waitFor({ timeout: 30_000 });
+  await terminology.getByText(/8\s+of\s+16/u).waitFor({ timeout: 30_000 });
+  const terminologyGroups = terminology.locator('[data-testid^="research-terminology-group-"]');
+  assert.equal(await terminologyGroups.count(), 1, 'The packaged terminology panel did not render the bounded fixture evidence kind.');
+  const terminologyDetails = terminology.locator('details');
+  assert.equal(await terminologyDetails.count(), 8, 'The packaged terminology panel did not preserve the bounded candidate count.');
+  await terminologyDetails.first().locator('summary').click();
+  const terminologyLinks = terminologyDetails.first().getByRole('link');
+  await terminologyLinks.first().waitFor({ state: 'visible', timeout: 30_000 });
+  const terminologyHrefs = await terminologyLinks.evaluateAll((links) => links.map((link) => link.getAttribute('href')));
+  assert.equal(terminologyHrefs.some((href) => href?.startsWith('https://openalex.org/')), true);
+  assert.equal(terminologyHrefs.some((href) => href?.startsWith('https://verification.invalid/')), true);
+  assert.equal(
+    terminologyHrefs.every((href) => href && !href.includes('fixture-secret')),
+    true,
+    'The packaged terminology panel exposed a private retrieval parameter.',
   );
   await page.getByRole('button', { name: /Collection|文献库/u }).click();
   await page.getByText('Packaged Zotero item', { exact: true }).waitFor({ timeout: 30_000 });
@@ -945,6 +1049,10 @@ async function readArxivVerificationReport(path, timeoutMs = 30_000) {
 
 async function readOpenAlexExpansionVerificationReport(path, timeoutMs = 30_000) {
   return readResearchVerificationReport(path, 'OpenAlex expansion', timeoutMs);
+}
+
+async function readTerminologyVerificationReport(path, timeoutMs = 30_000) {
+  return readResearchVerificationReport(path, 'terminology search', timeoutMs);
 }
 
 async function readResearchVerificationReport(path, label, timeoutMs) {

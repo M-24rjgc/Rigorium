@@ -19,6 +19,11 @@ export const DEFAULT_RESEARCH_SETTINGS: ResearchSettings = {
         enabled: true,
         mailto: "",
       },
+      openreview: {
+        // This source stays dormant unless the agent provides an explicit
+        // official OpenReview venue ID in a venue set.
+        enabled: true,
+      },
     },
     search: {
       defaultLimit: 12,
@@ -143,6 +148,7 @@ export function normalizeResearchSettings(value: unknown, base: ResearchSettings
   const openalex = isRecord(sources.openalex) ? sources.openalex : {};
   const arxiv = isRecord(sources.arxiv) ? sources.arxiv : {};
   const crossref = isRecord(sources.crossref) ? sources.crossref : {};
+  const openreview = isRecord(sources.openreview) ? sources.openreview : {};
   const search = isRecord(literature.search) ? literature.search : {};
   const budget = isRecord(literature.budget) ? literature.budget : {};
   const map = isRecord(literature.map) ? literature.map : {};
@@ -166,6 +172,9 @@ export function normalizeResearchSettings(value: unknown, base: ResearchSettings
         crossref: {
           enabled: booleanValue(crossref.enabled, base.literature.sources.crossref.enabled),
           mailto: stringValue(crossref.mailto, base.literature.sources.crossref.mailto, 200),
+        },
+        openreview: {
+          enabled: booleanValue(openreview.enabled, base.literature.sources.openreview?.enabled ?? true),
         },
       },
       search: {

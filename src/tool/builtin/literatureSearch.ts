@@ -4,11 +4,19 @@ import { mergeLiteratureSearchResults } from "../../research/literature/candidat
 import { createArxivSource, normalizeArxivClassifications } from "../../research/literature/arxivSource.js";
 import { createCrossrefSource } from "../../research/literature/crossrefSource.js";
 import { createOpenAlexSource } from "../../research/literature/openAlexSource.js";
+import { createOpenReviewSource } from "../../research/literature/openReviewSource.js";
+import { buildLiteratureTerminology, sanitizeRetrievalUrl } from "../../research/literature/terminology.js";
 import { readResearchSettings } from "../../research/settings.js";
 import type {
   LiteratureSearchResult,
   LiteratureSource,
   LiteratureSearchArtifact,
+  LiteratureTerminologySourceRecord,
+  LiteratureTerminologyTaxonomyLevelRecord,
+  ResearchPaper,
+  SearchVenueConstraint,
+  SearchVenueSet,
+  SearchVenueStatus,
   SearchClassification,
   SearchPlan,
   SearchQueryVariant,
@@ -34,6 +42,25 @@ export type LiteratureSearchInput = {
   toYear?: number;
   sort?: "relevance" | "cited_by_count" | "publication_date";
   classifications?: SearchClassification[];
+  /**
+   * Agent-selected conference constraints derived from the user's natural
+   * language request. This is structured tool input, not a user slash command.
+   */
+  venueSet?: {
+    id: string;
+    name: string;
+    venues: Array<{
+      id: string;
+      name: string;
+      aliases?: string[];
+      year?: number;
+      track?: string;
+      status?: SearchVenueStatus;
+      accepted?: boolean;
+      /** Explicit official OpenReview `content.venueid`, never inferred. */
+      openReviewVenueId?: string;
+    }>;
+  };
 };
 
 export type CreateLiteratureSearchToolOptions = {
@@ -48,6 +75,9 @@ export type CreateLiteratureSearchToolOptions = {
   arxivFetchImpl?: typeof fetch;
   /** Test-only shorter arXiv gate interval. Production retains 3 seconds. */
   arxivMinimumIntervalMs?: number;
+  /** Official OpenReview endpoint override, primarily for controlled tests. */
+  openReviewEndpoint?: string;
+  openReviewFetchImpl?: typeof fetch;
 };
 
 export function createLiteratureSearchTool(
@@ -129,6 +159,36 @@ The result includes normalized paper identities, source provenance, real citatio
             },
           },
         },
+        venueSet: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "name", "venues"],
+          description: "Optional named conference venue set selected from the user's request. Use an explicit OpenReview venue ID only when the official decision status is known; never infer acceptance from arXiv or generic metadata.",
+          properties: {
+            id: { type: "string", maxLength: 128 },
+            name: { type: "string", maxLength: 200 },
+            venues: {
+              type: "array",
+              minItems: 1,
+              maxItems: 12,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["id", "name"],
+                properties: {
+                  id: { type: "string", maxLength: 128 },
+                  name: { type: "string", maxLength: 200 },
+                  aliases: { type: "array", maxItems: 8, items: { type: "string", maxLength: 200 } },
+                  year: { type: "number" },
+                  track: { type: "string", maxLength: 200 },
+                  status: { type: "string", enum: ["accepted", "submission"] },
+                  accepted: { type: "boolean", description: "Legacy boolean form of status; true maps to accepted and false maps to submission." },
+                  openReviewVenueId: { type: "string", maxLength: 512 },
+                },
+              },
+            },
+          },
+        },
       },
     },
     maxResultBytes: 500_000,
@@ -198,10 +258,20 @@ The result includes normalized paper identities, source provenance, real citatio
           "Invalid arXiv classifications: " + (error instanceof Error ? error.message : String(error)),
         );
       }
+      let venueSet: SearchVenueSet | undefined;
+      try {
+        venueSet = normalizeVenueSet(input.venueSet);
+      } catch (error) {
+        throw new PilotDeckToolRuntimeError(
+          "invalid_tool_input",
+          "Invalid venue set: " + (error instanceof Error ? error.message : String(error)),
+        );
+      }
       const queryVariants = buildSearchQueryVariants(query, input.queryVariants, limit);
 
       const sources: LiteratureSource[] = [];
       let disabledArxivResult: LiteratureSearchResult | undefined;
+      let disabledOpenReviewResult: LiteratureSearchResult | undefined;
       if (settings.literature.sources.openalex.enabled) {
         sources.push(createOpenAlexSource({
           endpoint: options.endpoint,
@@ -242,6 +312,44 @@ The result includes normalized paper identities, source provenance, real citatio
           mailto: settings.literature.sources.crossref.mailto,
         }));
       }
+      const venueStatusRequested = venueSet?.venues.some((venue) => venue.status !== undefined) ?? false;
+      const officialOpenReviewVenueRequested = venueSet?.venues.some((venue) => Boolean(venue.openReviewVenueId)) ?? false;
+      if (officialOpenReviewVenueRequested && settings.literature.sources.openreview?.enabled !== false) {
+        sources.push(createOpenReviewSource({
+          endpoint: options.openReviewEndpoint,
+          fetchImpl: options.openReviewFetchImpl ?? options.fetchImpl,
+          timeoutMs: settings.literature.budget.requestTimeoutMs,
+        }));
+      } else if (venueStatusRequested || officialOpenReviewVenueRequested) {
+        const retrievedAt = (context.now?.() ?? new Date()).toISOString();
+        const reason = officialOpenReviewVenueRequested
+          ? "OpenReview is disabled in Research Settings, so official venue status was not retrieved."
+          : "No explicit official OpenReview venue ID was supplied, so requested venue status remains unverified.";
+        disabledOpenReviewResult = {
+          papers: [],
+          edges: [],
+          source: {
+            id: "openreview",
+            name: "OpenReview",
+            status: "disabled",
+            retrievedAt,
+            resultCount: 0,
+            coverage: reason,
+            warnings: [reason],
+            ...(venueSet ? {
+              applied: {
+                venueSet: {
+                  id: venueSet.id,
+                  name: venueSet.name,
+                  constraintIds: venueSet.venues.map((venue) => venue.id),
+                  requestedStatuses: requestedVenueStatuses(venueSet),
+                  enforcement: "official" as const,
+                },
+              },
+            } : {}),
+          },
+        };
+      }
       if (sources.length === 0) {
         throw new PilotDeckToolRuntimeError(
           "setup_required",
@@ -258,37 +366,63 @@ The result includes normalized paper identities, source provenance, real citatio
         ...(classifications.length > 0 ? {
           classifications: [{ scheme: "arxiv" as const, include: classifications }],
         } : {}),
+        ...(venueSet ? { venueSet } : {}),
         sourceIds: [
           ...(settings.literature.sources.openalex.enabled ? ["openalex"] : []),
           ...(settings.literature.sources.arxiv.enabled || disabledArxivResult ? ["arxiv"] : []),
           ...(settings.literature.sources.crossref.enabled ? ["crossref"] : []),
+          ...(officialOpenReviewVenueRequested || disabledOpenReviewResult ? ["openreview"] : []),
         ],
         queryVariants,
       };
-      // Sources are independent metadata requests. A failed source resolves to
-      // a structured result, so every query-source attempt preserves successful
-      // siblings and remains auditable after candidates are merged.
+      // Generic metadata sources are independent for each terminology variant.
+      // OpenReview venue IDs do not change with terminology, so execute those
+      // official requests once for the primary formulation rather than
+      // multiplying calls against the venue API.
+      const variantSources = sources.filter((source) => source.id !== "openreview");
+      const officialVenueSources = sources.filter((source) => source.id === "openreview");
       const results = (await Promise.all(queryVariants.map(async (variant) => {
         const variantPlan: SearchPlan = {
           ...plan,
           query: variant.query,
           limit: variant.requestLimit,
         };
-        const variantResults = await Promise.all(sources.map((source) => source.search(variantPlan, {
+        const variantResults = await Promise.all(variantSources.map((source) => source.search(variantPlan, {
           signal: context.abortSignal,
           now: context.now,
         })));
-        return variantResults.map((result) => annotateQueryVariant(result, variant.id));
+        return variantResults.map((result) => annotateQueryVariant(
+          applyVenueMetadataFilter(sanitizeSearchResultUrls(result), venueSet),
+          variant.id,
+        ));
       }))).flat();
+      if (officialVenueSources.length > 0) {
+        const officialResults = await Promise.all(officialVenueSources.map((source) => source.search(plan, {
+          signal: context.abortSignal,
+          now: context.now,
+        })));
+        results.push(...officialResults.map((result) => annotateQueryVariant(
+          sanitizeSearchResultUrls(result),
+          "primary",
+        )));
+      }
       if (disabledArxivResult) {
-        results.push(...queryVariants.map((variant) => annotateQueryVariant(disabledArxivResult, variant.id)));
+        results.push(...queryVariants.map((variant) =>
+          annotateQueryVariant(sanitizeSearchResultUrls(disabledArxivResult), variant.id),
+        ));
+      }
+      if (disabledOpenReviewResult) {
+        results.push(...queryVariants.map((variant) =>
+          annotateQueryVariant(sanitizeSearchResultUrls(disabledOpenReviewResult), variant.id),
+        ));
       }
       const pool = mergeLiteratureSearchResults({
         requestedSourceIds: plan.sourceIds,
         results,
         limit,
-        sourcePriority: ["openalex", "arxiv", "crossref"],
+        sourcePriority: ["openreview", "openalex", "arxiv", "crossref"],
       });
+      const terminology = buildLiteratureTerminology(pool.terminologyObservations);
       const artifact: LiteratureSearchArtifact = {
         schemaVersion: 1,
         kind: "literature_search",
@@ -300,6 +434,7 @@ The result includes normalized paper identities, source provenance, real citatio
         edges: pool.edges,
         sources: pool.sources,
         queryAudit: results.map((result) => result.source),
+        ...(terminology ? { terminology } : {}),
         coverage: pool.coverage,
         presentation: {
           autoOpen: settings.literature.map.autoOpen,
@@ -437,7 +572,278 @@ function annotateQueryVariant(result: LiteratureSearchResult, queryVariantId: st
       ...paper,
       provenance: paper.provenance.map((provenance) => ({ ...provenance, queryVariantId })),
     })),
+    ...(result.terminologyObservations ? {
+      terminologyObservations: result.terminologyObservations.map((observation) => ({
+        ...observation,
+        queryVariantId,
+      })),
+    } : {}),
   };
+}
+
+/** Ensure only sanitized URLs are retained in the persisted artifact path. */
+function sanitizeSearchResultUrls(result: LiteratureSearchResult): LiteratureSearchResult {
+  const { queryUrl: _sourceQueryUrl, ...sourceWithoutQueryUrl } = result.source;
+  const sourceQueryUrl = sanitizeRetrievalUrl(result.source.queryUrl);
+  return {
+    ...result,
+    source: {
+      ...sourceWithoutQueryUrl,
+      ...(sourceQueryUrl ? { queryUrl: sourceQueryUrl } : {}),
+    },
+    papers: result.papers.map((paper) => ({
+      ...paper,
+      provenance: paper.provenance.map((provenance) => {
+        const { queryUrl: _provenanceQueryUrl, ...provenanceWithoutQueryUrl } = provenance;
+        const queryUrl = sanitizeRetrievalUrl(provenance.queryUrl);
+        return {
+          ...provenanceWithoutQueryUrl,
+          ...(queryUrl ? { queryUrl } : {}),
+        };
+      }),
+    })),
+    ...(result.terminologyObservations ? {
+      terminologyObservations: result.terminologyObservations.flatMap((observation) => {
+        const retrievalUrl = sanitizeRetrievalUrl(observation.retrievalUrl);
+        if (!retrievalUrl) return [];
+        return [{
+          ...observation,
+          retrievalUrl,
+          ...(observation.primaryTopic ? {
+            primaryTopic: sanitizeTerminologySourceRecord(observation.primaryTopic),
+          } : {}),
+          keywords: observation.keywords.map(sanitizeTerminologySourceRecord),
+          topics: observation.topics.map(sanitizeTerminologySourceRecord),
+        }];
+      }),
+    } : {}),
+  };
+}
+
+function sanitizeTerminologySourceRecord(record: LiteratureTerminologySourceRecord): LiteratureTerminologySourceRecord {
+  const { providerUrl: _providerUrl, subfield, field, ...rest } = record;
+  const providerUrl = sanitizeRetrievalUrl(record.providerUrl);
+  return {
+    ...rest,
+    ...(providerUrl ? { providerUrl } : {}),
+    ...(subfield ? { subfield: sanitizeTaxonomyLevelRecord(subfield) } : {}),
+    ...(field ? { field: sanitizeTaxonomyLevelRecord(field) } : {}),
+  };
+}
+
+function sanitizeTaxonomyLevelRecord(
+  record: LiteratureTerminologyTaxonomyLevelRecord,
+): LiteratureTerminologyTaxonomyLevelRecord {
+  const { providerUrl: _providerUrl, ...rest } = record;
+  const providerUrl = sanitizeRetrievalUrl(record.providerUrl);
+  return { ...rest, ...(providerUrl ? { providerUrl } : {}) };
+}
+
+function normalizeVenueSet(value: LiteratureSearchInput["venueSet"]): SearchVenueSet | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error("venueSet must be an object.");
+  const id = venueSetId(value.id, "venueSet.id");
+  const name = boundedText(value.name, "venueSet.name", 200);
+  if (!Array.isArray(value.venues) || value.venues.length === 0 || value.venues.length > 12) {
+    throw new Error("venueSet.venues must contain between 1 and 12 venues.");
+  }
+
+  const seenIds = new Set<string>();
+  const venues = value.venues.map((rawVenue, index): SearchVenueConstraint => {
+    if (!isRecord(rawVenue)) throw new Error(`venueSet.venues[${index}] must be an object.`);
+    const venueId = venueSetId(rawVenue.id, `venueSet.venues[${index}].id`);
+    if (seenIds.has(venueId)) throw new Error(`venueSet contains duplicate venue id '${venueId}'.`);
+    seenIds.add(venueId);
+    const venueName = boundedText(rawVenue.name, `venueSet.venues[${index}].name`, 200);
+    const aliases = normalizeVenueAliases(rawVenue.aliases, index, venueName);
+    const year = normalizeVenueYear(rawVenue.year, index);
+    const track = optionalBoundedText(rawVenue.track, `venueSet.venues[${index}].track`, 200);
+    const status = normalizeVenueStatus(rawVenue.status, rawVenue.accepted, index);
+    const openReviewVenueId = normalizeOpenReviewVenueId(rawVenue.openReviewVenueId, index);
+    return {
+      id: venueId,
+      name: venueName,
+      ...(aliases.length > 0 ? { aliases } : {}),
+      ...(year !== undefined ? { year } : {}),
+      ...(track ? { track } : {}),
+      ...(status ? { status } : {}),
+      ...(openReviewVenueId ? { openReviewVenueId } : {}),
+    };
+  });
+  return { id, name, venues };
+}
+
+function venueSetId(value: unknown, label: string): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(value.trim())) {
+    throw new Error(`${label} must use 1-128 letters, numbers, dots, underscores, or hyphens.`);
+  }
+  return value.trim().toLowerCase();
+}
+
+function boundedText(value: unknown, label: string, maximum: number): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be non-empty text.`);
+  const normalized = value.trim().replace(/\s+/gu, " ");
+  if (normalized.length > maximum) throw new Error(`${label} cannot exceed ${maximum} characters.`);
+  return normalized;
+}
+
+function optionalBoundedText(value: unknown, label: string, maximum: number): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  return boundedText(value, label, maximum);
+}
+
+function normalizeVenueAliases(value: unknown, index: number, venueName: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 8) {
+    throw new Error(`venueSet.venues[${index}].aliases must contain at most 8 strings.`);
+  }
+  const aliases = value.map((alias, aliasIndex) => boundedText(
+    alias,
+    `venueSet.venues[${index}].aliases[${aliasIndex}]`,
+    200,
+  ));
+  const seen = new Set<string>([venueFingerprint(venueName)]);
+  return aliases.filter((alias) => {
+    const fingerprint = venueFingerprint(alias);
+    if (!fingerprint || seen.has(fingerprint)) return false;
+    seen.add(fingerprint);
+    return true;
+  });
+}
+
+function normalizeVenueYear(value: unknown, index: number): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const currentMax = new Date().getUTCFullYear() + 2;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1800 || value > currentMax) {
+    throw new Error(`venueSet.venues[${index}].year must be an integer between 1800 and ${currentMax}.`);
+  }
+  return value;
+}
+
+function normalizeVenueStatus(value: unknown, accepted: unknown, index: number): SearchVenueStatus | undefined {
+  if (value !== undefined && value !== "accepted" && value !== "submission") {
+    throw new Error(`venueSet.venues[${index}].status must be accepted or submission.`);
+  }
+  if (accepted !== undefined && typeof accepted !== "boolean") {
+    throw new Error(`venueSet.venues[${index}].accepted must be a boolean when provided.`);
+  }
+  const legacy = typeof accepted === "boolean" ? (accepted ? "accepted" : "submission") : undefined;
+  if (value !== undefined && legacy !== undefined && value !== legacy) {
+    throw new Error(`venueSet.venues[${index}] has conflicting status and accepted fields.`);
+  }
+  return value ?? legacy;
+}
+
+function normalizeOpenReviewVenueId(value: unknown, index: number): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const venueId = boundedText(value, `venueSet.venues[${index}].openReviewVenueId`, 512);
+  if (!/^[A-Za-z0-9._/() -]+$/u.test(venueId)) {
+    throw new Error(`venueSet.venues[${index}].openReviewVenueId contains unsupported characters.`);
+  }
+  return venueId;
+}
+
+function requestedVenueStatuses(venueSet: SearchVenueSet): SearchVenueStatus[] {
+  return [...new Set(venueSet.venues.flatMap((venue) => venue.status ? [venue.status] : []))];
+}
+
+/**
+ * Generic sources expose venue strings and publication years, not programme
+ * decisions. Filter those records conservatively and mark their decision state
+ * unknown; only OpenReview's explicit official venue ID can carry an official
+ * accepted/submission status.
+ */
+function applyVenueMetadataFilter(
+  result: LiteratureSearchResult,
+  venueSet: SearchVenueSet | undefined,
+): LiteratureSearchResult {
+  if (!venueSet || result.source.id === "openreview" || result.source.status !== "ok") return result;
+  const originalCount = result.papers.length;
+  const matches = result.papers.flatMap((paper) => {
+    const constraint = venueSet.venues.find((candidate) => matchesVenueMetadata(paper, candidate));
+    if (!constraint || !paper.venue) return [];
+    return [{
+      ...paper,
+      venueEvidence: mergeVenueEvidence([
+        ...(paper.venueEvidence ?? []),
+        {
+          sourceId: result.source.id,
+          evidence: "metadata" as const,
+          venue: paper.venue,
+          ...(paper.year !== undefined ? { year: paper.year } : {}),
+          ...(constraint.track ? { track: constraint.track } : {}),
+          status: "unknown" as const,
+        },
+      ]),
+    }];
+  });
+  const requestedStatuses = requestedVenueStatuses(venueSet);
+  const warnings = [
+    ...(result.source.warnings ?? []),
+    ...(requestedStatuses.length > 0
+      ? ["Conference decision status is metadata-unverified for this source; it was not inferred from bibliographic or arXiv records."]
+      : []),
+  ];
+  return {
+    ...result,
+    papers: matches,
+    source: {
+      ...result.source,
+      ...(result.source.partial || requestedStatuses.length > 0 ? { partial: true } : {}),
+      resultCount: matches.length,
+      coverage: `Venue metadata filter retained ${matches.length}/${originalCount} ${result.source.name} records for '${venueSet.name}'. ${result.source.coverage}`,
+      ...(warnings.length > 0 ? { warnings } : {}),
+      applied: {
+        ...result.source.applied,
+        venueSet: {
+          id: venueSet.id,
+          name: venueSet.name,
+          constraintIds: venueSet.venues.map((venue) => venue.id),
+          ...(requestedStatuses.length > 0 ? { requestedStatuses } : {}),
+          enforcement: "metadata",
+        },
+      },
+    },
+  };
+}
+
+function matchesVenueMetadata(paper: ResearchPaper, constraint: SearchVenueConstraint): boolean {
+  if (!paper.venue) return false;
+  if (constraint.year !== undefined && paper.year !== constraint.year) return false;
+  const venue = venueFingerprint(paper.venue);
+  const names = [constraint.name, ...(constraint.aliases ?? [])].map(venueFingerprint).filter(Boolean);
+  if (!names.some((name) => venue === name || (name.length >= 4 && venue.includes(name)))) return false;
+  if (!constraint.track) return true;
+  const track = venueFingerprint(constraint.track);
+  return track.length >= 3 && venue.includes(track);
+}
+
+function venueFingerprint(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/gu, " ");
+}
+
+function mergeVenueEvidence<T extends NonNullable<ResearchPaper["venueEvidence"]>[number]>(evidence: T[]): T[] {
+  const seen = new Set<string>();
+  return evidence.filter((item) => {
+    const key = [
+      item.sourceId,
+      item.evidence,
+      item.venue,
+      item.year ?? "",
+      item.track ?? "",
+      item.status,
+      item.officialVenueId ?? "",
+    ].join("\u0000");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function queryFingerprint(query: string): string {

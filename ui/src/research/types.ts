@@ -97,6 +97,7 @@ export type ResearchSourceStatus = {
   name: string;
   queryVariantId?: string;
   status: 'ok' | 'error' | 'disabled';
+  partial?: boolean;
   retrievedAt: string;
   queryUrl?: string;
   resultCount: number;
@@ -112,6 +113,16 @@ export type ResearchSourceStatus = {
     sort?: string;
     classifications?: string[];
   };
+  rateLimit?: ResearchSourceRateLimit;
+};
+
+export type ResearchSourceRateLimit = {
+  limit?: number;
+  remaining?: number;
+  resetSeconds?: number;
+  retryAfterSeconds?: number;
+  costUsd?: number;
+  remainingUsd?: number;
 };
 
 export type ResearchCoverage = {
@@ -166,11 +177,79 @@ export type SearchQueryVariantCategory =
   | 'historical_term'
   | 'adjacent_field';
 
+export type ResearchTerminologyCandidateKind =
+  | 'observed_keyword'
+  | 'observed_topic'
+  | 'adjacent_field';
+
+export type ResearchTerminologyProviderField =
+  | 'keywords'
+  | 'topics'
+  | 'primary_topic.subfield'
+  | 'primary_topic.field'
+  | 'topics.subfield'
+  | 'topics.field';
+
+export type ResearchTerminologyEvidence = {
+  supportingPaperId: string;
+  queryVariantId?: string;
+  retrievalUrl: string;
+  retrievedAt: string;
+  providerScore?: number;
+  providerId: 'openalex';
+  providerRecordId: string;
+  providerUrl: string;
+  providerField: ResearchTerminologyProviderField;
+};
+
+export type ResearchTerminologyObservationTruncation = {
+  supportingPaperId: string;
+  queryVariantId?: string;
+  providerField: 'keywords' | 'topics';
+  scoreThreshold: number;
+  perPaperLimit: 8;
+  sourceRecordCount: number;
+  validRecordCount: number;
+  eligibleCount: number;
+  retainedCount: number;
+  filteredByScoreCount: number;
+  invalidRecordCount: number;
+  truncatedByLimit: boolean;
+};
+
+export type ResearchTerminologyInference = {
+  basis: 'multi_paper_taxonomy_contrast';
+  level: 'subfield' | 'field';
+  coreRecordId: string;
+  coreText: string;
+  minimumSupportingPapers: 2;
+};
+
+export type ResearchTerminologyCandidate = {
+  id: string;
+  text: string;
+  kind: ResearchTerminologyCandidateKind;
+  supportingPaperIds: string[];
+  evidence: ResearchTerminologyEvidence[];
+  totalEvidenceCount: number;
+  evidenceTruncated: boolean;
+  observationTruncation?: ResearchTerminologyObservationTruncation[];
+  inference?: ResearchTerminologyInference;
+};
+
+export type ResearchTerminologySummary = {
+  candidates: ResearchTerminologyCandidate[];
+  sourcePaperIds: string[];
+  totalCandidateCount: number;
+  truncated: boolean;
+};
+
 /** Existing discovery artifact. Keep this shape stable for persisted results. */
 export type LiteratureSearchArtifact = ResearchArtifactBase & {
   kind: 'literature_search';
   plan: LiteratureSearchPlan;
   queryAudit?: ResearchSourceStatus[];
+  terminology?: ResearchTerminologySummary;
 };
 
 export type LiteratureExpansionDirection = 'references' | 'citations';
@@ -412,9 +491,13 @@ export type ZoteroPaperMatch = {
 export function isResearchArtifact(value: unknown): value is ResearchArtifact {
   if (!isResearchArtifactBase(value)) return false;
   if (value.kind === 'literature_search') {
+    const paperIds = new Set(value.papers.flatMap((paper) => (
+      isRecord(paper) && isNonEmptyString(paper.id) ? [paper.id] : []
+    )));
     return isLiteratureSearchPlan(value.plan)
       && (value.queryAudit === undefined
-        || (Array.isArray(value.queryAudit) && value.queryAudit.every(isResearchSourceStatus)));
+        || (Array.isArray(value.queryAudit) && value.queryAudit.every(isResearchSourceStatus)))
+      && (value.terminology === undefined || isResearchTerminologySummary(value.terminology, paperIds));
   }
   if (value.kind !== 'literature_expansion') return false;
   if (!isLiteratureExpansionPlan(value.plan)
@@ -499,6 +582,149 @@ function isSearchQueryVariantCategory(value: unknown): value is SearchQueryVaria
     || value === 'abbreviation'
     || value === 'historical_term'
     || value === 'adjacent_field';
+}
+
+function isResearchTerminologySummary(value: unknown, paperIds: ReadonlySet<string>): value is ResearchTerminologySummary {
+  if (!isRecord(value)
+    || !Array.isArray(value.candidates)
+    || !isStringArray(value.sourcePaperIds)
+    || !hasUniqueStrings(value.sourcePaperIds)
+    || !value.sourcePaperIds.every((paperId) => paperIds.has(paperId))
+    || !isNonNegativeInteger(value.totalCandidateCount)
+    || value.totalCandidateCount < value.candidates.length
+    || typeof value.truncated !== 'boolean') {
+    return false;
+  }
+  const sourcePaperIds = new Set(value.sourcePaperIds);
+  if (!value.candidates.every((candidate) => (
+    isResearchTerminologyCandidate(candidate, paperIds, sourcePaperIds)
+  ))) return false;
+  const retainedEvidencePaperIds = new Set(value.candidates.flatMap((candidate) => (
+    candidate.evidence.map((evidence) => evidence.supportingPaperId)
+  )));
+  return sourcePaperIds.size === retainedEvidencePaperIds.size
+    && [...sourcePaperIds].every((paperId) => retainedEvidencePaperIds.has(paperId));
+}
+
+function isResearchTerminologyCandidate(
+  value: unknown,
+  paperIds: ReadonlySet<string>,
+  sourcePaperIds: ReadonlySet<string>,
+): value is ResearchTerminologyCandidate {
+  if (!isRecord(value)
+    || !isNonEmptyString(value.id)
+    || !isNonEmptyString(value.text)
+    || !isResearchTerminologyCandidateKind(value.kind)
+    || !isStringArray(value.supportingPaperIds)
+    || value.supportingPaperIds.length === 0
+    || !hasUniqueStrings(value.supportingPaperIds)
+    || !value.supportingPaperIds.every((paperId) => paperIds.has(paperId) && sourcePaperIds.has(paperId))
+    || !Array.isArray(value.evidence)
+    || value.evidence.length === 0
+    || !isNonNegativeInteger(value.totalEvidenceCount)
+    || value.totalEvidenceCount < value.evidence.length
+    || typeof value.evidenceTruncated !== 'boolean'
+    || value.evidenceTruncated !== (value.totalEvidenceCount > value.evidence.length)
+    || (value.observationTruncation !== undefined && !Array.isArray(value.observationTruncation))) {
+    return false;
+  }
+  // Keep the narrowed discriminant in a local value for callbacks below.
+  const candidateKind = value.kind;
+  const supportingPaperIds = new Set(value.supportingPaperIds);
+  if (!value.evidence.every((evidence) => (
+    isResearchTerminologyEvidence(evidence, candidateKind, supportingPaperIds)
+  ))) {
+    return false;
+  }
+  const evidencedPaperIds = new Set(value.evidence.map((evidence) => (
+    isRecord(evidence) && isNonEmptyString(evidence.supportingPaperId) ? evidence.supportingPaperId : ''
+  )));
+  if (supportingPaperIds.size !== evidencedPaperIds.size
+    || ![...supportingPaperIds].every((paperId) => evidencedPaperIds.has(paperId))) return false;
+  if (value.observationTruncation !== undefined
+    && !value.observationTruncation.every((entry) => (
+      isResearchTerminologyObservationTruncation(entry, candidateKind, supportingPaperIds)
+    ))) {
+    return false;
+  }
+  return value.kind === 'adjacent_field'
+    ? isResearchTerminologyInference(value.inference)
+    : value.inference === undefined;
+}
+
+function isResearchTerminologyCandidateKind(value: unknown): value is ResearchTerminologyCandidateKind {
+  return value === 'observed_keyword' || value === 'observed_topic' || value === 'adjacent_field';
+}
+
+function isResearchTerminologyEvidence(
+  value: unknown,
+  kind: ResearchTerminologyCandidateKind,
+  supportingPaperIds: ReadonlySet<string>,
+): value is ResearchTerminologyEvidence {
+  return isRecord(value)
+    && isNonEmptyString(value.supportingPaperId)
+    && supportingPaperIds.has(value.supportingPaperId)
+    && isOptionalString(value.queryVariantId)
+    && isPublicResearchUrl(value.retrievalUrl)
+    && isNonEmptyString(value.retrievedAt)
+    && (value.providerScore === undefined || isProviderScore(value.providerScore))
+    && value.providerId === 'openalex'
+    && isNonEmptyString(value.providerRecordId)
+    && isPublicResearchUrl(value.providerUrl)
+    && isResearchTerminologyProviderField(value.providerField)
+    && terminologyFieldMatchesKind(kind, value.providerField);
+}
+
+function isResearchTerminologyObservationTruncation(
+  value: unknown,
+  kind: ResearchTerminologyCandidateKind,
+  supportingPaperIds: ReadonlySet<string>,
+): value is ResearchTerminologyObservationTruncation {
+  return isRecord(value)
+    && isNonEmptyString(value.supportingPaperId)
+    && supportingPaperIds.has(value.supportingPaperId)
+    && isOptionalString(value.queryVariantId)
+    && (value.providerField === 'keywords' || value.providerField === 'topics')
+    && (kind === 'observed_keyword' ? value.providerField === 'keywords' : value.providerField === 'topics')
+    && isProviderScore(value.scoreThreshold)
+    && value.perPaperLimit === 8
+    && isNonNegativeInteger(value.sourceRecordCount)
+    && isNonNegativeInteger(value.validRecordCount)
+    && isNonNegativeInteger(value.eligibleCount)
+    && isNonNegativeInteger(value.retainedCount)
+    && isNonNegativeInteger(value.filteredByScoreCount)
+    && isNonNegativeInteger(value.invalidRecordCount)
+    && typeof value.truncatedByLimit === 'boolean';
+}
+
+function isResearchTerminologyInference(value: unknown): value is ResearchTerminologyInference {
+  return isRecord(value)
+    && value.basis === 'multi_paper_taxonomy_contrast'
+    && (value.level === 'subfield' || value.level === 'field')
+    && isNonEmptyString(value.coreRecordId)
+    && isNonEmptyString(value.coreText)
+    && value.minimumSupportingPapers === 2;
+}
+
+function isResearchTerminologyProviderField(value: unknown): value is ResearchTerminologyProviderField {
+  return value === 'keywords'
+    || value === 'topics'
+    || value === 'primary_topic.subfield'
+    || value === 'primary_topic.field'
+    || value === 'topics.subfield'
+    || value === 'topics.field';
+}
+
+function terminologyFieldMatchesKind(
+  kind: ResearchTerminologyCandidateKind,
+  field: ResearchTerminologyProviderField,
+): boolean {
+  if (kind === 'observed_keyword') return field === 'keywords';
+  if (kind === 'observed_topic') return field === 'topics';
+  return field === 'primary_topic.subfield'
+    || field === 'primary_topic.field'
+    || field === 'topics.subfield'
+    || field === 'topics.field';
 }
 
 function isLiteratureExpansionPlan(value: unknown): value is LiteratureExpansionPlan {
@@ -605,6 +831,7 @@ function isResearchSourceStatus(value: unknown): value is ResearchSourceStatus {
     && typeof value.name === 'string'
     && isOptionalString(value.queryVariantId)
     && (value.status === 'ok' || value.status === 'error' || value.status === 'disabled')
+    && (value.partial === undefined || typeof value.partial === 'boolean')
     && isNonEmptyString(value.retrievedAt)
     && isNonNegativeFiniteNumber(value.resultCount)
     && typeof value.coverage === 'string'
@@ -612,7 +839,18 @@ function isResearchSourceStatus(value: unknown): value is ResearchSourceStatus {
     && (value.totalMatches === undefined || isNonNegativeFiniteNumber(value.totalMatches))
     && isOptionalStringArray(value.warnings)
     && isOptionalString(value.error)
-    && (value.applied === undefined || isResearchSourceApplied(value.applied));
+    && (value.applied === undefined || isResearchSourceApplied(value.applied))
+    && (value.rateLimit === undefined || isResearchSourceRateLimit(value.rateLimit));
+}
+
+function isResearchSourceRateLimit(value: unknown): value is ResearchSourceRateLimit {
+  return isRecord(value)
+    && isOptionalNonNegativeNumber(value.limit)
+    && isOptionalNonNegativeNumber(value.remaining)
+    && isOptionalNonNegativeNumber(value.resetSeconds)
+    && isOptionalNonNegativeNumber(value.retryAfterSeconds)
+    && isOptionalNonNegativeNumber(value.costUsd)
+    && isOptionalNonNegativeNumber(value.remainingUsd);
 }
 
 function isResearchSourceApplied(value: unknown): boolean {
@@ -640,12 +878,20 @@ function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === 'string';
 }
 
+function isOptionalNonNegativeNumber(value: unknown): boolean {
+  return value === undefined || isNonNegativeFiniteNumber(value);
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
 function isNonNegativeFiniteNumber(value: unknown): value is number {
   return isFiniteNumber(value) && value >= 0;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return isNonNegativeFiniteNumber(value) && Number.isInteger(value);
 }
 
 function isPositiveFiniteNumber(value: unknown): value is number {
@@ -658,4 +904,50 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isProviderScore(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0 && value <= 1;
+}
+
+function hasUniqueStrings(values: string[]): boolean {
+  return new Set(values).size === values.length;
+}
+
+function isPublicResearchUrl(value: unknown): value is string {
+  if (!isNonEmptyString(value)) return false;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    if (parsed.username || parsed.password) return false;
+    return [...parsed.searchParams.keys()].every((key) => !SENSITIVE_RETRIEVAL_QUERY_PARAMETERS.has(
+      normalizeRetrievalQueryParameter(key),
+    ));
+  } catch {
+    return false;
+  }
+}
+
+const SENSITIVE_RETRIEVAL_QUERY_PARAMETERS = new Set([
+  'accesskey',
+  'accesstoken',
+  'apikey',
+  'auth',
+  'authorization',
+  'bearertoken',
+  'clientsecret',
+  'credential',
+  'email',
+  'key',
+  'mailto',
+  'password',
+  'secret',
+  'signature',
+  'sig',
+  'token',
+  'xapikey',
+]);
+
+function normalizeRetrievalQueryParameter(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
