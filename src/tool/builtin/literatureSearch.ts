@@ -11,6 +11,7 @@ import type {
   LiteratureSearchArtifact,
   SearchClassification,
   SearchPlan,
+  SearchQueryVariant,
 } from "../../research/types.js";
 import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
 import type {
@@ -20,6 +21,11 @@ import type {
 
 export type LiteratureSearchInput = {
   query: string;
+  /** Agent-selected alternative terminology for the same natural-language goal. */
+  queryVariants?: Array<{
+    query: string;
+    rationale?: string;
+  }>;
   limit?: number;
   fromYear?: number;
   toYear?: number;
@@ -61,6 +67,20 @@ The result includes normalized paper identities, source provenance, real citatio
         query: {
           type: "string",
           description: "Focused academic literature query derived from the user's natural-language research goal.",
+        },
+        queryVariants: {
+          type: "array",
+          maxItems: 3,
+          description: "Optional alternative query formulations selected by the agent for terminology, aliases, or an adjacent field. The user does not need to provide these as commands.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["query"],
+            properties: {
+              query: { type: "string" },
+              rationale: { type: "string" },
+            },
+          },
         },
         limit: {
           type: "number",
@@ -170,6 +190,7 @@ The result includes normalized paper identities, source provenance, real citatio
           "Invalid arXiv classifications: " + (error instanceof Error ? error.message : String(error)),
         );
       }
+      const queryVariants = buildSearchQueryVariants(query, input.queryVariants, limit);
 
       const sources: LiteratureSource[] = [];
       let disabledArxivResult: LiteratureSearchResult | undefined;
@@ -234,14 +255,26 @@ The result includes normalized paper identities, source provenance, real citatio
           ...(settings.literature.sources.arxiv.enabled || disabledArxivResult ? ["arxiv"] : []),
           ...(settings.literature.sources.crossref.enabled ? ["crossref"] : []),
         ],
+        queryVariants,
       };
       // Sources are independent metadata requests. A failed source resolves to
-      // a structured result, so Promise.all preserves successful siblings.
-      const results = await Promise.all(sources.map((source) => source.search(plan, {
-        signal: context.abortSignal,
-        now: context.now,
-      })));
-      if (disabledArxivResult) results.push(disabledArxivResult);
+      // a structured result, so every query-source attempt preserves successful
+      // siblings and remains auditable after candidates are merged.
+      const results = (await Promise.all(queryVariants.map(async (variant) => {
+        const variantPlan: SearchPlan = {
+          ...plan,
+          query: variant.query,
+          limit: variant.requestLimit,
+        };
+        const variantResults = await Promise.all(sources.map((source) => source.search(variantPlan, {
+          signal: context.abortSignal,
+          now: context.now,
+        })));
+        return variantResults.map((result) => annotateQueryVariant(result, variant.id));
+      }))).flat();
+      if (disabledArxivResult) {
+        results.push(...queryVariants.map((variant) => annotateQueryVariant(disabledArxivResult, variant.id)));
+      }
       const pool = mergeLiteratureSearchResults({
         requestedSourceIds: plan.sourceIds,
         results,
@@ -258,6 +291,7 @@ The result includes normalized paper identities, source provenance, real citatio
         papers: pool.papers,
         edges: pool.edges,
         sources: pool.sources,
+        queryAudit: results.map((result) => result.source),
         coverage: pool.coverage,
         presentation: {
           autoOpen: settings.literature.map.autoOpen,
@@ -272,6 +306,9 @@ function formatToolOutput(artifact: LiteratureSearchArtifact): PilotDeckToolExec
   const sourceSummary = artifact.sources.map((source) => `${source.name} (${source.status})`).join(", ");
   const lines = [
     `Academic literature search: ${artifact.plan.query}`,
+    ...(artifact.plan.queryVariants && artifact.plan.queryVariants.length > 1
+      ? [`Query variants: ${artifact.plan.queryVariants.length}`]
+      : []),
     `Sources: ${sourceSummary || "unknown"}`,
     `Results: ${artifact.papers.length}`,
     `Relationships: ${artifact.edges.length}`,
@@ -302,6 +339,77 @@ function formatToolOutput(artifact: LiteratureSearchArtifact): PilotDeckToolExec
 
 function finiteInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : undefined;
+}
+
+function buildSearchQueryVariants(
+  primaryQuery: string,
+  alternatives: LiteratureSearchInput["queryVariants"],
+  totalLimit: number,
+): SearchQueryVariant[] {
+  if (alternatives !== undefined && !Array.isArray(alternatives)) {
+    throw new PilotDeckToolRuntimeError("invalid_tool_input", "queryVariants must be an array when provided.");
+  }
+  if ((alternatives?.length ?? 0) > 3) {
+    throw new PilotDeckToolRuntimeError("invalid_tool_input", "literature_search accepts at most three alternative query variants.");
+  }
+
+  const candidates: Array<{ query: string; rationale?: string }> = [{ query: primaryQuery }];
+  const fingerprints = new Set([queryFingerprint(primaryQuery)]);
+  for (const alternative of alternatives ?? []) {
+    if (!isRecord(alternative) || typeof alternative.query !== "string") {
+      throw new PilotDeckToolRuntimeError("invalid_tool_input", "Each query variant requires a non-empty query string.");
+    }
+    const query = alternative.query.trim();
+    if (!query) {
+      throw new PilotDeckToolRuntimeError("invalid_tool_input", "Each query variant requires a non-empty query string.");
+    }
+    const fingerprint = queryFingerprint(query);
+    if (fingerprints.has(fingerprint)) continue;
+    fingerprints.add(fingerprint);
+
+    if (alternative.rationale !== undefined && typeof alternative.rationale !== "string") {
+      throw new PilotDeckToolRuntimeError("invalid_tool_input", "A query variant rationale must be text when provided.");
+    }
+    const rationale = alternative.rationale?.trim();
+    candidates.push({ query, ...(rationale ? { rationale } : {}) });
+  }
+
+  // Every executed formulation needs at least one result slot. When the user
+  // requests fewer total results than formulations, keep the primary query
+  // and only the earliest alternatives that fit inside that total budget.
+  const executableCandidates = candidates.slice(0, Math.max(1, totalLimit));
+  const requestLimits = allocateVariantLimits(totalLimit, executableCandidates.length);
+  return executableCandidates.map((candidate, index) => ({
+    id: index === 0 ? "primary" : `alternative-${index}`,
+    query: candidate.query,
+    requestLimit: requestLimits[index] ?? 1,
+    ...(candidate.rationale ? { rationale: candidate.rationale } : {}),
+  }));
+}
+
+function allocateVariantLimits(totalLimit: number, count: number): number[] {
+  const base = Math.floor(totalLimit / count);
+  const remainder = totalLimit % count;
+  return Array.from({ length: count }, (_, index) => Math.max(1, base + (index < remainder ? 1 : 0)));
+}
+
+function annotateQueryVariant(result: LiteratureSearchResult, queryVariantId: string): LiteratureSearchResult {
+  return {
+    ...result,
+    source: { ...result.source, queryVariantId },
+    papers: result.papers.map((paper) => ({
+      ...paper,
+      provenance: paper.provenance.map((provenance) => ({ ...provenance, queryVariantId })),
+    })),
+  };
+}
+
+function queryFingerprint(query: string): string {
+  return query.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function boundedSearchYear(value: unknown, fallback: number | null): number | undefined {

@@ -52,6 +52,7 @@ export type ResearchTopic = { id: string; name: string; score?: number };
 export type ResearchPaperProvenance = {
   sourceId: string;
   sourceRecordId?: string;
+  queryVariantId?: string;
   rank?: number;
   retrievedAt: string;
   queryUrl?: string;
@@ -94,6 +95,7 @@ export type ResearchRelationEdge = {
 export type ResearchSourceStatus = {
   id: string;
   name: string;
+  queryVariantId?: string;
   status: 'ok' | 'error' | 'disabled';
   retrievedAt: string;
   queryUrl?: string;
@@ -146,12 +148,21 @@ export type LiteratureSearchPlan = {
     scheme: 'arxiv';
     include: string[];
   }>;
+  queryVariants?: SearchQueryVariant[];
+};
+
+export type SearchQueryVariant = {
+  id: string;
+  query: string;
+  requestLimit: number;
+  rationale?: string;
 };
 
 /** Existing discovery artifact. Keep this shape stable for persisted results. */
 export type LiteratureSearchArtifact = ResearchArtifactBase & {
   kind: 'literature_search';
   plan: LiteratureSearchPlan;
+  queryAudit?: ResearchSourceStatus[];
 };
 
 export type LiteratureExpansionDirection = 'references' | 'citations';
@@ -392,7 +403,11 @@ export type ZoteroPaperMatch = {
 
 export function isResearchArtifact(value: unknown): value is ResearchArtifact {
   if (!isResearchArtifactBase(value)) return false;
-  if (value.kind === 'literature_search') return isLiteratureSearchPlan(value.plan);
+  if (value.kind === 'literature_search') {
+    return isLiteratureSearchPlan(value.plan)
+      && (value.queryAudit === undefined
+        || (Array.isArray(value.queryAudit) && value.queryAudit.every(isResearchSourceStatus)));
+  }
   if (value.kind !== 'literature_expansion') return false;
   if (!isLiteratureExpansionPlan(value.plan)
     || !isNonEmptyString(value.seedPaperId)
@@ -447,7 +462,20 @@ function isLiteratureSearchPlan(value: unknown): value is LiteratureSearchPlan {
     && typeof value.sort === 'string'
     && isStringArray(value.sourceIds)
     && (value.classifications === undefined
-      || (Array.isArray(value.classifications) && value.classifications.every(isSearchClassification)));
+      || (Array.isArray(value.classifications) && value.classifications.every(isSearchClassification)))
+    && (value.queryVariants === undefined
+      || (Array.isArray(value.queryVariants)
+        && value.queryVariants.length >= 1
+        && value.queryVariants.length <= 4
+        && value.queryVariants.every(isSearchQueryVariant)));
+}
+
+function isSearchQueryVariant(value: unknown): value is SearchQueryVariant {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.query)
+    && isPositiveFiniteNumber(value.requestLimit)
+    && isOptionalString(value.rationale);
 }
 
 function isLiteratureExpansionPlan(value: unknown): value is LiteratureExpansionPlan {
@@ -532,6 +560,7 @@ function isResearchPaperProvenance(value: unknown): value is ResearchPaperProven
     && isNonEmptyString(value.sourceId)
     && isNonEmptyString(value.retrievedAt)
     && isOptionalString(value.sourceRecordId)
+    && isOptionalString(value.queryVariantId)
     && (value.rank === undefined || isNonNegativeFiniteNumber(value.rank))
     && isOptionalString(value.queryUrl);
 }
@@ -551,6 +580,7 @@ function isResearchSourceStatus(value: unknown): value is ResearchSourceStatus {
   return isRecord(value)
     && isNonEmptyString(value.id)
     && typeof value.name === 'string'
+    && isOptionalString(value.queryVariantId)
     && (value.status === 'ok' || value.status === 'error' || value.status === 'disabled')
     && isNonEmptyString(value.retrievedAt)
     && isNonNegativeFiniteNumber(value.resultCount)

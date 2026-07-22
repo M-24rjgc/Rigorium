@@ -436,6 +436,36 @@ try {
   });
   const query = 'packaged research verification';
   await page.evaluate((artifactQuery) => {
+    const retrievedAt = new Date().toISOString();
+    const queryVariants = [{
+      id: 'primary',
+      query: artifactQuery,
+      requestLimit: 1,
+    }, {
+      id: 'alternative-1',
+      query: 'packaged research systems',
+      requestLimit: 1,
+      rationale: 'Packaged alternative terminology verification',
+    }];
+    const sourceDefinitions = [{
+      id: 'openalex',
+      name: 'OpenAlex',
+    }, {
+      id: 'arxiv',
+      name: 'arXiv',
+    }, {
+      id: 'crossref',
+      name: 'Crossref',
+    }];
+    const queryAudit = queryVariants.flatMap((variant) => sourceDefinitions.map((source) => ({
+      ...source,
+      queryVariantId: variant.id,
+      status: 'ok',
+      retrievedAt,
+      queryUrl: `https://verification.invalid/${source.id}?q=${encodeURIComponent(variant.query)}`,
+      resultCount: 1,
+      coverage: `Packaged ${source.name} ${variant.id} query verification.`,
+    })));
     const paper = {
       id: 'verification-paper',
       identity: { doi: '10.1000/verification', arxiv: '2401.12345', arxivVersion: 2 },
@@ -451,17 +481,20 @@ try {
         sourceId: 'openalex',
         sourceRecordId: 'https://openalex.org/W-VERIFY',
         rank: 1,
-        retrievedAt: new Date().toISOString(),
+        queryVariantId: 'primary',
+        retrievedAt,
       }, {
         sourceId: 'arxiv',
         sourceRecordId: 'https://arxiv.org/abs/2401.12345v2',
         rank: 1,
-        retrievedAt: new Date().toISOString(),
+        queryVariantId: 'primary',
+        retrievedAt,
       }, {
         sourceId: 'crossref',
         sourceRecordId: '10.1000/verification',
         rank: 1,
-        retrievedAt: new Date().toISOString(),
+        queryVariantId: 'alternative-1',
+        retrievedAt,
       }],
     };
     window.dispatchEvent(new CustomEvent('rigorium:research-artifact', {
@@ -470,14 +503,15 @@ try {
           schemaVersion: 1,
           kind: 'literature_search',
           artifactId: 'packaged-research-verification',
-          createdAt: new Date().toISOString(),
+          createdAt: retrievedAt,
           intent: { text: artifactQuery },
           plan: {
             query: artifactQuery,
-            limit: 1,
+            limit: 2,
             sort: 'relevance',
             classifications: [{ scheme: 'arxiv', include: ['cs.AI'] }],
             sourceIds: ['openalex', 'arxiv', 'crossref'],
+            queryVariants,
           },
           papers: [paper],
           edges: [],
@@ -485,14 +519,14 @@ try {
             id: 'openalex',
             name: 'OpenAlex',
             status: 'ok',
-            retrievedAt: new Date().toISOString(),
+            retrievedAt,
             resultCount: 1,
             coverage: 'Packaged OpenAlex verification artifact.',
           }, {
             id: 'arxiv',
             name: 'arXiv',
             status: 'ok',
-            retrievedAt: new Date().toISOString(),
+            retrievedAt,
             resultCount: 1,
             coverage: 'Packaged arXiv verification artifact.',
             applied: {
@@ -504,10 +538,11 @@ try {
             id: 'crossref',
             name: 'Crossref',
             status: 'ok',
-            retrievedAt: new Date().toISOString(),
+            retrievedAt,
             resultCount: 1,
             coverage: 'Packaged Crossref verification artifact.',
           }],
+          queryAudit,
           coverage: {
             status: 'complete',
             resultCount: 1,
@@ -521,12 +556,24 @@ try {
       },
     }));
   }, query);
-  await page.getByText(query, { exact: true }).waitFor({ timeout: 30_000 });
+  await page.getByText(query, { exact: true }).first().waitFor({ timeout: 30_000 });
   await page.getByText(/Coverage complete|覆盖完整/u, { exact: true }).waitFor({ timeout: 30_000 });
   await page.getByText('OpenAlex', { exact: true }).first().waitFor({ timeout: 30_000 });
   await page.getByText('arXiv', { exact: true }).first().waitFor({ timeout: 30_000 });
   await page.getByText('Crossref', { exact: true }).first().waitFor({ timeout: 30_000 });
   await page.getByText(/cs\.AI/u).first().waitFor({ timeout: 30_000 });
+  const queryAudit = page.getByTestId('research-query-audit');
+  await queryAudit.getByText(/Primary query|主查询/u, { exact: true }).first().waitFor({ timeout: 30_000 });
+  await queryAudit.getByText(/Alternative query|替代查询/u, { exact: true }).first().waitFor({ timeout: 30_000 });
+  await queryAudit.getByText('packaged research systems', { exact: true }).first().waitFor({ timeout: 30_000 });
+  const queryLinks = queryAudit.getByRole('link', { name: /Open query|打开查询/u });
+  assert.equal(await queryLinks.count(), 6, 'The packaged query audit did not expose every query-source URL.');
+  assert.equal(
+    (await queryLinks.evaluateAll((links) => links.map((link) => link.getAttribute('href'))))
+      .every((href) => href?.startsWith('https://verification.invalid/')),
+    true,
+    'The packaged query audit exposed an unexpected query URL.',
+  );
   await page.getByRole('button', { name: /Collection|文献库/u }).click();
   await page.getByText('Packaged Zotero item', { exact: true }).waitFor({ timeout: 30_000 });
   await page.getByRole('button', { name: /Show details for Packaged Zotero item|展开.*Packaged Zotero item/u }).click();

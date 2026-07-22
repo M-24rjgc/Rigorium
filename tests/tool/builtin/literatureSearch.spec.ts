@@ -130,6 +130,176 @@ test("literature_search normalizes OpenAlex papers and real citation edges", asy
   );
 });
 
+test("literature_search audits agent-selected query variants and merges their candidate records", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rigorium-literature-variants-"));
+  const pilotHome = join(root, "pilot-home");
+  await writeResearchSettings({
+    scope: "global",
+    pilotHome,
+    settings: {
+      ...DEFAULT_RESEARCH_SETTINGS,
+      literature: {
+        ...DEFAULT_RESEARCH_SETTINGS.literature,
+        sources: {
+          openalex: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.openalex, enabled: true },
+          arxiv: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.arxiv, enabled: false },
+          crossref: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.crossref, enabled: false },
+        },
+      },
+    },
+  });
+  const requestedUrls: URL[] = [];
+  const tool = createLiteratureSearchTool({
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      requestedUrls.push(url);
+      const search = url.searchParams.get("search");
+      if (search === "research agents") {
+        return jsonResponse({ meta: { count: 1 }, results: [openAlexPayload.results[0]] });
+      }
+      if (search === "agentic systems") {
+        return jsonResponse({ meta: { count: 2 }, results: [openAlexPayload.results[0], openAlexPayload.results[1]] });
+      }
+      throw new Error(`Unexpected query: ${search}`);
+    },
+  });
+
+  const result = await tool.execute(
+    {
+      query: "research agents",
+      limit: 5,
+      queryVariants: [{ query: "agentic systems", rationale: "common adjacent terminology" }],
+    },
+    {
+      cwd: join(root, "project"),
+      env: { PILOT_HOME: pilotHome },
+      now: () => new Date("2026-07-22T00:00:00.000Z"),
+    } as any,
+  );
+
+  assert.deepEqual(result.data?.plan.queryVariants, [
+    { id: "primary", query: "research agents", requestLimit: 3 },
+    {
+      id: "alternative-1",
+      query: "agentic systems",
+      requestLimit: 2,
+      rationale: "common adjacent terminology",
+    },
+  ]);
+  assert.deepEqual(
+    requestedUrls.map((url) => [url.searchParams.get("search"), url.searchParams.get("per-page")]),
+    [["research agents", "3"], ["agentic systems", "2"]],
+  );
+  assert.deepEqual(result.data?.queryAudit?.map((source) => source.queryVariantId), ["primary", "alternative-1"]);
+  assert.equal(result.data?.sources.length, 1);
+  assert.equal(result.data?.sources[0]?.queryVariantId, undefined);
+  assert.equal(result.data?.sources[0]?.resultCount, 3);
+  const duplicated = result.data?.papers.find((paper) => paper.id === "https://openalex.org/W1");
+  assert.deepEqual(
+    duplicated?.provenance.map((provenance) => provenance.queryVariantId).sort(),
+    ["alternative-1", "primary"],
+  );
+});
+
+test("literature_search keeps successful variants when an alternate query fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rigorium-literature-variant-failure-"));
+  const pilotHome = join(root, "pilot-home");
+  await writeResearchSettings({
+    scope: "global",
+    pilotHome,
+    settings: {
+      ...DEFAULT_RESEARCH_SETTINGS,
+      literature: {
+        ...DEFAULT_RESEARCH_SETTINGS.literature,
+        sources: {
+          openalex: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.openalex, enabled: true },
+          arxiv: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.arxiv, enabled: false },
+          crossref: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.crossref, enabled: false },
+        },
+      },
+    },
+  });
+  const tool = createLiteratureSearchTool({
+    fetchImpl: async (input) => {
+      const search = new URL(String(input)).searchParams.get("search");
+      return search === "research agents"
+        ? jsonResponse({ meta: { count: 1 }, results: [openAlexPayload.results[0]] })
+        : jsonResponse({ error: "alternate unavailable" }, 400);
+    },
+  });
+
+  const result = await tool.execute(
+    {
+      query: "research agents",
+      limit: 4,
+      queryVariants: [{ query: "agentic systems" }],
+    },
+    {
+      cwd: join(root, "project"),
+      env: { PILOT_HOME: pilotHome },
+      now: () => new Date("2026-07-22T00:00:00.000Z"),
+    } as any,
+  );
+
+  assert.equal(result.data?.coverage.status, "partial");
+  assert.equal(result.data?.papers.length, 1);
+  assert.equal(result.data?.sources[0]?.status, "ok");
+  assert.deepEqual(result.data?.queryAudit?.map((source) => source.status), ["ok", "error"]);
+  assert.match(result.data?.coverage.warnings.join(" ") ?? "", /alternative-1/i);
+});
+
+test("literature_search never allocates more query requests than the total result budget", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rigorium-literature-variant-budget-"));
+  const pilotHome = join(root, "pilot-home");
+  await writeResearchSettings({
+    scope: "global",
+    pilotHome,
+    settings: {
+      ...DEFAULT_RESEARCH_SETTINGS,
+      literature: {
+        ...DEFAULT_RESEARCH_SETTINGS.literature,
+        sources: {
+          openalex: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.openalex, enabled: true },
+          arxiv: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.arxiv, enabled: false },
+          crossref: { ...DEFAULT_RESEARCH_SETTINGS.literature.sources.crossref, enabled: false },
+        },
+      },
+    },
+  });
+  const requested: Array<[string | null, string | null]> = [];
+  const tool = createLiteratureSearchTool({
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      requested.push([url.searchParams.get("search"), url.searchParams.get("per-page")]);
+      return jsonResponse({ meta: { count: 0 }, results: [] });
+    },
+  });
+
+  const result = await tool.execute(
+    {
+      query: "primary formulation",
+      limit: 2,
+      queryVariants: [
+        { query: "first alternative" },
+        { query: "second alternative" },
+        { query: "third alternative" },
+      ],
+    },
+    {
+      cwd: join(root, "project"),
+      env: { PILOT_HOME: pilotHome },
+      now: () => new Date("2026-07-22T00:00:00.000Z"),
+    } as any,
+  );
+
+  assert.deepEqual(requested, [["primary formulation", "1"], ["first alternative", "1"]]);
+  assert.equal(result.data?.plan.queryVariants?.reduce((sum, variant) => sum + variant.requestLimit, 0), 2);
+  assert.deepEqual(result.data?.plan.queryVariants?.map((variant) => variant.query), [
+    "primary formulation",
+    "first alternative",
+  ]);
+});
+
 test("literature_search preserves a structured failed-source artifact", async () => {
   const fetchImpl: typeof fetch = async () => jsonResponse({ error: "rate limited" }, 429);
   const tool = createLiteratureSearchTool({ fetchImpl, arxivEndpoint: ARXIV_TEST_ENDPOINT, arxivMinimumIntervalMs: 1 });

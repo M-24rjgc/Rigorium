@@ -112,6 +112,54 @@ const multiSourceArtifact: ResearchArtifact = {
   },
 };
 
+const queryVariantArtifact: ResearchArtifact = {
+  ...artifact,
+  artifactId: 'literature-panel-query-variant-test',
+  plan: {
+    ...artifact.plan,
+    queryVariants: [
+      { id: 'primary', query: 'research agents', requestLimit: 2 },
+      {
+        id: 'alternative-1',
+        query: 'agentic systems',
+        requestLimit: 2,
+        rationale: 'Common adjacent terminology',
+      },
+    ],
+  },
+  sources: [{
+    ...artifact.sources[0],
+    resultCount: 1,
+    coverage: '1/2 query variants returned usable OpenAlex results.',
+    warnings: ['Query variant alternative-1: HTTP 400'],
+  }],
+  queryAudit: [
+    {
+      ...artifact.sources[0],
+      queryVariantId: 'primary',
+      queryUrl: 'https://api.openalex.org/works?search=research+agents',
+      resultCount: 1,
+    },
+    {
+      ...artifact.sources[0],
+      queryVariantId: 'alternative-1',
+      status: 'error',
+      queryUrl: 'https://api.openalex.org/works?search=agentic+systems',
+      resultCount: 0,
+      coverage: 'OpenAlex did not return usable results for this request.',
+      error: 'OpenAlex API error (400): alternate unavailable',
+    },
+  ],
+  coverage: {
+    status: 'partial',
+    resultCount: 1,
+    warnings: ['Query variant alternative-1 failed.'],
+    requestedSourceIds: ['openalex'],
+    successfulSourceIds: ['openalex'],
+    failedSourceIds: [],
+  },
+};
+
 const disabledArxivArtifact: ResearchArtifact = {
   ...artifact,
   artifactId: 'literature-panel-arxiv-disabled-test',
@@ -524,6 +572,30 @@ describe('ResearchPanel', () => {
     const panelRoot = container.firstElementChild as HTMLElement;
     expect(panelRoot.className).toContain('min-w-0');
     expect(panelRoot.className).toContain('overflow-x-hidden');
+  });
+
+  it('shows every audited query variant and its real retrieval link', () => {
+    expect(isResearchArtifact(queryVariantArtifact)).toBe(true);
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={queryVariantArtifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    const audit = screen.getByTestId('research-query-audit');
+    expect(audit.textContent).toContain('Primary query');
+    expect(audit.textContent).toContain('research agents');
+    expect(audit.textContent).toContain('Alternative query');
+    expect(audit.textContent).toContain('agentic systems');
+    expect(audit.textContent).toContain('Common adjacent terminology');
+    expect(audit.textContent).toContain('OpenAlex API error (400)');
+    const links = screen.getAllByRole('link', { name: /Open query|打开查询/i });
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      'https://api.openalex.org/works?search=research+agents',
+      'https://api.openalex.org/works?search=agentic+systems',
+    ]);
   });
 
   it('keeps a disabled source out of failure reporting while retaining real failure reporting', () => {

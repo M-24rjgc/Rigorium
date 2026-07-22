@@ -178,6 +178,47 @@ test("reciprocal-rank fusion keeps a Crossref-only candidate inside a finite res
   assert.equal(pool.papers.some((item) => item.id === crossrefOnly.id), true);
 });
 
+test("reciprocal-rank fusion treats each source and query variant as an audited channel", () => {
+  const primarySource = { ...source("openalex"), queryVariantId: "primary" };
+  const alternateSource = { ...source("openalex"), queryVariantId: "alternative-1" };
+  const primaryOnly = paper({
+    id: "https://openalex.org/W-primary-only",
+    sourceId: "openalex",
+    rank: 1,
+    identity: { openAlexId: "https://openalex.org/W-primary-only" },
+    title: "Primary query only paper with a sufficiently long title",
+  });
+  const sharedPrimary = paper({
+    id: "https://openalex.org/W-shared",
+    sourceId: "openalex",
+    rank: 2,
+    identity: { openAlexId: "https://openalex.org/W-shared" },
+    title: "Paper found by both query formulations with a long title",
+  });
+  const sharedAlternate = paper({
+    id: "https://openalex.org/W-shared",
+    sourceId: "openalex",
+    rank: 1,
+    identity: { openAlexId: "https://openalex.org/W-shared" },
+    title: "Paper found by both query formulations with a long title",
+  });
+
+  const pool = mergeLiteratureSearchResults({
+    requestedSourceIds: ["openalex"],
+    limit: 1,
+    results: [
+      result(primarySource, [primaryOnly, sharedPrimary]),
+      result(alternateSource, [sharedAlternate]),
+    ],
+  });
+
+  assert.equal(pool.papers[0]?.id, "https://openalex.org/W-shared");
+  assert.deepEqual(
+    pool.papers[0]?.provenance.map((item) => item.queryVariantId).sort(),
+    ["alternative-1", "primary"],
+  );
+});
+
 test("candidate pool reports partial coverage without discarding the successful source", () => {
   const successful = paper({
     id: "https://openalex.org/W-success",

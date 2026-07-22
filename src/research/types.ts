@@ -97,6 +97,21 @@ export type SearchClassification = {
   include: string[];
 };
 
+/**
+ * One concrete query formulation chosen by the agent for a single literature
+ * search. The primary formulation remains in `SearchPlan.query` for existing
+ * consumers; this list makes any broadened terminology reproducible.
+ */
+export type SearchQueryVariant = {
+  /** Stable artifact-local identifier assigned by the literature tool. */
+  id: string;
+  query: string;
+  /** Per-source result cap allocated from the search's final candidate limit. */
+  requestLimit: number;
+  /** Optional concise reason for using this alternative formulation. */
+  rationale?: string;
+};
+
 export type SearchPlan = {
   query: string;
   limit: number;
@@ -105,6 +120,8 @@ export type SearchPlan = {
   sort: "relevance" | "cited_by_count" | "publication_date";
   classifications?: SearchClassification[];
   sourceIds: string[];
+  /** Executed query formulations, including the primary query when available. */
+  queryVariants?: SearchQueryVariant[];
 };
 
 /**
@@ -115,6 +132,8 @@ export type SearchPlan = {
 export type ResearchPaperProvenance = {
   sourceId: string;
   sourceRecordId?: string;
+  /** Artifact-local query variant that returned this source record. */
+  queryVariantId?: string;
   /** One-based position in this source's response for the submitted plan. */
   rank: number;
   retrievedAt: string;
@@ -192,6 +211,8 @@ export type ResearchSourceApplied = {
 export type ResearchSourceStatus = {
   id: string;
   name: string;
+  /** Present only for one query-source attempt in a query audit. */
+  queryVariantId?: string;
   status: "ok" | "error" | "disabled";
   retrievedAt: string;
   queryUrl?: string;
@@ -225,6 +246,8 @@ export type LiteratureSearchArtifact = {
   papers: ResearchPaper[];
   edges: ResearchRelationEdge[];
   sources: ResearchSourceStatus[];
+  /** One source status per executed query variant, before source aggregation. */
+  queryAudit?: ResearchSourceStatus[];
   coverage: ResearchCoverage;
   presentation: {
     autoOpen: boolean;

@@ -70,9 +70,13 @@ type MergedCandidate = {
 export function mergeLiteratureSearchResults(input: LiteratureCandidatePoolInput): LiteratureCandidatePool {
   const requestedSourceIds = uniqueStrings(input.requestedSourceIds);
   const sourcePriority = buildSourcePriority(input.sourcePriority ?? requestedSourceIds);
-  const sourceById = new Map(input.results.map((result) => [result.source.id, result.source]));
-  const sources = requestedSourceIds.map((id) => sourceById.get(id)).filter((source): source is ResearchSourceStatus => Boolean(source));
-  const missingSourceIds = requestedSourceIds.filter((id) => !sourceById.has(id));
+  const resultsBySourceId = groupResultsBySourceId(input.results);
+  const sources = requestedSourceIds.flatMap((id) => {
+    const attempts = resultsBySourceId.get(id);
+    return attempts && attempts.length > 0 ? [aggregateSourceStatus(attempts)] : [];
+  });
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
+  const missingSourceIds = requestedSourceIds.filter((id) => !resultsBySourceId.has(id));
   const successfulSourceIds = requestedSourceIds.filter((id) => sourceById.get(id)?.status === "ok");
   const failedSourceIds = requestedSourceIds.filter((id) => sourceById.get(id)?.status !== "ok");
   for (const id of missingSourceIds) {
@@ -109,9 +113,13 @@ export function mergeLiteratureSearchResults(input: LiteratureCandidatePoolInput
   const selected = merged.slice(0, Math.max(0, input.limit));
   const papers = selected.map((candidate) => candidate.paper);
   const edges = mergeEdges(input.results, selected);
+  const hasFailedAttempt = requestedSourceIds.some((id) => {
+    const attempts = resultsBySourceId.get(id);
+    return !attempts || attempts.some((result) => result.source.status !== "ok");
+  });
   const coverageStatus = successfulSourceIds.length === 0
     ? "failed"
-    : failedSourceIds.length > 0
+    : hasFailedAttempt
       ? "partial"
       : "complete";
 
@@ -128,6 +136,72 @@ export function mergeLiteratureSearchResults(input: LiteratureCandidatePoolInput
       failedSourceIds: uniqueStrings(failedSourceIds),
     },
   };
+}
+
+function groupResultsBySourceId(results: LiteratureSearchResult[]): Map<string, LiteratureSearchResult[]> {
+  const bySourceId = new Map<string, LiteratureSearchResult[]>();
+  for (const result of results) {
+    const existing = bySourceId.get(result.source.id);
+    if (existing) existing.push(result);
+    else bySourceId.set(result.source.id, [result]);
+  }
+  return bySourceId;
+}
+
+/**
+ * A search artifact exposes one summary per provider for existing renderers,
+ * while its query audit keeps each query-source attempt. This summary never
+ * turns one failed alternate formulation into a failed provider when another
+ * formulation returned usable records.
+ */
+function aggregateSourceStatus(attempts: LiteratureSearchResult[]): ResearchSourceStatus {
+  const sourceAttempts = attempts.map((attempt) => attempt.source);
+  const first = sourceAttempts[0];
+  if (!first) throw new Error("Cannot aggregate an empty literature source result set.");
+  if (sourceAttempts.length === 1) {
+    const { queryVariantId: _queryVariantId, ...source } = first;
+    return source;
+  }
+
+  const successful = sourceAttempts.filter((source) => source.status === "ok");
+  const representative = successful[0] ?? sourceAttempts.find((source) => source.status === "error") ?? first;
+  const status: ResearchSourceStatus["status"] = successful.length > 0
+    ? "ok"
+    : sourceAttempts.every((source) => source.status === "disabled")
+      ? "disabled"
+      : "error";
+  const failures = sourceAttempts.filter((source) => source.status !== "ok");
+  const warnings = uniqueStrings([
+    ...sourceAttempts.flatMap((source) => (source.warnings ?? []).map((warning) =>
+      `${queryVariantLabel(source)}: ${warning}`,
+    )),
+    ...(status === "ok" ? failures.map((source) =>
+      `${queryVariantLabel(source)}: ${source.error ?? source.coverage}`,
+    ) : []),
+  ]);
+  const errors = uniqueStrings(failures.map((source) => source.error ?? source.coverage));
+  const totalMatches = sourceAttempts.every((source) => Number.isFinite(source.totalMatches))
+    ? sourceAttempts.reduce((sum, source) => sum + (source.totalMatches ?? 0), 0)
+    : undefined;
+
+  return {
+    id: representative.id,
+    name: representative.name,
+    status,
+    retrievedAt: sourceAttempts.reduce((latest, source) => source.retrievedAt > latest ? source.retrievedAt : latest, first.retrievedAt),
+    resultCount: sourceAttempts.reduce((sum, source) => sum + Math.max(0, source.resultCount), 0),
+    ...(totalMatches !== undefined ? { totalMatches } : {}),
+    coverage: successful.length > 0
+      ? `${successful.length}/${sourceAttempts.length} query variants returned usable ${representative.name} results; counts are before cross-query deduplication.`
+      : `No query variant returned usable ${representative.name} results.`,
+    ...(warnings.length > 0 ? { warnings } : {}),
+    ...(representative.applied ? { applied: representative.applied } : {}),
+    ...(status !== "ok" && errors.length > 0 ? { error: errors.join(" ") } : {}),
+  };
+}
+
+function queryVariantLabel(source: ResearchSourceStatus): string {
+  return source.queryVariantId ? `Query variant ${source.queryVariantId}` : "Query";
 }
 
 function addEntry(groups: CandidateGroup[], entry: CandidateEntry): void {
@@ -188,12 +262,13 @@ function mergeCandidateGroup(group: CandidateGroup, sourcePriority: Map<string, 
   if (doi) identities.doi = doi;
 
   const abstracts = ordered.map((entry) => entry.paper.abstract).filter((value): value is string => Boolean(value));
-  const candidatesBySource = new Map<string, ResearchPaperProvenance>();
+  const candidatesByChannel = new Map<string, ResearchPaperProvenance>();
   for (const item of provenance) {
-    const previous = candidatesBySource.get(item.sourceId);
-    if (!previous || item.rank < previous.rank) candidatesBySource.set(item.sourceId, item);
+    const channel = `${item.sourceId}\u0000${item.queryVariantId ?? ""}`;
+    const previous = candidatesByChannel.get(channel);
+    if (!previous || item.rank < previous.rank) candidatesByChannel.set(channel, item);
   }
-  const rrfScore = [...candidatesBySource.values()].reduce((score, item) => score + 1 / (RRF_K + item.rank), 0);
+  const rrfScore = [...candidatesByChannel.values()].reduce((score, item) => score + 1 / (RRF_K + item.rank), 0);
   const sourcePriorityValue = sourceIds.reduce((best, id) => Math.min(best, priorityOf(id, sourcePriority)), Number.MAX_SAFE_INTEGER);
   const bestRank = provenance.reduce((best, item) => Math.min(best, item.rank), Number.MAX_SAFE_INTEGER);
 
@@ -274,11 +349,16 @@ function normalizeProvenance(
   source: ResearchSourceStatus,
   fallbackRank: number,
 ): ResearchPaperProvenance[] {
-  const supplied = paper.provenance.filter((item) => item.sourceId === source.id && Number.isFinite(item.rank) && item.rank > 0);
+  const supplied = paper.provenance
+    .filter((item) => item.sourceId === source.id && Number.isFinite(item.rank) && item.rank > 0)
+    .map((item) => source.queryVariantId && !item.queryVariantId
+      ? { ...item, queryVariantId: source.queryVariantId }
+      : item);
   if (supplied.length > 0) return supplied;
   return [{
     sourceId: source.id,
     sourceRecordId: paper.id,
+    ...(source.queryVariantId ? { queryVariantId: source.queryVariantId } : {}),
     rank: fallbackRank,
     retrievedAt: source.retrievedAt,
     ...(source.queryUrl ? { queryUrl: source.queryUrl } : {}),
@@ -291,11 +371,12 @@ function uniqueProvenance(items: ResearchPaperProvenance[], sourcePriority: Map<
     const normalized: ResearchPaperProvenance = {
       sourceId: item.sourceId,
       ...(item.sourceRecordId ? { sourceRecordId: item.sourceRecordId } : {}),
+      ...(item.queryVariantId ? { queryVariantId: item.queryVariantId } : {}),
       rank: Math.max(1, Math.round(item.rank)),
       retrievedAt: item.retrievedAt,
       ...(item.queryUrl ? { queryUrl: item.queryUrl } : {}),
     };
-    const key = `${normalized.sourceId}\u0000${normalized.sourceRecordId ?? ""}`;
+    const key = `${normalized.sourceId}\u0000${normalized.sourceRecordId ?? ""}\u0000${normalized.queryVariantId ?? ""}`;
     const previous = byRecord.get(key);
     if (!previous || normalized.rank < previous.rank) byRecord.set(key, normalized);
   }
@@ -303,6 +384,8 @@ function uniqueProvenance(items: ResearchPaperProvenance[], sourcePriority: Map<
     const priority = priorityOf(left.sourceId, sourcePriority) - priorityOf(right.sourceId, sourcePriority);
     if (priority !== 0) return priority;
     if (left.rank !== right.rank) return left.rank - right.rank;
+    const variant = compareText(left.queryVariantId ?? "", right.queryVariantId ?? "");
+    if (variant !== 0) return variant;
     return compareText(left.sourceRecordId ?? "", right.sourceRecordId ?? "");
   });
 }

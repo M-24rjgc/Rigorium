@@ -37,6 +37,7 @@ import { confirmZoteroCloudWrite, importPapersIntoZotero, previewZoteroCloudWrit
 import { directedEdgeEndpoints } from './graphGeometry';
 import type {
   ResearchArtifact,
+  LiteratureSearchArtifact,
   LiteratureExpansionDirectionResult,
   ResearchPaper,
   ResearchPaperProvenance,
@@ -335,6 +336,9 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
         <CoverageSummary artifact={artifact} sourceNameById={sourceNameById} />
+        {artifact.kind === 'literature_search' ? (
+          <QueryAuditSummary artifact={artifact} sourceNameById={sourceNameById} />
+        ) : null}
         {artifact.kind === 'literature_expansion' ? (
           <CitationExpansionSummary directions={artifact.directions} />
         ) : null}
@@ -942,6 +946,105 @@ function SourceCoverageList({
           })}
         </div>
       )}
+    </section>
+  );
+}
+
+function QueryAuditSummary({
+  artifact,
+  sourceNameById,
+}: {
+  artifact: LiteratureSearchArtifact;
+  sourceNameById: ReadonlyMap<string, string>;
+}) {
+  const { t } = useTranslation();
+  const audit = artifact.queryAudit ?? [];
+  const variants = artifact.plan.queryVariants ?? [];
+  const variantById = new Map(variants.map((variant) => [variant.id, variant] as const));
+  if (audit.length === 0) return null;
+
+  return (
+    <section
+      data-testid="research-query-audit"
+      className="mx-3 mb-3 min-w-0 rounded-lg border border-neutral-200 bg-white p-2.5 dark:border-neutral-800 dark:bg-neutral-950"
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+          {t('researchPanel.queryRuns', { defaultValue: 'Query runs' })}
+        </h3>
+        <span className="ml-auto rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300">
+          {audit.length}
+        </span>
+      </div>
+      <div className="mt-2 space-y-2">
+        {audit.map((run, index) => {
+          const variant = run.queryVariantId ? variantById.get(run.queryVariantId) : undefined;
+          const queryUrl = safeExternalUrl(run.queryUrl);
+          const statusLabel = run.status === 'ok'
+            ? t('researchPanel.sourceAvailable', { defaultValue: 'Available' })
+            : run.status === 'disabled'
+              ? t('researchPanel.sourceNotApplied', { defaultValue: 'Not applied' })
+              : t('researchPanel.sourceFailed', { defaultValue: 'Failed' });
+          const variantLabel = run.queryVariantId === 'primary'
+            ? t('researchPanel.queryPrimary', { defaultValue: 'Primary query' })
+            : t('researchPanel.queryAlternative', { defaultValue: 'Alternative query' });
+          return (
+            <div
+              key={`${run.queryVariantId ?? 'query'}:${run.id}:${index}`}
+              data-testid={`research-query-run-${run.queryVariantId ?? index}-${run.id}`}
+              className="min-w-0 rounded-md border border-neutral-200 p-2 dark:border-neutral-800"
+            >
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
+                <span className={cn(
+                  'h-2 w-2 shrink-0 rounded-full',
+                  run.status === 'ok' ? 'bg-emerald-500' : run.status === 'disabled' ? 'bg-neutral-400' : 'bg-red-500',
+                )} />
+                <span className="font-medium text-neutral-700 dark:text-neutral-200">{variantLabel}</span>
+                <span className="min-w-0 break-words text-neutral-500 dark:text-neutral-400">
+                  {sourceDisplayName(run.id, sourceNameById)}
+                </span>
+                <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300">
+                  {statusLabel}
+                </span>
+                <span className="ml-auto shrink-0 text-neutral-400">
+                  {t('researchPanel.queryRunCounts', {
+                    defaultValue: '{{requested}} requested · {{returned}} returned',
+                    requested: variant?.requestLimit ?? run.resultCount,
+                    returned: run.resultCount,
+                  })}
+                </span>
+              </div>
+              <p className="mt-1 break-words text-[11px] font-medium leading-4 text-neutral-700 dark:text-neutral-200">
+                {variant?.query ?? artifact.plan.query}
+              </p>
+              {variant?.rationale ? (
+                <p className="mt-0.5 break-words text-[10px] leading-4 text-neutral-500 dark:text-neutral-400">
+                  {t('researchPanel.queryRationale', { defaultValue: 'Reason: {{reason}}', reason: variant.rationale })}
+                </p>
+              ) : null}
+              {run.error ? (
+                <p className="mt-0.5 break-words text-[10px] leading-4 text-red-700 dark:text-red-300" role="alert">
+                  {run.error}
+                </p>
+              ) : null}
+              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-neutral-400">
+                <span className="min-w-0 break-words">{formatResearchTimestamp(run.retrievedAt)}</span>
+                {queryUrl ? (
+                  <a
+                    href={queryUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex shrink-0 items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+                  >
+                    {t('researchPanel.queryOpen', { defaultValue: 'Open query' })}
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
