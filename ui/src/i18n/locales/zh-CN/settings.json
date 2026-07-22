@@ -1373,7 +1373,11 @@
       "title": "文献来源",
       "openalexDescription": "提供真实学术元数据、主题、引用数和参考文献关系。",
       "mailto": "OpenAlex 联系邮箱",
-      "mailtoDescription": "可选，用于 OpenAlex polite pool 请求标识。"
+      "mailtoDescription": "可选，用于 OpenAlex polite pool 请求标识。",
+      "crossrefDescription": "提供 DOI 和出版方元数据，用于补充广域发现结果。",
+      "crossrefMailto": "Crossref 联系邮箱",
+      "crossrefMailtoDescription": "可选，用于 Crossref 元数据请求标识。",
+      "noneEnabled": "当前没有启用任何文献来源；至少开启一个来源后才能检索。"
     },
     "search": {
       "title": "检索默认与预算",

@@ -37,8 +37,10 @@ import { confirmZoteroCloudWrite, importPapersIntoZotero, previewZoteroCloudWrit
 import type {
   ResearchArtifact,
   ResearchPaper,
+  ResearchPaperProvenance,
   ResearchRelationEdge,
   ResearchSettingsSnapshot,
+  ResearchSourceStatus,
   ZoteroAttachmentFullTextResult,
   ZoteroCloudWriteIntent,
   ZoteroCloudWritePlan,
@@ -88,6 +90,10 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
     [artifact.papers, selectedPaperId],
   );
   const selectedPaperUrl = useMemo(() => safeExternalUrl(selectedPaper?.url), [selectedPaper?.url]);
+  const sourceNameById = useMemo(
+    () => new Map(artifact.sources.map((source) => [source.id, source.name] as const)),
+    [artifact.sources],
+  );
   const matchByPaperId = useMemo(
     () => new Map(paperMatches.map((match) => [match.paperId, match])),
     [paperMatches],
@@ -259,7 +265,7 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
   }, [collectionQuery, confirmingPaper, loadCollectionItems, loadPaperMatches, projectPath, t, view]);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-neutral-50/70 dark:bg-neutral-950">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden bg-neutral-50/70 dark:bg-neutral-950">
       <div className="shrink-0 border-b border-neutral-200 bg-white px-3 py-3 dark:border-neutral-800 dark:bg-neutral-950">
         <div className="flex items-start gap-2">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300">
@@ -301,13 +307,8 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {artifact.coverage.warnings.length > 0 ? (
-          <div className="m-3 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>{artifact.coverage.warnings.join(' ')}</span>
-          </div>
-        ) : null}
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <CoverageSummary artifact={artifact} sourceNameById={sourceNameById} />
 
         {view === 'map' ? (
           <div className="space-y-3 p-3">
@@ -325,6 +326,7 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
             selectedPaperId={selectedPaper?.id ?? null}
             onSelectPaper={selectPaper}
             matches={matchByPaperId}
+            sourceNameById={sourceNameById}
           />
         ) : (
           <CollectionLibrary
@@ -340,30 +342,10 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
           />
         )}
 
-        <div className="border-t border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
-            {t('researchPanel.sources', { defaultValue: 'Sources and coverage' })}
-          </h3>
-          <div className="mt-2 space-y-2">
-            {artifact.sources.map((source) => (
-              <div key={source.id} className="rounded-lg border border-neutral-200 p-2.5 dark:border-neutral-800">
-                <div className="flex items-center gap-2">
-                  <span className={cn(
-                    'h-2 w-2 rounded-full',
-                    source.status === 'ok' ? 'bg-emerald-500' : 'bg-amber-500',
-                  )} />
-                  <span className="text-[12px] font-medium text-neutral-800 dark:text-neutral-200">{source.name}</span>
-                  <span className="ml-auto text-[10px] text-neutral-400">{source.resultCount}</span>
-                </div>
-                <p className="mt-1 text-[10px] leading-4 text-neutral-500 dark:text-neutral-400">{source.coverage}</p>
-                <p className="mt-1 text-[10px] text-neutral-400">{new Date(source.retrievedAt).toLocaleString()}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+        <SourceCoverageList sources={artifact.sources} sourceNameById={sourceNameById} />
       </div>
 
-      <div className="shrink-0 border-t border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950">
+      <div className="min-w-0 shrink-0 overflow-x-hidden border-t border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950">
         {selectedPaper ? (
           <div className="space-y-2.5">
             <div>
@@ -374,6 +356,8 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
                 {[selectedPaper.authors.slice(0, 3).join(', '), selectedPaper.year, selectedPaper.venue].filter(Boolean).join(' · ')}
               </p>
             </div>
+
+            <PaperProvenance paper={selectedPaper} sourceNameById={sourceNameById} />
 
             <div className="flex items-center gap-2">
               {selectedPaperUrl ? (
@@ -586,6 +570,252 @@ function LiteratureGraph({
         })}
       </svg>
     </div>
+  );
+}
+
+function CoverageSummary({
+  artifact,
+  sourceNameById,
+}: {
+  artifact: ResearchArtifact;
+  sourceNameById: ReadonlyMap<string, string>;
+}) {
+  const { t } = useTranslation();
+  const requestedSourceIds = resolvedCoverageSourceIds(artifact, 'requestedSourceIds');
+  const successfulSourceIds = resolvedCoverageSourceIds(artifact, 'successfulSourceIds');
+  const failedSourceIds = resolvedCoverageSourceIds(artifact, 'failedSourceIds');
+  const status = artifact.coverage.status;
+  const statusLabel = status === 'complete'
+    ? t('researchPanel.coverageComplete', { defaultValue: 'Coverage complete' })
+    : status === 'partial'
+      ? t('researchPanel.coveragePartial', { defaultValue: 'Partial coverage' })
+      : t('researchPanel.coverageFailed', { defaultValue: 'Coverage failed' });
+  const statusClassName = status === 'complete'
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200'
+    : status === 'partial'
+      ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200'
+      : 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200';
+  const failedNames = failedSourceIds.map((sourceId) => sourceDisplayName(sourceId, sourceNameById));
+
+  return (
+    <section
+      data-testid="research-coverage-summary"
+      className={cn('m-3 min-w-0 rounded-lg border p-2.5 text-[11px] leading-4', statusClassName)}
+    >
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="inline-flex items-center gap-1 font-semibold">
+          {status === 'complete' ? <Check className="h-3.5 w-3.5 shrink-0" /> : <AlertTriangle className="h-3.5 w-3.5 shrink-0" />}
+          {statusLabel}
+        </span>
+        <span className="text-current/75">
+          {t('researchPanel.coverageCounts', {
+            defaultValue: '{{successful}} successful · {{failed}} failed · {{requested}} requested sources',
+            successful: successfulSourceIds.length,
+            failed: failedSourceIds.length,
+            requested: requestedSourceIds.length,
+          })}
+        </span>
+      </div>
+      {failedNames.length > 0 ? (
+        <p className="mt-1.5 break-words font-medium">
+          {t('researchPanel.failedSources', {
+            defaultValue: 'Failed sources: {{sources}}',
+            sources: failedNames.join(', '),
+          })}
+        </p>
+      ) : null}
+      {artifact.coverage.warnings.length > 0 ? (
+        <div className="border-current/15 mt-2 flex min-w-0 gap-1.5 border-t pt-2">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 break-words">{artifact.coverage.warnings.join(' ')}</span>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function SourceCoverageList({
+  sources,
+  sourceNameById,
+}: {
+  sources: ResearchSourceStatus[];
+  sourceNameById: ReadonlyMap<string, string>;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <section className="min-w-0 border-t border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+        {t('researchPanel.sources', { defaultValue: 'Sources and coverage' })}
+      </h3>
+      {sources.length === 0 ? (
+        <p className="mt-2 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+          {t('researchPanel.noSources', { defaultValue: 'No source status was returned.' })}
+        </p>
+      ) : (
+        <div className="mt-2 space-y-2">
+          {sources.map((source) => {
+            const queryUrl = safeExternalUrl(source.queryUrl);
+            const rateLimited = isRateLimitedSource(source);
+            const statusLabel = source.status === 'ok'
+              ? t('researchPanel.sourceAvailable', { defaultValue: 'Available' })
+              : source.status === 'disabled'
+                ? t('researchPanel.sourceDisabled', { defaultValue: 'Disabled' })
+                : t('researchPanel.sourceFailed', { defaultValue: 'Failed' });
+            return (
+              <div
+                key={source.id}
+                data-testid={`research-source-${source.id}`}
+                className="min-w-0 rounded-lg border border-neutral-200 p-2.5 dark:border-neutral-800"
+              >
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className={cn(
+                    'h-2 w-2 shrink-0 rounded-full',
+                    source.status === 'ok'
+                      ? 'bg-emerald-500'
+                      : source.status === 'disabled'
+                        ? 'bg-neutral-400'
+                        : 'bg-red-500',
+                  )} />
+                  <span className="min-w-0 break-words text-[12px] font-medium text-neutral-800 dark:text-neutral-200">
+                    {sourceDisplayName(source.id, sourceNameById)}
+                  </span>
+                  <span className={cn(
+                    'rounded px-1.5 py-0.5 text-[10px] font-medium',
+                    source.status === 'ok'
+                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
+                      : source.status === 'disabled'
+                        ? 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
+                        : 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300',
+                  )}>
+                    {statusLabel}
+                  </span>
+                  <span className="ml-auto shrink-0 text-[10px] text-neutral-400">
+                    {t('researchPanel.sourceResults', { defaultValue: '{{count}} results', count: source.resultCount })}
+                  </span>
+                </div>
+                <p className="mt-1 break-words text-[10px] leading-4 text-neutral-500 dark:text-neutral-400">{source.coverage}</p>
+                {source.error ? (
+                  <p className="mt-1 break-words text-[10px] leading-4 text-red-700 dark:text-red-300" role="alert">
+                    <span className="font-medium">{t('researchPanel.sourceError', { defaultValue: 'Error:' })}</span> {source.error}
+                  </p>
+                ) : null}
+                {rateLimited ? (
+                  <p className="mt-1 break-words text-[10px] leading-4 text-amber-700 dark:text-amber-300">
+                    {t('researchPanel.sourceRateLimited', { defaultValue: 'Rate limited. This source may have incomplete coverage.' })}
+                  </p>
+                ) : null}
+                <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-neutral-400">
+                  <span className="min-w-0 break-words">
+                    {t('researchPanel.sourceRetrievedAt', {
+                      defaultValue: 'Retrieved: {{time}}',
+                      time: formatResearchTimestamp(source.retrievedAt),
+                    })}
+                  </span>
+                  {queryUrl ? (
+                    <a
+                      href={queryUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="shrink-0 font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+                    >
+                      {t('researchPanel.sourceQuery', { defaultValue: 'Query' })}
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PaperProvenance({
+  paper,
+  sourceNameById,
+}: {
+  paper: ResearchPaper;
+  sourceNameById: ReadonlyMap<string, string>;
+}) {
+  const { t } = useTranslation();
+  const provenance = paperProvenanceEntries(paper);
+  if (paperSourceIds(paper).length === 0) return null;
+
+  return (
+    <div data-testid={`paper-provenance-${paper.id}`} className="min-w-0 rounded-md bg-neutral-50 px-2 py-1.5 dark:bg-neutral-900/70">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <span className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
+          {t('researchPanel.paperSources', { defaultValue: 'Sources' })}
+        </span>
+        <PaperSourceBadges paper={paper} sourceNameById={sourceNameById} compact={false} />
+      </div>
+      {provenance.length > 0 ? (
+        <div className="mt-1.5 space-y-1 border-t border-neutral-200 pt-1.5 text-[10px] leading-4 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+          {provenance.map((entry, index) => {
+            const queryUrl = safeExternalUrl(entry.queryUrl);
+            return (
+              <div key={`${entry.sourceId}:${entry.sourceRecordId ?? index}`} className="min-w-0 break-words">
+                <span className="font-medium text-neutral-600 dark:text-neutral-300">{sourceDisplayName(entry.sourceId, sourceNameById)}</span>
+                {entry.sourceRecordId ? <span> · {t('researchPanel.sourceRecord', { defaultValue: 'Record {{id}}', id: entry.sourceRecordId })}</span> : null}
+                {typeof entry.rank === 'number' ? <span> · {t('researchPanel.sourceRank', { defaultValue: 'Rank {{rank}}', rank: entry.rank })}</span> : null}
+                {entry.retrievedAt ? <span> · {formatResearchTimestamp(entry.retrievedAt)}</span> : null}
+                {queryUrl ? (
+                  <a href={queryUrl} target="_blank" rel="noreferrer" className="ml-1 font-medium text-indigo-600 hover:underline dark:text-indigo-300">
+                    {t('researchPanel.sourceQuery', { defaultValue: 'Query' })}
+                  </a>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PaperSourceBadges({
+  paper,
+  sourceNameById,
+  compact,
+}: {
+  paper: ResearchPaper;
+  sourceNameById: ReadonlyMap<string, string>;
+  compact: boolean;
+}) {
+  const { t } = useTranslation();
+  const sourceIds = paperSourceIds(paper);
+  const visibleSourceIds = compact ? sourceIds.slice(0, 2) : sourceIds.slice(0, 3);
+  const remainingCount = sourceIds.length - visibleSourceIds.length;
+  const sourceNames = sourceIds.map((sourceId) => sourceDisplayName(sourceId, sourceNameById));
+
+  return (
+    <span
+      className="flex min-w-0 flex-wrap items-center gap-1"
+      aria-label={t('researchPanel.paperSourceList', { defaultValue: 'Sources: {{sources}}', sources: sourceNames.join(', ') })}
+    >
+      {visibleSourceIds.map((sourceId) => (
+        <span
+          key={sourceId}
+          className="inline-flex max-w-full items-center rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-300"
+          title={sourceDisplayName(sourceId, sourceNameById)}
+        >
+          <span className="truncate">{sourceDisplayName(sourceId, sourceNameById)}</span>
+        </span>
+      ))}
+      <span
+        className="text-[10px] text-neutral-500 dark:text-neutral-400"
+        title={t('researchPanel.paperSourceCount', { defaultValue: '{{count}} sources', count: sourceIds.length })}
+      >
+        {sourceIds.length}
+      </span>
+      {remainingCount > 0 ? (
+        <span className="text-[10px] text-neutral-500 dark:text-neutral-400">
+          {t('researchPanel.moreSources', { defaultValue: '+{{count}}', count: remainingCount })}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -1523,11 +1753,13 @@ function PaperList({
   selectedPaperId,
   onSelectPaper,
   matches,
+  sourceNameById,
 }: {
   papers: ResearchPaper[];
   selectedPaperId: string | null;
   onSelectPaper: (paperId: string) => void;
   matches: Map<string, ZoteroPaperMatch>;
+  sourceNameById: ReadonlyMap<string, string>;
 }) {
   return (
     <div className="divide-y divide-neutral-200 bg-white dark:divide-neutral-800 dark:bg-neutral-950">
@@ -1548,6 +1780,9 @@ function PaperList({
             <span className="line-clamp-2 text-[12px] font-medium leading-4 text-neutral-800 dark:text-neutral-200">{paper.title}</span>
             <span className="mt-1 block text-[10px] text-neutral-500 dark:text-neutral-400">
               {[paper.authors.slice(0, 2).join(', '), paper.year, `${paper.citedByCount} cited`].filter(Boolean).join(' · ')}
+            </span>
+            <span className="mt-1.5 block min-w-0">
+              <PaperSourceBadges paper={paper} sourceNameById={sourceNameById} compact />
             </span>
             {matches.get(paper.id) ? (
               <span className="mt-1.5 block"><PaperStatusBadge match={matches.get(paper.id)!} /></span>
@@ -1572,4 +1807,59 @@ function safeExternalUrl(value: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function resolvedCoverageSourceIds(
+  artifact: ResearchArtifact,
+  field: 'requestedSourceIds' | 'successfulSourceIds' | 'failedSourceIds',
+): string[] {
+  const reported = artifact.coverage[field];
+  if (Array.isArray(reported)) return uniqueSourceIds(reported);
+  if (field === 'requestedSourceIds') {
+    const planned = uniqueSourceIds(artifact.plan.sourceIds);
+    return planned.length > 0 ? planned : uniqueSourceIds(artifact.sources.map((source) => source.id));
+  }
+  if (field === 'successfulSourceIds') {
+    return uniqueSourceIds(artifact.sources.filter((source) => source.status === 'ok').map((source) => source.id));
+  }
+  return uniqueSourceIds(artifact.sources.filter((source) => source.status === 'error').map((source) => source.id));
+}
+
+function paperSourceIds(paper: ResearchPaper): string[] {
+  return uniqueSourceIds([
+    ...(Array.isArray(paper.sourceIds) ? paper.sourceIds : []),
+    paper.sourceId,
+    ...paperProvenanceEntries(paper).map((entry) => entry.sourceId),
+  ]);
+}
+
+function paperProvenanceEntries(paper: ResearchPaper): ResearchPaperProvenance[] {
+  return (Array.isArray(paper.provenance) ? paper.provenance : []).filter((entry) => (
+    Boolean(entry && typeof entry.sourceId === 'string' && entry.sourceId.trim())
+  ));
+}
+
+function uniqueSourceIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((sourceId): sourceId is string => (
+    typeof sourceId === 'string' && sourceId.trim().length > 0
+  )))];
+}
+
+function sourceDisplayName(sourceId: string, sourceNameById: ReadonlyMap<string, string>): string {
+  const reportedName = sourceNameById.get(sourceId)?.trim();
+  if (reportedName) return reportedName;
+  if (sourceId.toLocaleLowerCase() === 'openalex') return 'OpenAlex';
+  if (sourceId.toLocaleLowerCase() === 'crossref') return 'Crossref';
+  return sourceId.replace(/[-_]+/gu, ' ');
+}
+
+function isRateLimitedSource(source: ResearchSourceStatus): boolean {
+  const detail = `${source.error ?? ''} ${source.coverage ?? ''}`.toLocaleLowerCase();
+  return /\brate[ -]?limit|too many requests|\b429\b/u.test(detail);
+}
+
+function formatResearchTimestamp(value: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }

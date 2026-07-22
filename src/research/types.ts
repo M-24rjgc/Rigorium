@@ -22,6 +22,11 @@ export type ResearchSettings = {
         enabled: boolean;
         mailto: string;
       };
+      crossref: {
+        enabled: boolean;
+        /** Optional address used only to opt into Crossref's documented polite pool. */
+        mailto: string;
+      };
     };
     search: {
       defaultLimit: number;
@@ -88,6 +93,20 @@ export type SearchPlan = {
   sourceIds: string[];
 };
 
+/**
+ * A paper can be returned by more than one metadata provider. This records
+ * only the retrieval context needed to audit or reproduce that result; it is
+ * deliberately not a copy of the provider's raw response.
+ */
+export type ResearchPaperProvenance = {
+  sourceId: string;
+  sourceRecordId?: string;
+  /** One-based position in this source's response for the submitted plan. */
+  rank: number;
+  retrievedAt: string;
+  queryUrl?: string;
+};
+
 export type PaperIdentity = {
   openAlexId?: string;
   doi?: string;
@@ -121,7 +140,16 @@ export type ResearchPaper = {
   abstract?: string;
   topics: ResearchTopic[];
   referencedWorkIds: string[];
+  /**
+   * The primary record used for compatibility with existing consumers. When
+   * OpenAlex participates in a merged candidate it remains the primary
+   * source so its citation-edge IDs remain stable.
+   */
   sourceId: string;
+  /** All providers that contributed to this merged candidate, in stable order. */
+  sourceIds: string[];
+  /** One audited source record per contributing provider record. */
+  provenance: ResearchPaperProvenance[];
 };
 
 export type ResearchRelationEdge = {
@@ -160,6 +188,9 @@ export type ResearchArtifact = {
     status: "complete" | "partial" | "failed";
     resultCount: number;
     warnings: string[];
+    requestedSourceIds: string[];
+    successfulSourceIds: string[];
+    failedSourceIds: string[];
   };
   presentation: {
     autoOpen: boolean;

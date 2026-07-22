@@ -12,7 +12,10 @@ const settings: ResearchSettings = {
   schemaVersion: 1,
   literature: {
     enabled: true,
-    sources: { openalex: { enabled: true, mailto: '' } },
+    sources: {
+      openalex: { enabled: true, mailto: '' },
+      crossref: { enabled: true, mailto: '' },
+    },
     search: { defaultLimit: 12, fromYear: null, toYear: null, sort: 'relevance' },
     budget: { maxResultsPerSearch: 25, requestTimeoutMs: 20_000 },
     map: { autoOpen: true, autoUpdate: true, showTopicEdges: true },
@@ -124,6 +127,55 @@ describe('ResearchSettingsTab Zotero collections', () => {
       useSelectedCollection: false,
       collectionKey: 'PAPERS1',
       collectionName: 'Papers',
+    });
+  });
+
+  it('normalizes legacy settings, exposes both source controls, and warns before saving with all sources off', async () => {
+    const legacySettings: ResearchSettings = {
+      ...settings,
+      literature: {
+        ...settings.literature,
+        sources: { openalex: { enabled: true, mailto: '' } },
+      },
+    };
+    vi.mocked(authenticatedFetch).mockImplementation(async (input, init) => {
+      const url = String(input);
+      const options = requestOptions(init);
+      if (url.startsWith('/api/research/settings') && options.method !== 'PUT') {
+        return response({ global: legacySettings, effective: legacySettings, projectOverride: null, paths: { global: 'settings.json' } });
+      }
+      if (url === '/api/research/settings' && options.method === 'PUT') {
+        const saved = JSON.parse(String(options.body)).settings as ResearchSettings;
+        return response({ global: saved, effective: saved, projectOverride: null, paths: { global: 'settings.json' } });
+      }
+      return response({ error: `Unexpected request: ${url}` });
+    });
+
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchSettingsTab projects={[]} />
+      </I18nextProvider>,
+    );
+
+    const openAlexToggle = await screen.findByRole('switch', { name: 'OpenAlex' });
+    const crossrefToggle = screen.getByRole('switch', { name: 'Crossref' });
+    expect(crossrefToggle.getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Crossref contact email' }), {
+      target: { value: 'researcher@example.test' },
+    });
+    fireEvent.click(openAlexToggle);
+    fireEvent.click(crossrefToggle);
+    expect(screen.getByRole('status').textContent).toContain('No literature source is enabled.');
+
+    fireEvent.click(screen.getByRole('button', { name: /Save research settings|保存科研设置/i }));
+    await waitFor(() => expect(vi.mocked(authenticatedFetch).mock.calls.some(([, init]) => requestOptions(init).method === 'PUT')).toBe(true));
+
+    const saveCall = vi.mocked(authenticatedFetch).mock.calls.find(([, init]) => requestOptions(init).method === 'PUT');
+    const payload = JSON.parse(requestBody(saveCall));
+    expect(payload.settings.literature.sources).toMatchObject({
+      openalex: { enabled: false, mailto: '' },
+      crossref: { enabled: false, mailto: 'researcher@example.test' },
     });
   });
 

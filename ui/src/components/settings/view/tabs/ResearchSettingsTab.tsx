@@ -5,6 +5,7 @@ import { Button, Input } from '../../../../shared/view/ui';
 import { authenticatedFetch } from '../../../../utils/api';
 import { getZoteroCloudStatus } from '../../../../research/zoteroCloudApi';
 import type {
+  ResearchLiteratureSourceSettings,
   ResearchSettings,
   ResearchSettingsSnapshot,
   ZoteroCollection,
@@ -21,6 +22,41 @@ import SettingsToggle from '../SettingsToggle';
 type ResearchSettingsTabProps = {
   projects: SettingsProject[];
 };
+
+const defaultCrossrefSourceSettings: ResearchLiteratureSourceSettings = {
+  enabled: true,
+  mailto: '',
+};
+
+function normalizeResearchSettings(settings: ResearchSettings): ResearchSettings {
+  return {
+    ...settings,
+    literature: {
+      ...settings.literature,
+      sources: {
+        ...settings.literature.sources,
+        crossref: {
+          ...defaultCrossrefSourceSettings,
+          ...settings.literature.sources.crossref,
+        },
+      },
+    },
+  };
+}
+
+function normalizeResearchSettingsSnapshot(snapshot: ResearchSettingsSnapshot): ResearchSettingsSnapshot {
+  return {
+    ...snapshot,
+    global: normalizeResearchSettings(snapshot.global),
+    effective: normalizeResearchSettings(snapshot.effective),
+    projectOverride: snapshot.projectOverride
+      ? {
+          ...snapshot.projectOverride,
+          settings: normalizeResearchSettings(snapshot.projectOverride.settings),
+        }
+      : null,
+  };
+}
 
 export default function ResearchSettingsTab({ projects }: ResearchSettingsTabProps) {
   const { t } = useTranslation('settings');
@@ -88,7 +124,7 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Failed to load research settings.');
-      setSnapshot(body as ResearchSettingsSnapshot);
+      setSnapshot(normalizeResearchSettingsSnapshot(body as ResearchSettingsSnapshot));
     } catch (error) {
       setMessage({ kind: 'error', text: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -131,7 +167,7 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Failed to save research settings.');
-      setSnapshot(body as ResearchSettingsSnapshot);
+      setSnapshot(normalizeResearchSettingsSnapshot(body as ResearchSettingsSnapshot));
       setMessage({ kind: 'success', text: t('research.saved', { defaultValue: 'Research settings saved.' }) });
     } catch (error) {
       setMessage({ kind: 'error', text: error instanceof Error ? error.message : String(error) });
@@ -314,12 +350,30 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
       },
     } : current);
   };
+  const updateCrossref = (value: Partial<ResearchLiteratureSourceSettings>) => {
+    setDraft((current) => current ? {
+      ...current,
+      literature: {
+        ...current.literature,
+        sources: {
+          ...current.literature.sources,
+          crossref: {
+            ...defaultCrossrefSourceSettings,
+            ...current.literature.sources.crossref,
+            ...value,
+          },
+        },
+      },
+    } : current);
+  };
   const updateZoteroCloud = (value: Partial<ResearchSettings['zotero']['cloud']>) => {
     setDraft((current) => current ? {
       ...current,
       zotero: { ...current.zotero, cloud: { ...current.zotero.cloud, ...value } },
     } : current);
   };
+  const crossrefSource = draft.literature.sources.crossref ?? defaultCrossrefSourceSettings;
+  const noLiteratureSourcesEnabled = !draft.literature.sources.openalex.enabled && !crossrefSource.enabled;
 
   return (
     <div className="space-y-8">
@@ -386,12 +440,37 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
           <SettingsRow
             label={t('research.sources.mailto', { defaultValue: 'OpenAlex contact email' })}
             description={t('research.sources.mailtoDescription', { defaultValue: 'Optional polite-pool identity for OpenAlex requests.' })}
+            className="items-start"
           >
             <Input
               value={draft.literature.sources.openalex.mailto}
               onChange={(event) => updateOpenAlex({ mailto: event.target.value })}
+              aria-label={t('research.sources.mailto', { defaultValue: 'OpenAlex contact email' })}
               placeholder="name@example.com"
-              className="w-64"
+              className="w-36 sm:w-56"
+            />
+          </SettingsRow>
+          <SettingsRow
+            label="Crossref"
+            description={t('research.sources.crossrefDescription', { defaultValue: 'DOI and publisher metadata that complements broad discovery results.' })}
+          >
+            <SettingsToggle
+              checked={crossrefSource.enabled}
+              onChange={(enabled) => updateCrossref({ enabled })}
+              ariaLabel="Crossref"
+            />
+          </SettingsRow>
+          <SettingsRow
+            label={t('research.sources.crossrefMailto', { defaultValue: 'Crossref contact email' })}
+            description={t('research.sources.crossrefMailtoDescription', { defaultValue: 'Optional polite identity for Crossref metadata requests.' })}
+            className="items-start"
+          >
+            <Input
+              value={crossrefSource.mailto}
+              onChange={(event) => updateCrossref({ mailto: event.target.value })}
+              aria-label={t('research.sources.crossrefMailto', { defaultValue: 'Crossref contact email' })}
+              placeholder="name@example.com"
+              className="w-36 sm:w-56"
             />
           </SettingsRow>
           <SettingsRow label={t('research.remoteMetadata', { defaultValue: 'Allow remote metadata search' })}>
@@ -405,6 +484,14 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
             />
           </SettingsRow>
         </SettingsCard>
+        {noLiteratureSourcesEnabled ? (
+          <div
+            role="status"
+            className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
+          >
+            {t('research.sources.noneEnabled', { defaultValue: 'No literature source is enabled. Searches remain unavailable until at least one source is turned on.' })}
+          </div>
+        ) : null}
       </SettingsSection>
 
       <SettingsSection title={t('research.search.title', { defaultValue: 'Search defaults and budget' })}>

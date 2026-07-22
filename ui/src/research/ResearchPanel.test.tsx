@@ -60,6 +60,56 @@ const artifact: ResearchArtifact = {
   presentation: { autoOpen: true },
 };
 
+const multiSourceArtifact: ResearchArtifact = {
+  ...artifact,
+  artifactId: 'literature-panel-multi-source-test',
+  plan: { ...artifact.plan, sourceIds: ['openalex', 'crossref'] },
+  papers: [
+    {
+      ...artifact.papers[0],
+      sourceIds: ['openalex', 'crossref'],
+      provenance: [
+        {
+          sourceId: 'openalex',
+          sourceRecordId: 'W1',
+          rank: 1,
+          retrievedAt: '2026-07-22T00:00:00.000Z',
+          queryUrl: 'https://api.openalex.org/works?search=research+agents',
+        },
+        {
+          sourceId: 'crossref',
+          sourceRecordId: '10.1000/first',
+          rank: 4,
+          retrievedAt: '2026-07-22T00:00:03.000Z',
+          queryUrl: 'https://api.crossref.org/works?query=research+agents',
+        },
+      ],
+    },
+    artifact.papers[1],
+  ],
+  sources: [
+    artifact.sources[0],
+    {
+      id: 'crossref',
+      name: 'Crossref',
+      status: 'error',
+      retrievedAt: '2026-07-22T00:00:03.000Z',
+      queryUrl: 'https://api.crossref.org/works?query=research+agents',
+      resultCount: 0,
+      coverage: 'Publisher metadata query was interrupted before all pages were read.',
+      error: 'Crossref responded with HTTP 429 (rate limited).',
+    },
+  ],
+  coverage: {
+    status: 'partial',
+    resultCount: 2,
+    warnings: ['Crossref was rate limited; results may be incomplete.'],
+    requestedSourceIds: ['openalex', 'crossref'],
+    successfulSourceIds: ['openalex'],
+    failedSourceIds: ['crossref'],
+  },
+};
+
 const researchSettings: ResearchSettings = {
   schemaVersion: 1,
   literature: {
@@ -260,7 +310,7 @@ describe('ResearchPanel', () => {
       </I18nextProvider>,
     );
 
-    expect(screen.getByText('OpenAlex')).not.toBeNull();
+    expect(screen.getByTestId('research-source-openalex')).not.toBeNull();
     expect(container.querySelector('svg')).not.toBeNull();
     expect(container.querySelectorAll('svg line').length).toBeGreaterThan(0);
     const saveButton = screen.getByRole('button', { name: /Save to Zotero|收藏到 Zotero/i }) as HTMLButtonElement;
@@ -275,6 +325,42 @@ describe('ResearchPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Confirm import|确认写入/ }));
     await waitFor(() => expect(libraryImport).toHaveBeenCalledTimes(1));
     expect(libraryImport).toHaveBeenCalledWith([expect.objectContaining({ id: 'W1' })], { projectPath: 'D:/project' });
+  });
+
+  it('makes multi-source provenance and partial coverage explicit without relying on color', async () => {
+    const { container } = render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={multiSourceArtifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    const coverage = screen.getByTestId('research-coverage-summary');
+    expect(coverage.textContent).toContain('Partial coverage');
+    expect(coverage.textContent).toContain('1 successful');
+    expect(coverage.textContent).toContain('1 failed');
+    expect(coverage.textContent).toContain('Failed sources: Crossref');
+
+    const crossrefStatus = screen.getByTestId('research-source-crossref');
+    expect(crossrefStatus.textContent).toContain('Failed');
+    expect(crossrefStatus.textContent).toContain('Error:');
+    expect(crossrefStatus.textContent).toContain('HTTP 429');
+    expect(crossrefStatus.textContent).toContain('Rate limited.');
+    expect(crossrefStatus.textContent).toContain('Retrieved:');
+
+    const provenance = screen.getByTestId('paper-provenance-W1');
+    expect(provenance.textContent).toContain('OpenAlex');
+    expect(provenance.textContent).toContain('Crossref');
+    expect(provenance.textContent).toContain('Record 10.1000/first');
+    expect(provenance.textContent).toContain('Rank 4');
+
+    fireEvent.click(screen.getByRole('button', { name: /Papers|论文/i }));
+    expect(screen.getAllByLabelText('Sources: OpenAlex, Crossref').length).toBeGreaterThan(0);
+
+    const panelRoot = container.firstElementChild as HTMLElement;
+    expect(panelRoot.className).toContain('min-w-0');
+    expect(panelRoot.className).toContain('overflow-x-hidden');
   });
 
   it('marks matched papers and browses the collection bound in research settings', async () => {

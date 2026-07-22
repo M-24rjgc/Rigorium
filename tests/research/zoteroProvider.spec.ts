@@ -16,6 +16,13 @@ const paper: ResearchPaper = {
   topics: [],
   referencedWorkIds: [],
   sourceId: "openalex",
+  sourceIds: ["openalex"],
+  provenance: [{
+    sourceId: "openalex",
+    sourceRecordId: "https://openalex.org/W1",
+    rank: 1,
+    retrievedAt: "2026-07-22T00:00:00.000Z",
+  }],
 };
 
 test("Zotero provider reports API, connector, and selected collection readiness", async () => {

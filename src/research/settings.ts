@@ -12,6 +12,10 @@ export const DEFAULT_RESEARCH_SETTINGS: ResearchSettings = {
         enabled: true,
         mailto: "",
       },
+      crossref: {
+        enabled: true,
+        mailto: "",
+      },
     },
     search: {
       defaultLimit: 12,
@@ -134,6 +138,7 @@ export function normalizeResearchSettings(value: unknown, base: ResearchSettings
   const literature = isRecord(root.literature) ? root.literature : {};
   const sources = isRecord(literature.sources) ? literature.sources : {};
   const openalex = isRecord(sources.openalex) ? sources.openalex : {};
+  const crossref = isRecord(sources.crossref) ? sources.crossref : {};
   const search = isRecord(literature.search) ? literature.search : {};
   const budget = isRecord(literature.budget) ? literature.budget : {};
   const map = isRecord(literature.map) ? literature.map : {};
@@ -150,6 +155,10 @@ export function normalizeResearchSettings(value: unknown, base: ResearchSettings
         openalex: {
           enabled: booleanValue(openalex.enabled, base.literature.sources.openalex.enabled),
           mailto: stringValue(openalex.mailto, base.literature.sources.openalex.mailto, 200),
+        },
+        crossref: {
+          enabled: booleanValue(crossref.enabled, base.literature.sources.crossref.enabled),
+          mailto: stringValue(crossref.mailto, base.literature.sources.crossref.mailto, 200),
         },
       },
       search: {

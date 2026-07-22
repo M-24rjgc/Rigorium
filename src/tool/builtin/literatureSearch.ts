@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { PermissionResult } from "../../permission/index.js";
+import { mergeLiteratureSearchResults } from "../../research/literature/candidatePool.js";
+import { createCrossrefSource } from "../../research/literature/crossrefSource.js";
 import { createOpenAlexSource } from "../../research/literature/openAlexSource.js";
 import { readResearchSettings } from "../../research/settings.js";
-import type { ResearchArtifact, SearchPlan } from "../../research/types.js";
+import type { LiteratureSource, ResearchArtifact, SearchPlan } from "../../research/types.js";
 import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
 import type {
   PilotDeckToolDefinition,
@@ -18,8 +20,12 @@ export type LiteratureSearchInput = {
 };
 
 export type CreateLiteratureSearchToolOptions = {
+  /** OpenAlex endpoint override, primarily for controlled tests. */
   endpoint?: string;
   fetchImpl?: typeof fetch;
+  /** Crossref endpoint override, primarily for controlled tests. */
+  crossrefEndpoint?: string;
+  crossrefFetchImpl?: typeof fetch;
 };
 
 export function createLiteratureSearchTool(
@@ -99,7 +105,7 @@ The result includes normalized paper identities, source provenance, real citatio
         projectRoot: context.cwd,
       });
       const settings = settingsSnapshot.effective;
-      if (!settings.literature.enabled || !settings.literature.sources.openalex.enabled) {
+      if (!settings.literature.enabled) {
         throw new PilotDeckToolRuntimeError(
           "setup_required",
           "Academic literature search is disabled in Research Settings.",
@@ -121,25 +127,51 @@ The result includes normalized paper identities, source provenance, real citatio
         throw new PilotDeckToolRuntimeError("invalid_tool_input", "fromYear cannot be after toYear.");
       }
 
+      const sources: LiteratureSource[] = [];
+      if (settings.literature.sources.openalex.enabled) {
+        sources.push(createOpenAlexSource({
+          endpoint: options.endpoint,
+          fetchImpl: options.fetchImpl,
+          timeoutMs: settings.literature.budget.requestTimeoutMs,
+          mailto: settings.literature.sources.openalex.mailto,
+          includeTopicEdges: settings.literature.map.showTopicEdges,
+        }));
+      }
+      if (settings.literature.sources.crossref.enabled) {
+        sources.push(createCrossrefSource({
+          endpoint: options.crossrefEndpoint,
+          fetchImpl: options.crossrefFetchImpl ?? options.fetchImpl,
+          timeoutMs: settings.literature.budget.requestTimeoutMs,
+          mailto: settings.literature.sources.crossref.mailto,
+        }));
+      }
+      if (sources.length === 0) {
+        throw new PilotDeckToolRuntimeError(
+          "setup_required",
+          "No academic metadata source is enabled in Research Settings.",
+        );
+      }
+
       const plan: SearchPlan = {
         query,
         limit,
         ...(fromYear ? { fromYear } : {}),
         ...(toYear ? { toYear } : {}),
         sort: input.sort ?? settings.literature.search.sort,
-        sourceIds: ["openalex"],
+        sourceIds: sources.map((source) => source.id),
       };
-      const source = createOpenAlexSource({
-        endpoint: options.endpoint,
-        fetchImpl: options.fetchImpl,
-        timeoutMs: settings.literature.budget.requestTimeoutMs,
-        mailto: settings.literature.sources.openalex.mailto,
-        includeTopicEdges: settings.literature.map.showTopicEdges,
+      // Sources are independent metadata requests. A failed source resolves to
+      // a structured result, so Promise.all preserves successful siblings.
+      const results = await Promise.all(sources.map((source) => source.search(plan, {
+        signal: context.abortSignal,
+        now: context.now,
+      })));
+      const pool = mergeLiteratureSearchResults({
+        requestedSourceIds: plan.sourceIds,
+        results,
+        limit,
+        sourcePriority: ["openalex", "crossref"],
       });
-      const result = await source.search(plan, { signal: context.abortSignal, now: context.now });
-      const warnings = result.source.status === "error" && result.source.error
-        ? [result.source.error]
-        : [];
       const artifact: ResearchArtifact = {
         schemaVersion: 1,
         kind: "literature_search",
@@ -147,14 +179,10 @@ The result includes normalized paper identities, source provenance, real citatio
         createdAt: (context.now?.() ?? new Date()).toISOString(),
         intent: { text: query },
         plan,
-        papers: result.papers,
-        edges: result.edges,
-        sources: [result.source],
-        coverage: {
-          status: result.source.status === "error" ? "failed" : "complete",
-          resultCount: result.papers.length,
-          warnings,
-        },
+        papers: pool.papers,
+        edges: pool.edges,
+        sources: pool.sources,
+        coverage: pool.coverage,
         presentation: {
           autoOpen: settings.literature.map.autoOpen,
         },
@@ -165,10 +193,10 @@ The result includes normalized paper identities, source provenance, real citatio
 }
 
 function formatToolOutput(artifact: ResearchArtifact): PilotDeckToolExecutionOutput<ResearchArtifact> {
-  const source = artifact.sources[0];
+  const sourceSummary = artifact.sources.map((source) => `${source.name} (${source.status})`).join(", ");
   const lines = [
     `Academic literature search: ${artifact.plan.query}`,
-    `Source: ${source?.name ?? "unknown"} (${source?.status ?? "unknown"})`,
+    `Sources: ${sourceSummary || "unknown"}`,
     `Results: ${artifact.papers.length}`,
     `Relationships: ${artifact.edges.length}`,
   ];
@@ -188,7 +216,7 @@ function formatToolOutput(artifact: ResearchArtifact): PilotDeckToolExecutionOut
     ],
     data: artifact,
     metadata: {
-      provider: "openalex",
+      provider: artifact.plan.sourceIds.length === 1 ? artifact.plan.sourceIds[0] : "multi-source",
       resultCount: artifact.papers.length,
       relationshipCount: artifact.edges.length,
       coverageStatus: artifact.coverage.status,

@@ -1379,7 +1379,11 @@
       "title": "Literature sources",
       "openalexDescription": "Real academic metadata, topics, citation counts, and reference links.",
       "mailto": "OpenAlex contact email",
-      "mailtoDescription": "Optional polite-pool identity for OpenAlex requests."
+      "mailtoDescription": "Optional polite-pool identity for OpenAlex requests.",
+      "crossrefDescription": "DOI and publisher metadata that complements broad discovery results.",
+      "crossrefMailto": "Crossref contact email",
+      "crossrefMailtoDescription": "Optional polite identity for Crossref metadata requests.",
+      "noneEnabled": "No literature source is enabled. Searches remain unavailable until at least one source is turned on."
     },
     "search": {
       "title": "Search defaults and budget",

@@ -1,8 +1,19 @@
+export type ResearchLiteratureSourceSettings = {
+  enabled: boolean;
+  mailto: string;
+};
+
 export type ResearchSettings = {
   schemaVersion: 1;
   literature: {
     enabled: boolean;
-    sources: { openalex: { enabled: boolean; mailto: string } };
+    sources: {
+      openalex: ResearchLiteratureSourceSettings;
+      // Optional at the renderer boundary so settings persisted before the
+      // multi-source release remain readable. The settings UI normalizes it
+      // to the enabled Crossref default before a save.
+      crossref?: ResearchLiteratureSourceSettings;
+    };
     search: {
       defaultLimit: number;
       fromYear: number | null;
@@ -30,6 +41,14 @@ export type ResearchSettings = {
 
 export type ResearchTopic = { id: string; name: string; score?: number };
 
+export type ResearchPaperProvenance = {
+  sourceId: string;
+  sourceRecordId?: string;
+  rank?: number;
+  retrievedAt: string;
+  queryUrl?: string;
+};
+
 export type ResearchPaper = {
   id: string;
   identity?: Record<string, unknown>;
@@ -47,6 +66,10 @@ export type ResearchPaper = {
   topics: ResearchTopic[];
   referencedWorkIds?: string[];
   sourceId: string;
+  // sourceId remains the primary source for existing artifacts. These fields
+  // retain every contributing source after identity-based result merging.
+  sourceIds?: string[];
+  provenance?: ResearchPaperProvenance[];
 };
 
 export type ResearchRelationEdge = {
@@ -57,6 +80,18 @@ export type ResearchRelationEdge = {
   weight: number;
   inferred: boolean;
   evidence?: string[];
+};
+
+export type ResearchSourceStatus = {
+  id: string;
+  name: string;
+  status: 'ok' | 'error' | 'disabled';
+  retrievedAt: string;
+  queryUrl?: string;
+  resultCount: number;
+  totalMatches?: number;
+  coverage: string;
+  error?: string;
 };
 
 export type ResearchArtifact = {
@@ -75,21 +110,16 @@ export type ResearchArtifact = {
   };
   papers: ResearchPaper[];
   edges: ResearchRelationEdge[];
-  sources: Array<{
-    id: string;
-    name: string;
-    status: 'ok' | 'error' | 'disabled';
-    retrievedAt: string;
-    queryUrl?: string;
-    resultCount: number;
-    totalMatches?: number;
-    coverage: string;
-    error?: string;
-  }>;
+  sources: ResearchSourceStatus[];
   coverage: {
     status: 'complete' | 'partial' | 'failed';
     resultCount: number;
     warnings: string[];
+    // Optional here only to support artifacts emitted before multi-source
+    // coverage accounting. New search artifacts populate all three arrays.
+    requestedSourceIds?: string[];
+    successfulSourceIds?: string[];
+    failedSourceIds?: string[];
   };
   presentation?: { autoOpen?: boolean };
 };

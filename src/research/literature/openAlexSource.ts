@@ -3,6 +3,7 @@ import type {
   LiteratureSearchResult,
   LiteratureSource,
   ResearchPaper,
+  ResearchPaperProvenance,
   ResearchRelationEdge,
   ResearchSourceStatus,
   ResearchTopic,
@@ -71,7 +72,14 @@ export function createOpenAlexSource(options: CreateOpenAlexSourceOptions = {}):
 
         const raw = await response.json() as OpenAlexResponse;
         const papers = Array.isArray(raw.results)
-          ? raw.results.map(normalizeOpenAlexWork).filter((paper): paper is ResearchPaper => paper !== null)
+          ? raw.results.flatMap((work, index) => {
+              const paper = normalizeOpenAlexWork(work, {
+                rank: index + 1,
+                retrievedAt,
+                queryUrl: url.toString(),
+              });
+              return paper ? [paper] : [];
+            })
           : [];
         const edges = buildRelationshipEdges(papers, options.includeTopicEdges !== false);
         const source: ResearchSourceStatus = {
@@ -112,7 +120,10 @@ function buildOpenAlexUrl(endpoint: string, plan: SearchPlan, mailto?: string): 
   return url;
 }
 
-function normalizeOpenAlexWork(work: OpenAlexWork): ResearchPaper | null {
+function normalizeOpenAlexWork(
+  work: OpenAlexWork,
+  provenance: Omit<ResearchPaperProvenance, "sourceId" | "sourceRecordId">,
+): ResearchPaper | null {
   const id = stringValue(work.id);
   const title = stringValue(work.display_name) ?? stringValue(work.title);
   if (!id || !title) return null;
@@ -167,6 +178,12 @@ function normalizeOpenAlexWork(work: OpenAlexWork): ResearchPaper | null {
     topics,
     referencedWorkIds,
     sourceId: "openalex",
+    sourceIds: ["openalex"],
+    provenance: [{
+      sourceId: "openalex",
+      sourceRecordId: id,
+      ...provenance,
+    }],
   };
 }
 
@@ -275,7 +292,7 @@ function failedResult(retrievedAt: string, url: URL, error: string): LiteratureS
 
 function normalizeDoi(value: unknown): string | undefined {
   const text = stringValue(value);
-  return text?.replace(/^https?:\/\/(?:dx\.)?doi\.org\//iu, "").replace(/^doi:/iu, "").trim() || undefined;
+  return text?.replace(/^https?:\/\/(?:dx\.)?doi\.org\//iu, "").replace(/^doi:/iu, "").trim().toLowerCase() || undefined;
 }
 
 function safeHttpUrl(value: unknown): string | undefined {

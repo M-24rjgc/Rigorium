@@ -173,7 +173,10 @@ try {
         schemaVersion: 1,
         literature: {
           enabled: true,
-          sources: { openalex: { enabled: true, mailto: '' } },
+          sources: {
+            openalex: { enabled: true, mailto: '' },
+            crossref: { enabled: true, mailto: '' },
+          },
           search: { defaultLimit: 12, fromYear: null, toYear: null, sort: 'relevance' },
           budget: { maxResultsPerSearch: 25, requestTimeoutMs: 20_000 },
           map: { autoOpen: true, autoUpdate: true, showTopicEdges: true },
@@ -319,7 +322,19 @@ try {
       citedByCount: 1,
       topics: [{ id: 'verification', name: 'Verification' }],
       referencedWorkIds: [],
-      sourceId: 'verification',
+      sourceId: 'openalex',
+      sourceIds: ['openalex', 'crossref'],
+      provenance: [{
+        sourceId: 'openalex',
+        sourceRecordId: 'https://openalex.org/W-VERIFY',
+        rank: 1,
+        retrievedAt: new Date().toISOString(),
+      }, {
+        sourceId: 'crossref',
+        sourceRecordId: '10.1000/verification',
+        rank: 1,
+        retrievedAt: new Date().toISOString(),
+      }],
     };
     window.dispatchEvent(new CustomEvent('rigorium:research-artifact', {
       detail: {
@@ -329,24 +344,41 @@ try {
           artifactId: 'packaged-research-verification',
           createdAt: new Date().toISOString(),
           intent: { text: artifactQuery },
-          plan: { query: artifactQuery, limit: 1, sort: 'relevance', sourceIds: ['verification'] },
+          plan: { query: artifactQuery, limit: 1, sort: 'relevance', sourceIds: ['openalex', 'crossref'] },
           papers: [paper],
           edges: [],
           sources: [{
-            id: 'verification',
-            name: 'Verification source',
+            id: 'openalex',
+            name: 'OpenAlex',
             status: 'ok',
             retrievedAt: new Date().toISOString(),
             resultCount: 1,
-            coverage: 'Packaged desktop verification artifact.',
+            coverage: 'Packaged OpenAlex verification artifact.',
+          }, {
+            id: 'crossref',
+            name: 'Crossref',
+            status: 'ok',
+            retrievedAt: new Date().toISOString(),
+            resultCount: 1,
+            coverage: 'Packaged Crossref verification artifact.',
           }],
-          coverage: { status: 'complete', resultCount: 1, warnings: [] },
+          coverage: {
+            status: 'complete',
+            resultCount: 1,
+            warnings: [],
+            requestedSourceIds: ['openalex', 'crossref'],
+            successfulSourceIds: ['openalex', 'crossref'],
+            failedSourceIds: [],
+          },
           presentation: { autoOpen: true },
         },
       },
     }));
   }, query);
   await page.getByText(query, { exact: true }).waitFor({ timeout: 30_000 });
+  await page.getByText(/Coverage complete|覆盖完整/u, { exact: true }).waitFor({ timeout: 30_000 });
+  await page.getByText('OpenAlex', { exact: true }).first().waitFor({ timeout: 30_000 });
+  await page.getByText('Crossref', { exact: true }).first().waitFor({ timeout: 30_000 });
   await page.getByRole('button', { name: /Collection|文献库/u }).click();
   await page.getByText('Packaged Zotero item', { exact: true }).waitFor({ timeout: 30_000 });
   await page.getByRole('button', { name: /Show details for Packaged Zotero item|展开.*Packaged Zotero item/u }).click();
@@ -592,7 +624,10 @@ cron:
     schemaVersion: 1,
     literature: {
       enabled: true,
-      sources: { openalex: { enabled: true, mailto: '' } },
+      sources: {
+        openalex: { enabled: true, mailto: '' },
+        crossref: { enabled: true, mailto: '' },
+      },
       search: { defaultLimit: 12, fromYear: null, toYear: null, sort: 'relevance' },
       budget: { maxResultsPerSearch: 25, requestTimeoutMs: 20_000 },
       map: { autoOpen: true, autoUpdate: true, showTopicEdges: true },
