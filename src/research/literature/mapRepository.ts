@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, link, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { RESEARCH_RELATION_TYPES } from "../types.js";
 import {
   createLiveLiteratureMap,
   freezeLiteratureMap,
@@ -851,7 +852,7 @@ function validateEdge(value: unknown, location: string, path: string): Literatur
   expectIdentifier(edge.id, `${location}.id`, path);
   expectIdentifier(edge.source, `${location}.source`, path);
   expectIdentifier(edge.target, `${location}.target`, path);
-  if (!isOneOf(edge.type, ["citation", "shared_topic"] as const)) {
+  if (!isOneOf(edge.type, RESEARCH_RELATION_TYPES)) {
     invalidSchema(path, `${location}.type is invalid.`);
   }
   const weight = expectFiniteNumber(edge.weight, `${location}.weight`, path);

@@ -7,12 +7,14 @@ export type LiteratureMapView = (typeof LITERATURE_MAP_VIEW_IDS)[number];
 export type LiteratureMapRelationKind =
   | 'citation'
   | 'shared_topic'
+  | 'topic_similarity'
   | 'bibliographic_coupling'
   | 'co_citation';
 
 export type LiteratureMapRelationProvenance =
   | 'artifact_edge'
   | 'referenced_work_ids'
+  | 'derived_topic_similarity'
   | 'derived_bibliographic_coupling'
   | 'derived_co_citation';
 
@@ -75,13 +77,18 @@ export type LiteratureMapTree = {
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 520;
 
+type LiteratureMapArtifact = Extract<ResearchArtifact, {
+  kind: 'literature_search' | 'literature_expansion';
+}>;
+
 /**
  * Converts persisted research records into UI-only projections. It never
  * reaches outside the artifact: every inferred relation has explicit local
  * evidence and every citation keeps its source direction.
  */
 export function buildLiteratureMapModel(artifact: ResearchArtifact | null | undefined): LiteratureMapModel {
-  const papers = artifact?.papers ?? [];
+  const literatureArtifact = isLiteratureMapArtifact(artifact) ? artifact : undefined;
+  const papers = literatureArtifact?.papers ?? [];
   const nodes = papers.map((paper) => ({
     id: paper.id,
     paper,
@@ -90,9 +97,10 @@ export function buildLiteratureMapModel(artifact: ResearchArtifact | null | unde
   const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
   const relationByKey = new Map<string, LiteratureMapRelation>();
 
-  for (const edge of artifact?.edges ?? []) {
+  for (const edge of literatureArtifact?.edges ?? []) {
     if (!nodeById.has(edge.source) || !nodeById.has(edge.target) || edge.source === edge.target) continue;
-    const kind: LiteratureMapRelationKind = edge.type === 'citation' ? 'citation' : 'shared_topic';
+    const kind = artifactRelationKind(edge.type);
+    if (!kind) continue;
     upsertRelation(relationByKey, {
       id: `artifact:${edge.id}`,
       source: edge.source,
@@ -140,6 +148,10 @@ export function buildLiteratureMapModel(artifact: ResearchArtifact | null | unde
     });
   }
 
+  for (const relation of deriveTopicSimilarityRelations(nodes, relationByKey)) {
+    upsertRelation(relationByKey, relation);
+  }
+
   for (const [referenceId, paperIds] of papersByReferenceId) {
     forEachPair(uniqueStrings(paperIds), (first, second) => {
       const key = undirectedKey('bibliographic_coupling', first, second);
@@ -177,8 +189,8 @@ export function buildLiteratureMapModel(artifact: ResearchArtifact | null | unde
   }
 
   return {
-    artifactId: artifact?.artifactId ?? null,
-    seedPaperId: artifact?.kind === 'literature_expansion' ? artifact.seedPaperId : null,
+    artifactId: literatureArtifact?.artifactId ?? null,
+    seedPaperId: literatureArtifact?.kind === 'literature_expansion' ? literatureArtifact.seedPaperId : null,
     nodes,
     nodeById,
     relations: [...relationByKey.values()].sort(compareRelations),
@@ -186,6 +198,17 @@ export function buildLiteratureMapModel(artifact: ResearchArtifact | null | unde
     timeline: projectTimeline(nodes),
     undatedPaperIds: nodes.filter((node) => node.year === null).map((node) => node.id),
   };
+}
+
+function isLiteratureMapArtifact(
+  artifact: ResearchArtifact | null | undefined,
+): artifact is LiteratureMapArtifact {
+  return artifact?.kind === 'literature_search' || artifact?.kind === 'literature_expansion';
+}
+
+function artifactRelationKind(type: string): LiteratureMapRelationKind | undefined {
+  if (type === 'citation' || type === 'shared_topic' || type === 'topic_similarity') return type;
+  return undefined;
 }
 
 export function filterLiteratureMapModel(
@@ -330,6 +353,76 @@ function upsertRelation(
   existing.evidence = uniqueStrings([...existing.evidence, ...relation.evidence]);
 }
 
+/**
+ * Uses only exact provider topic IDs already present on the final artifact.
+ * This is an inferred, undirected similarity cue, never a citation claim.
+ */
+function deriveTopicSimilarityRelations(
+  nodes: LiteratureMapNode[],
+  relationByKey: ReadonlyMap<string, LiteratureMapRelation>,
+): LiteratureMapRelation[] {
+  const topicIdsByPaper = new Map<string, Set<string>>();
+  const paperIdsByTopic = new Map<string, string[]>();
+
+  for (const node of nodes) {
+    const topicIds = new Set<string>();
+    for (const topic of node.paper.topics ?? []) {
+      const topicId = typeof topic.id === 'string' ? topic.id.trim().toLocaleLowerCase() : '';
+      if (topicId) topicIds.add(topicId);
+    }
+    topicIdsByPaper.set(node.id, topicIds);
+    for (const topicId of topicIds) {
+      const paperIds = paperIdsByTopic.get(topicId) ?? [];
+      paperIds.push(node.id);
+      paperIdsByTopic.set(topicId, paperIds);
+    }
+  }
+
+  const sharedTopicsByPair = new Map<string, { source: string; target: string; topicIds: string[] }>();
+  for (const [topicId, paperIds] of [...paperIdsByTopic.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    forEachPair(uniqueStrings(paperIds).sort((left, right) => left.localeCompare(right)), (first, second) => {
+      const [source, target] = first.localeCompare(second) <= 0 ? [first, second] : [second, first];
+      const key = undirectedKey('topic_similarity', source, target);
+      const existing = sharedTopicsByPair.get(key) ?? { source, target, topicIds: [] };
+      existing.topicIds.push(topicId);
+      sharedTopicsByPair.set(key, existing);
+    });
+  }
+
+  const relations: LiteratureMapRelation[] = [];
+  for (const [key, pair] of [...sharedTopicsByPair.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    if (hasCitationOrTopicRelation(relationByKey, pair.source, pair.target, key)) continue;
+    const sourceTopics = topicIdsByPaper.get(pair.source) ?? new Set<string>();
+    const targetTopics = topicIdsByPaper.get(pair.target) ?? new Set<string>();
+    const unionSize = new Set([...sourceTopics, ...targetTopics]).size;
+    const topicIds = uniqueStrings(pair.topicIds).sort((left, right) => left.localeCompare(right));
+    if (unionSize === 0 || topicIds.length === 0) continue;
+    relations.push({
+      id: `topic-similarity:${pair.source}:${pair.target}`,
+      source: pair.source,
+      target: pair.target,
+      kind: 'topic_similarity',
+      inferred: true,
+      weight: topicIds.length / unionSize,
+      evidence: topicIds.map((topicId) => `topic:${topicId}`),
+      provenance: 'derived_topic_similarity',
+    });
+  }
+  return relations;
+}
+
+function hasCitationOrTopicRelation(
+  relationByKey: ReadonlyMap<string, LiteratureMapRelation>,
+  source: string,
+  target: string,
+  topicSimilarityKey: string,
+): boolean {
+  return relationByKey.has(`citation:${source}->${target}`)
+    || relationByKey.has(`citation:${target}->${source}`)
+    || relationByKey.has(undirectedKey('shared_topic', source, target))
+    || relationByKey.has(topicSimilarityKey);
+}
+
 function normalizeUndirectedRelation(relation: LiteratureMapRelation): LiteratureMapRelation {
   return relation.source.localeCompare(relation.target) <= 0
     ? relation
@@ -385,6 +478,7 @@ function compareRelations(left: LiteratureMapRelation, right: LiteratureMapRelat
   const kinds: LiteratureMapRelationKind[] = [
     'citation',
     'shared_topic',
+    'topic_similarity',
     'bibliographic_coupling',
     'co_citation',
   ];

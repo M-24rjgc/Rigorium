@@ -98,6 +98,7 @@ const DEFAULT_LABELS: LiteratureMapLabels = {
 const RELATION_KIND_LABELS: Record<LiteratureMapRelationKind, string> = {
   citation: 'Citation / 引用',
   shared_topic: 'Shared topic (inferred) / 共同主题（推断）',
+  topic_similarity: 'Topic similarity (inferred) / 主题相似（推断）',
   bibliographic_coupling: 'Bibliographic coupling (derived) / 文献耦合（派生）',
   co_citation: 'Co-citation (derived) / 共被引（派生）',
 };
@@ -105,6 +106,7 @@ const RELATION_KIND_LABELS: Record<LiteratureMapRelationKind, string> = {
 const RELATION_FILTERS: Array<{ kind: LiteratureMapRelationKind; label: string }> = [
   { kind: 'citation', label: 'Citations / 引用' },
   { kind: 'shared_topic', label: 'Topics / 主题推断' },
+  { kind: 'topic_similarity', label: 'Similarity / 主题相似' },
   { kind: 'bibliographic_coupling', label: 'Coupling / 耦合' },
   { kind: 'co_citation', label: 'Co-citation / 共被引' },
 ];
@@ -153,6 +155,7 @@ export function LiteratureMap({
   const [relationVisibility, setRelationVisibility] = useState<RelationVisibility>({
     citation: true,
     shared_topic: true,
+    topic_similarity: true,
     bibliographic_coupling: true,
     co_citation: true,
   });
@@ -863,6 +866,7 @@ function countRelations(relations: LiteratureMapRelation[]): Record<LiteratureMa
   const count: Record<LiteratureMapRelationKind, number> = {
     citation: 0,
     shared_topic: 0,
+    topic_similarity: 0,
     bibliographic_coupling: 0,
     co_citation: 0,
   };
@@ -873,6 +877,7 @@ function countRelations(relations: LiteratureMapRelation[]): Record<LiteratureMa
 function relationStyle(relation: LiteratureMapRelation): { stroke: string; width: number; dash?: string; opacity: number } {
   if (relation.kind === 'citation') return { stroke: '#4f46e5', width: 1.8, opacity: 0.86 };
   if (relation.kind === 'shared_topic') return { stroke: '#0f766e', width: 1.25, dash: '5 4', opacity: 0.62 };
+  if (relation.kind === 'topic_similarity') return { stroke: '#be123c', width: 1.1 + Math.min(relation.weight, 1) * 0.8, dash: '1 5', opacity: 0.64 };
   if (relation.kind === 'bibliographic_coupling') return { stroke: '#d97706', width: 1.2 + Math.min(relation.weight, 3) * 0.25, dash: '2 4', opacity: 0.66 };
   return { stroke: '#0284c7', width: 1.2 + Math.min(relation.weight, 3) * 0.25, dash: '7 3', opacity: 0.66 };
 }

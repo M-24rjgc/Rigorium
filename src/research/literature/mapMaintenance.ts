@@ -478,7 +478,7 @@ function mergeProvenance(
 }
 
 function normalizeEdge(edge: ResearchRelationEdge, source: string, target: string): ResearchRelationEdge {
-  const undirected = edge.type === "shared_topic" && source.localeCompare(target) > 0;
+  const undirected = edge.type !== "citation" && source.localeCompare(target) > 0;
   const normalizedSource = undirected ? target : source;
   const normalizedTarget = undirected ? source : target;
   return {

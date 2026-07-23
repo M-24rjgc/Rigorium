@@ -393,10 +393,18 @@ function mergeEdges(results: LiteratureSearchResult[], selected: MergedCandidate
       const source = mappedIds.get(edge.source);
       const target = mappedIds.get(edge.target);
       if (!source || !target || source === target || !visibleIds.has(source) || !visibleIds.has(target)) continue;
-      const unchanged = source === edge.source && target === edge.target;
+      const undirected = edge.type !== "citation" && source.localeCompare(target) > 0;
+      const normalizedSource = undirected ? target : source;
+      const normalizedTarget = undirected ? source : target;
+      const unchanged = normalizedSource === edge.source && normalizedTarget === edge.target;
       const normalized: ResearchRelationEdge = unchanged
         ? edge
-        : { ...edge, id: `${edge.type}:${source}:${target}`, source, target };
+        : {
+            ...edge,
+            id: `${edge.type}:${normalizedSource}:${normalizedTarget}`,
+            source: normalizedSource,
+            target: normalizedTarget,
+          };
       const key = `${normalized.type}\u0000${normalized.source}\u0000${normalized.target}`;
       const previous = deduplicated.get(key);
       deduplicated.set(key, chooseEdge(previous, normalized));

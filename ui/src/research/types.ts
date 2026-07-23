@@ -94,7 +94,7 @@ export type ResearchRelationEdge = {
   id: string;
   source: string;
   target: string;
-  type: 'citation' | 'shared_topic';
+  type: 'citation' | 'shared_topic' | 'topic_similarity';
   weight: number;
   inferred: boolean;
   evidence?: string[];
@@ -1057,7 +1057,7 @@ function isResearchRelationEdge(value: unknown): value is ResearchRelationEdge {
     && isNonEmptyString(value.id)
     && isNonEmptyString(value.source)
     && isNonEmptyString(value.target)
-    && (value.type === 'citation' || value.type === 'shared_topic')
+    && (value.type === 'citation' || value.type === 'shared_topic' || value.type === 'topic_similarity')
     && isNonNegativeFiniteNumber(value.weight)
     && typeof value.inferred === 'boolean'
     && isOptionalStringArray(value.evidence);

@@ -57,6 +57,18 @@ function citation(source: string, target: string): ResearchRelationEdge {
   };
 }
 
+function topicSimilarity(source: string, target: string): ResearchRelationEdge {
+  return {
+    id: `upstream-topic:${source}:${target}`,
+    source,
+    target,
+    type: "topic_similarity",
+    weight: 0.5,
+    inferred: true,
+    evidence: ["topic:https://openalex.org/t1"],
+  };
+}
+
 test("incremental updates merge aliases and preserve existing layout and classification", () => {
   const first = paper({ id: "https://openalex.org/W1", openAlexId: "https://openalex.org/W1", doi: "10.1000/ABC" });
   const second = paper({ id: "https://openalex.org/W2", openAlexId: "https://openalex.org/W2" });
@@ -107,6 +119,43 @@ test("incremental updates merge aliases and preserve existing layout and classif
   assert.ok(added);
   assert.equal(added.status, "candidate");
   assert.equal(Number.isFinite(added.position.x) && Number.isFinite(added.position.y), true);
+});
+
+test("topic-similarity edges merge as an undirected inferred relation without moving a pinned node", () => {
+  const first = paper({ id: "paper-a" });
+  const second = paper({ id: "paper-b" });
+  const created = createLiveLiteratureMap({
+    mapId: "map-topic-similarity",
+    papers: [first, second],
+    edges: [topicSimilarity(second.id, first.id)],
+    now: firstTime,
+  });
+  const pinned = setLiteratureMapNodeState(created.map, first.id, {
+    position: { x: 420, y: -75 },
+  }, { now: secondTime });
+  const replay = updateLiveLiteratureMap(pinned, {
+    origin: "monitor",
+    edges: [topicSimilarity(first.id, second.id)],
+  }, { now: new Date("2026-07-23T02:00:00.000Z") });
+
+  assert.deepEqual(created.map.edges[0], {
+    id: "topic_similarity:paper-a:paper-b",
+    source: first.id,
+    target: second.id,
+    type: "topic_similarity",
+    weight: 0.5,
+    inferred: true,
+    evidence: ["topic:https://openalex.org/t1"],
+    tombstone: false,
+    firstSeenAt: firstTime.toISOString(),
+    updatedAt: firstTime.toISOString(),
+  });
+  assert.equal(replay.map, pinned);
+  assert.deepEqual(replay.map.nodes.find((node) => node.id === first.id)?.position, {
+    x: 420,
+    y: -75,
+    pinned: true,
+  });
 });
 
 test("partial refreshes never delete records and tombstones require an explicit operation", () => {

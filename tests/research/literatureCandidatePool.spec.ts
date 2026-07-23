@@ -33,6 +33,7 @@ function paper(input: {
   identity?: ResearchPaper["identity"];
   citedByCount?: number;
   referencedWorkIds?: string[];
+  topics?: ResearchPaper["topics"];
 }): ResearchPaper {
   const doi = input.doi;
   return {
@@ -43,7 +44,7 @@ function paper(input: {
     year: input.year ?? 2025,
     ...(doi ? { doi } : {}),
     citedByCount: input.citedByCount ?? 0,
-    topics: [],
+    topics: input.topics ?? [],
     referencedWorkIds: input.referencedWorkIds ?? [],
     sourceId: input.sourceId,
     sourceIds: [input.sourceId],
@@ -118,6 +119,47 @@ test("candidate pool merges DOI variants, keeps OpenAlex primary IDs, and preser
   assert.deepEqual(merged.provenance.map((item) => item.sourceId), ["openalex", "crossref"]);
   assert.deepEqual(pool.edges, [edge]);
   assert.equal(pool.coverage.status, "complete");
+});
+
+test("candidate pool canonicalizes inferred topic-similarity endpoints before merging edges", () => {
+  const first = paper({
+    id: "paper-a",
+    sourceId: "openalex",
+    rank: 1,
+    title: "Topic similarity anchor paper",
+    topics: [{ id: "https://openalex.org/T1", name: "Agents" }],
+  });
+  const second = paper({
+    id: "paper-b",
+    sourceId: "openalex",
+    rank: 2,
+    title: "Topic similarity neighbor paper",
+    topics: [{ id: "https://openalex.org/T1", name: "Agents" }],
+  });
+
+  const pool = mergeLiteratureSearchResults({
+    requestedSourceIds: ["openalex"],
+    limit: 10,
+    results: [result(source("openalex"), [first, second], [{
+      id: "provider:paper-b:paper-a",
+      source: second.id,
+      target: first.id,
+      type: "topic_similarity",
+      weight: 0.5,
+      inferred: true,
+      evidence: ["topic:https://openalex.org/t1"],
+    }])],
+  });
+
+  assert.deepEqual(pool.edges, [{
+    id: "topic_similarity:paper-a:paper-b",
+    source: first.id,
+    target: second.id,
+    type: "topic_similarity",
+    weight: 0.5,
+    inferred: true,
+    evidence: ["topic:https://openalex.org/t1"],
+  }]);
 });
 
 test("candidate pool rejects an otherwise exact weak match when strong identifiers conflict", () => {

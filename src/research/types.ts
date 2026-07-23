@@ -248,11 +248,19 @@ export type ResearchPaper = {
   provenance: ResearchPaperProvenance[];
 };
 
+export const RESEARCH_RELATION_TYPES = [
+  "citation",
+  "shared_topic",
+  "topic_similarity",
+] as const;
+
+export type ResearchRelationType = (typeof RESEARCH_RELATION_TYPES)[number];
+
 export type ResearchRelationEdge = {
   id: string;
   source: string;
   target: string;
-  type: "citation" | "shared_topic";
+  type: ResearchRelationType;
   weight: number;
   inferred: boolean;
   evidence?: string[];

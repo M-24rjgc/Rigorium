@@ -56,6 +56,18 @@ function citation(source: string, target: string): ResearchRelationEdge {
   };
 }
 
+function topicSimilarity(source: string, target: string): ResearchRelationEdge {
+  return {
+    id: `topic:${source}:${target}`,
+    source,
+    target,
+    type: "topic_similarity",
+    weight: 0.5,
+    inferred: true,
+    evidence: ["topic:https://openalex.org/t1"],
+  };
+}
+
 async function projectRoot(label: string): Promise<string> {
   return mkdtemp(join(tmpdir(), `rigorium-map-repository-${label}-`));
 }
@@ -150,6 +162,38 @@ test("incremental replay is idempotent and retains the last persisted diff and r
   const loaded = await loadProjectLiveLiteratureMap({ projectRoot: root });
   assert.equal(loaded?.map.revision, initial.map.revision);
   assert.deepEqual(loaded?.lastDiff, initial.diff);
+});
+
+test("persisted maps retain normalized inferred topic-similarity edges", async () => {
+  const root = await projectRoot("topic-similarity");
+  const first = paper("paper-a");
+  const second = paper("paper-b");
+  const updated = await updateProjectLiveLiteratureMap({
+    projectRoot: root,
+    mapId: "map-topic-similarity",
+    update: {
+      origin: "search",
+      papers: [first, second],
+      edges: [topicSimilarity(second.id, first.id)],
+    },
+    now: firstTime,
+  });
+  const loaded = await loadProjectLiveLiteratureMap({ projectRoot: root });
+
+  assert.deepEqual(updated.map.edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    type: edge.type,
+    inferred: edge.inferred,
+  })), [{
+    id: "topic_similarity:paper-a:paper-b",
+    source: first.id,
+    target: second.id,
+    type: "topic_similarity",
+    inferred: true,
+  }]);
+  assert.equal(loaded?.map.edges[0]?.type, "topic_similarity");
 });
 
 test("freezing requires explicit confirmation and never overwrites a confirmed snapshot", async () => {
