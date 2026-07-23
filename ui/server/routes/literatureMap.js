@@ -5,15 +5,22 @@ import express from 'express';
 import { validateWorkspacePath } from './projects.js';
 import {
   LiteratureMapRepositoryError,
+  MAX_LITERATURE_MAP_EDGES,
+  MAX_LITERATURE_MAP_NODES,
   freezeProjectLiveLiteratureMap,
   getProjectLiteratureMapPaths,
   loadProjectLiveLiteratureMap,
   setProjectLiveLiteratureMapNodeState,
   updateProjectLiveLiteratureMap,
 } from '../../../src/research/literature/mapRepository.ts';
+import { refreshProjectLiteratureMap } from '../../../src/research/literature/mapRefresh.ts';
 
 const router = express.Router();
 const MAP_SEED_STATE_FILE = 'literature-map-ui-state.json';
+const MAX_REFRESH_SOURCES = 32;
+const MAX_REFRESH_CONCURRENCY = 16;
+const MAX_REFRESH_PROVIDER_COST = 1_000_000;
+const MAX_REFRESH_TOTAL_COST = 1_000_000;
 
 class LiteratureMapHttpError extends Error {
   constructor(code, message, statusCode = 400) {
@@ -61,6 +68,44 @@ router.post('/update', async (req, res) => {
     return res.status(result.created ? 201 : 200).json({ ...result, seedPaperId });
   } catch (error) {
     return respondError(res, error);
+  }
+});
+
+/**
+ * Merge read-only Agent or plugin discovery results through the refresh
+ * orchestrator. This deliberately accepts no map state, tombstones, or Zotero
+ * operation; the only write is the orchestrator's normal incremental map merge.
+ */
+router.post('/refresh', async (req, res) => {
+  const requestAbort = requestAbortSignal(req, res);
+  try {
+    const request = requestedRefreshRequest(req.body);
+    const projectRoot = await validatedProjectRoot(request.projectPath);
+    const result = await refreshProjectLiteratureMap({
+      projectRoot,
+      mapId: request.mapId,
+      providers: request.sources.map(refreshProviderForSource),
+      ...(request.maxConcurrency === undefined ? {} : { maxConcurrency: request.maxConcurrency }),
+      ...(request.budget === undefined ? {} : { budget: request.budget }),
+      ...(request.expectedRevision === undefined ? {} : { expectedRevision: request.expectedRevision }),
+      signal: requestAbort.signal,
+    });
+    if (req.aborted) return undefined;
+
+    const mapResult = result.map;
+    return res.status(mapResult?.created ? 201 : 200).json({
+      cancelled: result.cancelled,
+      sources: result.sources,
+      budget: result.budget,
+      map: mapResult?.map ?? null,
+      diff: mapResult?.diff ?? null,
+      created: mapResult?.created ?? false,
+      persisted: mapResult?.persisted ?? false,
+    });
+  } catch (error) {
+    return respondError(res, error);
+  } finally {
+    requestAbort.dispose();
   }
 });
 
@@ -171,6 +216,207 @@ function requestedMapUpdate(value) {
     update[key] = value[key];
   }
   return update;
+}
+
+function requestedRefreshRequest(value) {
+  if (!isRecord(value)) {
+    throw new LiteratureMapHttpError('invalid_input', 'A literature map refresh request is required.');
+  }
+  assertOnlyKeys(value, [
+    'projectPath',
+    'mapId',
+    'sources',
+    'maxConcurrency',
+    'budget',
+    'expectedRevision',
+  ], 'refresh request');
+  return {
+    projectPath: value.projectPath,
+    mapId: requiredIdentifier(value.mapId, 'mapId'),
+    sources: requestedRefreshSources(value.sources),
+    ...(value.maxConcurrency === undefined ? {} : { maxConcurrency: requestedRefreshConcurrency(value.maxConcurrency) }),
+    ...(value.budget === undefined ? {} : { budget: requestedRefreshBudget(value.budget) }),
+    ...(value.expectedRevision === undefined ? {} : { expectedRevision: requestedRevision(value.expectedRevision) }),
+  };
+}
+
+function requestedRefreshSources(value) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_REFRESH_SOURCES) {
+    throw new LiteratureMapHttpError(
+      'invalid_input',
+      `sources must contain between 1 and ${MAX_REFRESH_SOURCES} read-only source payloads.`,
+    );
+  }
+
+  const sourceIds = new Set();
+  let paperCount = 0;
+  let edgeCount = 0;
+  let totalCost = 0;
+  return value.map((source, index) => {
+    const location = `sources[${index}]`;
+    if (!isRecord(source)) {
+      throw new LiteratureMapHttpError('invalid_input', `${location} must be an object.`);
+    }
+    assertOnlyKeys(source, ['id', 'papers', 'edges', 'coverage', 'cost'], location);
+    const id = requiredIdentifier(source.id, `${location}.id`);
+    if (sourceIds.has(id)) {
+      throw new LiteratureMapHttpError('invalid_input', `sources must not repeat source ID ${id}.`);
+    }
+    sourceIds.add(id);
+
+    const papers = source.papers === undefined ? undefined : requestedRefreshPapers(source.papers, `${location}.papers`);
+    const edges = source.edges === undefined ? undefined : requestedRefreshEdges(source.edges, `${location}.edges`);
+    paperCount += papers?.length ?? 0;
+    edgeCount += edges?.length ?? 0;
+    if (paperCount > MAX_LITERATURE_MAP_NODES || edgeCount > MAX_LITERATURE_MAP_EDGES) {
+      throw new LiteratureMapHttpError(
+        'invalid_input',
+        `Refresh input exceeds ${MAX_LITERATURE_MAP_NODES} papers or ${MAX_LITERATURE_MAP_EDGES} edges.`,
+      );
+    }
+
+    const coverage = source.coverage === undefined
+      ? undefined
+      : requestedRefreshCoverage(source.coverage, `${location}.coverage`);
+    const cost = source.cost === undefined ? undefined : requestedRefreshCost(source.cost, `${location}.cost`);
+    totalCost += cost ?? 1;
+    if (totalCost > MAX_REFRESH_TOTAL_COST) {
+      throw new LiteratureMapHttpError(
+        'invalid_input',
+        `The total refresh source cost must not exceed ${MAX_REFRESH_TOTAL_COST}.`,
+      );
+    }
+    return {
+      id,
+      ...(papers === undefined ? {} : { papers }),
+      ...(edges === undefined ? {} : { edges }),
+      ...(coverage === undefined ? {} : { coverage }),
+      ...(cost === undefined ? {} : { cost }),
+    };
+  });
+}
+
+function refreshProviderForSource(source) {
+  return {
+    id: source.id,
+    ...(source.coverage === undefined ? {} : { coverage: source.coverage }),
+    ...(source.cost === undefined ? {} : { cost: source.cost }),
+    refresh: async () => ({
+      ...(source.papers === undefined ? {} : { papers: source.papers }),
+      ...(source.edges === undefined ? {} : { edges: source.edges }),
+      ...(source.coverage === undefined ? {} : { coverage: source.coverage }),
+    }),
+  };
+}
+
+function requestedRefreshConcurrency(value) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > MAX_REFRESH_CONCURRENCY) {
+    throw new LiteratureMapHttpError(
+      'invalid_input',
+      `maxConcurrency must be an integer between 1 and ${MAX_REFRESH_CONCURRENCY}.`,
+    );
+  }
+  return value;
+}
+
+function requestedRefreshBudget(value) {
+  if (!isRecord(value)) {
+    throw new LiteratureMapHttpError('invalid_input', 'budget must be an object when supplied.');
+  }
+  assertOnlyKeys(value, ['maxProviderCalls', 'maxCost'], 'budget');
+  const budget = {};
+  if (value.maxProviderCalls !== undefined) {
+    if (!Number.isSafeInteger(value.maxProviderCalls) || value.maxProviderCalls < 0
+      || value.maxProviderCalls > MAX_REFRESH_SOURCES) {
+      throw new LiteratureMapHttpError(
+        'invalid_input',
+        `budget.maxProviderCalls must be a non-negative integer no greater than ${MAX_REFRESH_SOURCES}.`,
+      );
+    }
+    budget.maxProviderCalls = value.maxProviderCalls;
+  }
+  if (value.maxCost !== undefined) {
+    if (!Number.isFinite(value.maxCost) || value.maxCost < 0 || value.maxCost > MAX_REFRESH_TOTAL_COST) {
+      throw new LiteratureMapHttpError(
+        'invalid_input',
+        `budget.maxCost must be a non-negative finite number no greater than ${MAX_REFRESH_TOTAL_COST}.`,
+      );
+    }
+    budget.maxCost = value.maxCost;
+  }
+  return budget;
+}
+
+function requestedRefreshCost(value, name) {
+  if (!Number.isFinite(value) || value < 0 || value > MAX_REFRESH_PROVIDER_COST) {
+    throw new LiteratureMapHttpError(
+      'invalid_input',
+      `${name} must be a non-negative finite number no greater than ${MAX_REFRESH_PROVIDER_COST}.`,
+    );
+  }
+  return value;
+}
+
+function requestedRefreshCoverage(value, name) {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > 4096 || value.includes('\u0000')) {
+    throw new LiteratureMapHttpError('invalid_input', `${name} must be a non-empty string.`);
+  }
+  return value.trim();
+}
+
+function requestedRefreshPapers(value, location) {
+  if (!Array.isArray(value)) {
+    throw new LiteratureMapHttpError('invalid_input', `${location} must be an array when supplied.`);
+  }
+  if (value.length > MAX_LITERATURE_MAP_NODES) {
+    throw new LiteratureMapHttpError('invalid_input', `${location} exceeds the literature-map paper limit.`);
+  }
+  value.forEach((paper, index) => {
+    if (!isRecord(paper)) {
+      throw new LiteratureMapHttpError('invalid_input', `${location}[${index}] must be an object.`);
+    }
+  });
+  return value;
+}
+
+function requestedRefreshEdges(value, location) {
+  if (!Array.isArray(value)) {
+    throw new LiteratureMapHttpError('invalid_input', `${location} must be an array when supplied.`);
+  }
+  if (value.length > MAX_LITERATURE_MAP_EDGES) {
+    throw new LiteratureMapHttpError('invalid_input', `${location} exceeds the literature-map edge limit.`);
+  }
+  value.forEach((edge, index) => {
+    if (!isRecord(edge)) {
+      throw new LiteratureMapHttpError('invalid_input', `${location}[${index}] must be an object.`);
+    }
+  });
+  return value;
+}
+
+function assertOnlyKeys(value, allowed, location) {
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) {
+      throw new LiteratureMapHttpError('invalid_input', `${location} does not allow ${key}.`);
+    }
+  }
+}
+
+function requestAbortSignal(req, res) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const abortIfResponseClosed = () => {
+    if (!res.writableEnded) abort();
+  };
+  req.once('aborted', abort);
+  res.once('close', abortIfResponseClosed);
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      req.off('aborted', abort);
+      res.off('close', abortIfResponseClosed);
+    },
+  };
 }
 
 function requestedNodeState(value) {

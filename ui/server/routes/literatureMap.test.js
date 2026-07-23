@@ -182,6 +182,157 @@ describe('project literature map routes', () => {
     expect(rejected.status).toBe(400);
     expect(rejected.body.code).toBe('invalid_project_root');
   });
+
+  it('refreshes static Agent or plugin source results through the map orchestrator', async () => {
+    const projectPath = await projectRoot();
+    const { request } = await createLiteratureMapApp();
+    const refreshedPaper = {
+      ...paper,
+      id: 'W2',
+      identity: { doi: '10.1000/refresh' },
+      title: 'A refreshed literature paper',
+      provenance: [{
+        ...paper.provenance[0],
+        sourceId: 'agent-search',
+        sourceRecordId: 'agent-W2',
+      }],
+    };
+
+    const result = await request('/api/research/literature-map/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectPath,
+        mapId: 'project-refresh-map',
+        maxConcurrency: 1,
+        budget: { maxProviderCalls: 1, maxCost: 1 },
+        sources: [{
+          id: 'agent-search',
+          coverage: 'Agent search results for the active research project.',
+          cost: 1,
+          papers: [refreshedPaper],
+        }, {
+          id: 'deferred-provider',
+          coverage: 'A deferred provider that must not run under this budget.',
+          papers: [{ ...paper, id: 'W3' }],
+        }],
+      }),
+    });
+
+    expect(result.status, JSON.stringify(result.body)).toBe(201);
+    expect(result.body.cancelled).toBe(false);
+    expect(result.body.created).toBe(true);
+    expect(result.body.persisted).toBe(true);
+    expect(result.body.map).toMatchObject({ mapId: 'project-refresh-map' });
+    expect(result.body.map.nodes).toHaveLength(1);
+    expect(result.body.map.nodes[0]).toMatchObject({
+      id: 'W2',
+      paper: { title: 'A refreshed literature paper' },
+      origins: ['monitor'],
+    });
+    expect(result.body.diff.nodes.added).toEqual(['W2']);
+    expect(result.body.sources.map((source) => source.state)).toEqual(['succeeded', 'skipped']);
+    expect(result.body.sources[0]).toMatchObject({
+      sourceId: 'agent-search',
+      coverage: 'Agent search results for the active research project.',
+      paperCount: 1,
+    });
+    expect(result.body.sources[1]).toMatchObject({
+      sourceId: 'deferred-provider',
+      state: 'skipped',
+      reason: 'budget_exhausted',
+    });
+    expect(result.body.budget).toMatchObject({
+      maxProviderCalls: 1,
+      maxCost: 1,
+      scheduledProviderCalls: 1,
+      scheduledCost: 1,
+    });
+  });
+
+  it('rejects refresh payloads outside the read-only refresh contract and preserves revision conflicts', async () => {
+    const projectPath = await projectRoot();
+    const { request } = await createLiteratureMapApp();
+
+    const rejectedWrite = await request('/api/research/literature-map/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectPath,
+        mapId: 'project-refresh-map',
+        sources: [{
+          id: 'agent-search',
+          papers: [paper],
+          tombstonePaperIds: ['W1'],
+        }],
+      }),
+    });
+    expect(rejectedWrite.status).toBe(400);
+    expect(rejectedWrite.body.code).toBe('invalid_input');
+
+    const duplicateSource = await request('/api/research/literature-map/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectPath,
+        mapId: 'project-refresh-map',
+        sources: [
+          { id: 'agent-search', papers: [paper] },
+          { id: 'agent-search', papers: [{ ...paper, id: 'W2' }] },
+        ],
+      }),
+    });
+    expect(duplicateSource.status).toBe(400);
+    expect(duplicateSource.body.code).toBe('invalid_input');
+
+    const excessiveConcurrency = await request('/api/research/literature-map/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectPath,
+        mapId: 'project-refresh-map',
+        maxConcurrency: 17,
+        sources: [{ id: 'agent-search', papers: [paper] }],
+      }),
+    });
+    expect(excessiveConcurrency.status).toBe(400);
+    expect(excessiveConcurrency.body.code).toBe('invalid_input');
+
+    const forbidden = process.platform === 'win32' ? 'C:\\Windows' : '/';
+    const forbiddenProject = await request('/api/research/literature-map/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectPath: forbidden,
+        mapId: 'project-refresh-map',
+        sources: [{ id: 'agent-search', papers: [paper] }],
+      }),
+    });
+    expect(forbiddenProject.status).toBe(400);
+    expect(forbiddenProject.body.code).toBe('invalid_project_root');
+
+    const created = await request('/api/research/literature-map/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectPath,
+        mapId: 'project-refresh-map',
+        sources: [{ id: 'agent-search', papers: [paper] }],
+      }),
+    });
+    expect(created.status).toBe(201);
+
+    const stale = await request('/api/research/literature-map/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectPath,
+        mapId: 'project-refresh-map',
+        expectedRevision: created.body.map.revision - 1,
+        sources: [{ id: 'agent-search', papers: [{ ...paper, id: 'W4' }] }],
+      }),
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe('revision_conflict');
+
+    const reloaded = await request(`/api/research/literature-map?projectPath=${encodeURIComponent(projectPath)}`);
+    expect(reloaded.status).toBe(200);
+    expect(reloaded.body.map.revision).toBe(created.body.map.revision);
+    expect(reloaded.body.map.nodes.map((node) => node.id)).toEqual(['W1']);
+  });
 });
 
 async function projectRoot() {
