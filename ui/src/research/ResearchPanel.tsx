@@ -57,7 +57,11 @@ import type {
   LiteratureResearchArtifact,
   LiteratureSearchArtifact,
   LiteratureExpansionDirectionResult,
+  ResearchDirectionAssessmentArtifact,
+  ResearchDirectionLifecycleArtifact,
+  ResearchDirectionLifecycleStageStatus,
   ResearchDirectionSeedArtifact,
+  ResearchTitleConfirmationArtifact,
   ResearchPaper,
   ResearchPaperProvenance,
   ResearchSettingsSnapshot,
@@ -107,6 +111,15 @@ type ZoteroMapSyncNotice = {
 export default function ResearchPanel({ artifact, projectPath }: ResearchPanelProps) {
   if (artifact.kind === 'research_direction_seed') {
     return <ResearchDirectionPanel artifact={artifact} />;
+  }
+  if (artifact.kind === 'direction_assessment') {
+    return <ResearchDirectionAssessmentPanel artifact={artifact} />;
+  }
+  if (artifact.kind === 'research_title_confirmation') {
+    return <ResearchTitleConfirmationPanel artifact={artifact} />;
+  }
+  if (artifact.kind === 'research_direction_lifecycle') {
+    return <ResearchDirectionLifecyclePanel artifact={artifact} />;
   }
   return <LiteratureResearchPanel artifact={artifact} projectPath={projectPath} />;
 }
@@ -3078,6 +3091,343 @@ function ResearchDirectionPanel({ artifact }: { artifact: ResearchDirectionSeedA
       ) : null}
     </div>
   );
+}
+
+function ResearchDirectionAssessmentPanel({ artifact }: { artifact: ResearchDirectionAssessmentArtifact }) {
+  const { t } = useTranslation();
+  const [selectedDirectionId, setSelectedDirectionId] = useState(
+    artifact.result.rankedDirectionIds[0] ?? artifact.result.assessments[0]?.directionId ?? null,
+  );
+  const assessment = artifact.result.assessments.find((item) => item.directionId === selectedDirectionId)
+    ?? artifact.result.assessments[0]
+    ?? null;
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-neutral-50/70 dark:bg-neutral-950" data-testid="research-direction-assessment-panel">
+      <header className="shrink-0 border-b border-neutral-200 bg-white px-3 py-3 dark:border-neutral-800 dark:bg-neutral-950">
+        <p className="text-[13px] font-semibold text-neutral-900 dark:text-neutral-100">
+          {t('researchPanel.assessmentTitle')}
+        </p>
+        <p className="mt-1 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+          {t('researchPanel.assessmentSubtitle')}
+        </p>
+      </header>
+
+      <section className="shrink-0 border-b border-neutral-200 px-3 py-3 dark:border-neutral-800" aria-labelledby="research-assessment-ranking">
+        <div className="flex items-center justify-between gap-2">
+          <h2 id="research-assessment-ranking" className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-300">
+            {t('researchPanel.assessmentRanking')}
+          </h2>
+          <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{artifact.result.assessments.length}</span>
+        </div>
+        <div className="mt-2 space-y-1.5" role="tablist" aria-label={t('researchPanel.assessmentRanking')}>
+          {artifact.result.assessments.map((item) => (
+            <button
+              key={item.directionId}
+              type="button"
+              role="tab"
+              aria-selected={item.directionId === assessment?.directionId}
+              onClick={() => setSelectedDirectionId(item.directionId)}
+              className={cn(
+                'grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-start gap-2 border px-2.5 py-2 text-left text-[11px] transition',
+                item.directionId === assessment?.directionId
+                  ? 'border-neutral-900 bg-white text-neutral-900 dark:border-neutral-200 dark:bg-neutral-900 dark:text-neutral-100'
+                  : 'border-neutral-200 text-neutral-600 hover:bg-white dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-900',
+              )}
+            >
+              <span className="font-semibold">#{item.rank}</span>
+              <span className="min-w-0">
+                <span className="block truncate font-medium">{item.directionId}</span>
+                <span className="mt-0.5 block line-clamp-2 leading-4">{item.summary}</span>
+              </span>
+              <span className="font-mono text-[10px] tabular-nums">{item.score.total}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {assessment ? (
+        <section className="min-h-0 flex-1 px-3 py-3" aria-labelledby="research-assessment-detail">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 id="research-assessment-detail" className="text-[12px] font-semibold text-neutral-900 dark:text-neutral-100">
+                {assessment.summary}
+              </h2>
+              <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+                {t('researchPanel.assessmentScore', { score: assessment.score.total })}
+              </p>
+            </div>
+            <span className={cn('shrink-0 text-[10px] font-medium', directionStatusTone(assessment.minimumViability.status))}>
+              {t(`researchPanel.minimumViability.${assessment.minimumViability.status}`)}
+            </span>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden border border-neutral-200 bg-neutral-200 text-[10px] dark:border-neutral-800 dark:bg-neutral-800">
+            <DirectionMetric label={t('researchPanel.assessmentEvidence')} value={assessment.score.evidence} />
+            <DirectionMetric label={t('researchPanel.assessmentFeasibility')} value={assessment.score.feasibility} />
+            <DirectionMetric label={t('researchPanel.assessmentTestability')} value={assessment.score.testability} />
+            <DirectionMetric label={t('researchPanel.assessmentGap')} value={assessment.score.gapOpportunity} />
+          </div>
+
+          <div className="mt-3 border-l-2 border-amber-300 pl-2 dark:border-amber-700">
+            <p className="text-[10px] font-medium text-amber-800 dark:text-amber-200">
+              {t(`researchPanel.provisionalTitleStatus.${assessment.provisionalTitle.status}`)}
+            </p>
+            <p className="mt-1 text-[11px] leading-4 text-neutral-700 dark:text-neutral-300">
+              {assessment.provisionalTitle.text ?? t('researchPanel.directionNoTitle')}
+            </p>
+          </div>
+
+          <DirectionEvidenceList
+            title={t('researchPanel.assessmentEvidenceGaps')}
+            emptyLabel={t('researchPanel.assessmentNoEvidenceGaps')}
+            items={assessment.unmetEvidenceGaps.map((gap) => ({
+              id: `${gap.code}:${gap.relatedId ?? gap.hypothesisId ?? gap.caveatId ?? ''}`,
+              label: t(`researchPanel.reason.${gap.code}`, { defaultValue: gap.code.replace(/_/g, ' ') }),
+              detail: gap.evidenceIds.length > 0
+                ? t('researchPanel.assessmentEvidenceCount', { count: gap.evidenceIds.length })
+                : undefined,
+            }))}
+          />
+          <DirectionEvidenceList
+            title={t('researchPanel.assessmentHypotheses')}
+            emptyLabel={t('researchPanel.assessmentNoHypotheses')}
+            items={assessment.falsifiableHypotheses.map((hypothesis) => ({
+              id: hypothesis.id,
+              label: hypothesis.statement,
+              detail: t(`researchPanel.hypothesisStatus.${hypothesis.status}`),
+            }))}
+          />
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function ResearchTitleConfirmationPanel({ artifact }: { artifact: ResearchTitleConfirmationArtifact }) {
+  const { t } = useTranslation();
+  const { title, confirmation } = artifact.result;
+  const ready = confirmation.projectNameUpdate.status === 'ready_for_explicit_project_action';
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-neutral-50/70 dark:bg-neutral-950" data-testid="research-title-confirmation-panel">
+      <header className="shrink-0 border-b border-neutral-200 bg-white px-3 py-3 dark:border-neutral-800 dark:bg-neutral-950">
+        <p className="text-[13px] font-semibold text-neutral-900 dark:text-neutral-100">
+          {t('researchPanel.titleConfirmationTitle')}
+        </p>
+        <p className="mt-1 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+          {t('researchPanel.titleConfirmationSubtitle')}
+        </p>
+      </header>
+      <section className="px-3 py-3" aria-labelledby="research-title-confirmation-result">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 id="research-title-confirmation-result" className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-300">
+              {artifact.result.directionId}
+            </h2>
+            <p className="mt-2 border-l-2 border-amber-300 pl-2 text-[12px] leading-5 text-neutral-900 dark:border-amber-700 dark:text-neutral-100">
+              {title.text ?? t('researchPanel.directionNoTitle')}
+            </p>
+          </div>
+          <span className={cn('shrink-0 text-[10px] font-medium', confirmation.confirmed ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300')}>
+            {t(`researchPanel.titleConfirmationStatus.${confirmation.status}`)}
+          </span>
+        </div>
+        <dl className="mt-4 divide-y divide-neutral-200 border-y border-neutral-200 text-[11px] dark:divide-neutral-800 dark:border-neutral-800">
+          <DirectionDefinitionRow label={t('researchPanel.titleEvidence')} value={t('researchPanel.assessmentEvidenceCount', { count: title.evidenceIds.length })} />
+          <DirectionDefinitionRow label={t('researchPanel.titleReviewStatus')} value={t(`researchPanel.provisionalTitleStatus.${title.status}`)} />
+          <DirectionDefinitionRow
+            label={t('researchPanel.projectNameAction')}
+            value={ready ? t('researchPanel.projectNameActionReady') : t('researchPanel.projectNameActionNotReady')}
+          />
+        </dl>
+        <p className="mt-3 text-[10px] leading-4 text-neutral-500 dark:text-neutral-400" data-testid="research-title-project-action-note">
+          {t('researchPanel.projectNameExplicitNote')}
+        </p>
+      </section>
+    </div>
+  );
+}
+
+function ResearchDirectionLifecyclePanel({ artifact }: { artifact: ResearchDirectionLifecycleArtifact }) {
+  const { t } = useTranslation();
+  const state = artifact.state;
+
+  if (!state) {
+    return (
+      <div className="flex h-full flex-col bg-neutral-50/70 dark:bg-neutral-950" data-testid="research-direction-lifecycle-panel">
+        <header className="border-b border-neutral-200 bg-white px-3 py-3 dark:border-neutral-800 dark:bg-neutral-950">
+          <p className="text-[13px] font-semibold text-neutral-900 dark:text-neutral-100">{t('researchPanel.lifecycleTitle')}</p>
+        </header>
+        <div className="px-3 py-4 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+          {t('researchPanel.lifecycleEmpty')}
+        </div>
+      </div>
+    );
+  }
+
+  const selectedAssessment = state.selectedDirectionId
+    ? state.assessment?.result.assessments.find((item) => item.directionId === state.selectedDirectionId)
+    : undefined;
+  const title = state.titleConfirmation?.result.title;
+  const completed = state.checklist.completedStageIds.length;
+  const total = state.checklist.items.length;
+  const projectNameReady = state.checklist.projectNameAction.status === 'ready_for_explicit_project_action';
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-neutral-50/70 dark:bg-neutral-950" data-testid="research-direction-lifecycle-panel">
+      <header className="shrink-0 border-b border-neutral-200 bg-white px-3 py-3 dark:border-neutral-800 dark:bg-neutral-950">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[13px] font-semibold text-neutral-900 dark:text-neutral-100">{t('researchPanel.lifecycleTitle')}</p>
+            <p className="mt-1 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+              {artifact.operation === 'saved' ? t('researchPanel.lifecycleSaved') : t('researchPanel.lifecycleLoaded')}
+            </p>
+          </div>
+          <span className="shrink-0 text-[10px] text-neutral-500 dark:text-neutral-400">
+            {t('researchPanel.lifecycleRevision', { revision: state.revision })}
+          </span>
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <div className="h-1.5 min-w-0 flex-1 overflow-hidden bg-neutral-200 dark:bg-neutral-800" aria-hidden="true">
+            <div className="h-full bg-emerald-600" style={{ width: `${Math.round((completed / total) * 100)}%` }} />
+          </div>
+          <span className="shrink-0 text-[10px] tabular-nums text-neutral-500 dark:text-neutral-400">
+            {t('researchPanel.lifecycleCompleted', { completed, total })}
+          </span>
+        </div>
+      </header>
+
+      <section className="shrink-0 border-b border-neutral-200 px-3 py-3 dark:border-neutral-800" aria-labelledby="research-lifecycle-selection">
+        <h2 id="research-lifecycle-selection" className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-300">
+          {t('researchPanel.lifecycleSelectedDirection')}
+        </h2>
+        <p className="mt-1 text-[12px] leading-5 text-neutral-900 dark:text-neutral-100">
+          {selectedAssessment?.summary ?? state.selectedDirectionId ?? t('researchPanel.lifecycleNoSelection')}
+        </p>
+        {selectedAssessment ? (
+          <p className="mt-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+            {t('researchPanel.assessmentScore', { score: selectedAssessment.score.total })}
+            {' / '}
+            {t(`researchPanel.minimumViability.${selectedAssessment.minimumViability.status}`)}
+          </p>
+        ) : null}
+        {title ? (
+          <p className="mt-2 border-l-2 border-amber-300 pl-2 text-[11px] leading-4 text-neutral-700 dark:border-amber-700 dark:text-neutral-300">
+            {title.text ?? t('researchPanel.directionNoTitle')}
+            <span className="ml-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+              ({t(`researchPanel.provisionalTitleStatus.${title.status}`)})
+            </span>
+          </p>
+        ) : null}
+      </section>
+
+      <section className="min-h-0 flex-1 px-3 py-3" aria-labelledby="research-lifecycle-checklist">
+        <div className="flex items-center justify-between gap-2">
+          <h2 id="research-lifecycle-checklist" className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-300">
+            {t('researchPanel.lifecycleChecklist')}
+          </h2>
+          <span className={cn('text-[10px] font-medium', directionStatusTone(state.checklist.status))}>
+            {t(`researchPanel.lifecycleStatus.${state.checklist.status}`)}
+          </span>
+        </div>
+        <ol className="mt-2 divide-y divide-neutral-200 border-y border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800" data-testid="research-direction-lifecycle-checklist">
+          {state.checklist.items.map((item, index) => (
+            <li key={item.id} className="grid min-h-10 grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2 py-2 text-[11px]">
+              <span className={cn('flex h-4 w-4 items-center justify-center', directionStatusTone(item.status))}>
+                {item.status === 'complete'
+                  ? <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                  : item.status === 'blocked'
+                    ? <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />
+                    : <span className="font-mono text-[9px] tabular-nums">{index + 1}</span>}
+              </span>
+              <span className="min-w-0">
+                <span className="block leading-4 text-neutral-700 dark:text-neutral-300">
+                  {t(`researchPanel.lifecycleStage.${item.id}`)}
+                </span>
+                {item.reasonCodes.length > 0 ? (
+                  <span className="mt-0.5 block truncate text-[9px] text-neutral-400 dark:text-neutral-500">
+                    {item.reasonCodes.map((reason) => t(`researchPanel.reason.${reason}`, { defaultValue: reason.replace(/_/g, ' ') })).join(' / ')}
+                  </span>
+                ) : null}
+              </span>
+              <span className={cn('shrink-0 text-[9px]', directionStatusTone(item.status))}>
+                {t(`researchPanel.lifecycleStageStatus.${item.status}`)}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="shrink-0 border-t border-neutral-200 bg-white px-3 py-3 dark:border-neutral-800 dark:bg-neutral-950" data-testid="research-lifecycle-project-action">
+        <div className="flex items-start justify-between gap-3 text-[11px]">
+          <span className="font-medium text-neutral-700 dark:text-neutral-300">{t('researchPanel.projectNameAction')}</span>
+          <span className={projectNameReady ? 'text-emerald-700 dark:text-emerald-300' : 'text-neutral-500 dark:text-neutral-400'}>
+            {projectNameReady ? t('researchPanel.projectNameActionReady') : t('researchPanel.projectNameActionNotReady')}
+          </span>
+        </div>
+        {projectNameReady && state.checklist.projectNameAction.name ? (
+          <p className="mt-1 text-[11px] leading-4 text-neutral-900 dark:text-neutral-100">
+            {state.checklist.projectNameAction.name}
+          </p>
+        ) : null}
+        <p className="mt-2 text-[10px] leading-4 text-neutral-500 dark:text-neutral-400">
+          {t('researchPanel.projectNameExplicitNote')}
+        </p>
+      </section>
+    </div>
+  );
+}
+
+function DirectionMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex min-h-10 items-center justify-between gap-2 bg-white px-2.5 py-2 dark:bg-neutral-950">
+      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
+      <span className="font-mono tabular-nums text-neutral-900 dark:text-neutral-100">{value}</span>
+    </div>
+  );
+}
+
+function DirectionEvidenceList({ title, emptyLabel, items }: {
+  title: string;
+  emptyLabel: string;
+  items: Array<{ id: string; label: string; detail?: string }>;
+}) {
+  return (
+    <div className="mt-3">
+      <h3 className="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400">{title}</h3>
+      {items.length > 0 ? (
+        <ul className="mt-1.5 space-y-1.5 text-[11px] leading-4 text-neutral-700 dark:text-neutral-300">
+          {items.map((item) => (
+            <li key={item.id} className="border-l border-neutral-300 pl-2 dark:border-neutral-700">
+              <span className="block">{item.label}</span>
+              {item.detail ? <span className="block text-[9px] text-neutral-400 dark:text-neutral-500">{item.detail}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="mt-1.5 text-[10px] text-neutral-400 dark:text-neutral-500">{emptyLabel}</p>}
+    </div>
+  );
+}
+
+function DirectionDefinitionRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid min-h-10 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] items-center gap-3 py-2">
+      <dt className="text-neutral-500 dark:text-neutral-400">{label}</dt>
+      <dd className="min-w-0 text-right text-neutral-900 dark:text-neutral-100">{value}</dd>
+    </div>
+  );
+}
+
+function directionStatusTone(status: ResearchDirectionLifecycleStageStatus | 'in_progress' | 'awaiting_title_confirmation' | 'ready_for_explicit_project_name_action' | 'viable'): string {
+  if (status === 'complete' || status === 'viable' || status === 'ready_for_explicit_project_name_action') {
+    return 'text-emerald-700 dark:text-emerald-300';
+  }
+  if (status === 'blocked') return 'text-red-700 dark:text-red-300';
+  if (status === 'needs_input' || status === 'needs_evidence' || status === 'awaiting_confirmation' || status === 'awaiting_title_confirmation') {
+    return 'text-amber-700 dark:text-amber-300';
+  }
+  return 'text-neutral-500 dark:text-neutral-400';
 }
 
 function formatLiteratureChatReference(paper: ResearchPaper): string {

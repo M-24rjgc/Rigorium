@@ -30,6 +30,10 @@ import {
   type CreateResearchDirectionSeedToolOptions,
 } from "../builtin/directionSeed.js";
 import {
+  createResearchDirectionLifecycleTool,
+  type CreateResearchDirectionLifecycleToolOptions,
+} from "../builtin/directionLifecycle.js";
+import {
   createResearchTitleConfirmationTool,
   type CreateResearchTitleConfirmationToolOptions,
 } from "../builtin/titleConfirm.js";
@@ -114,6 +118,8 @@ export type CreateBuiltinRegistryOptions = {
   directionAssessment?: CreateDirectionAssessToolOptions | false;
   /** Rigorium cue-to-candidate research direction artifact. Registered by default. */
   researchDirectionSeed?: CreateResearchDirectionSeedToolOptions | false;
+  /** Rigorium project-local research direction lifecycle. Registered by default. */
+  researchDirectionLifecycle?: CreateResearchDirectionLifecycleToolOptions | false;
   /** Rigorium explicit, side-effect-free title confirmation. Registered by default. */
   researchTitleConfirmation?: CreateResearchTitleConfirmationToolOptions | false;
   /**
@@ -156,6 +162,9 @@ export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): T
   }
   if (options?.researchDirectionSeed !== false) {
     registry.register(createResearchDirectionSeedTool(options?.researchDirectionSeed));
+  }
+  if (options?.researchDirectionLifecycle !== false) {
+    registry.register(createResearchDirectionLifecycleTool(options?.researchDirectionLifecycle));
   }
   if (options?.researchTitleConfirmation !== false) {
     registry.register(createResearchTitleConfirmationTool(options?.researchTitleConfirmation));

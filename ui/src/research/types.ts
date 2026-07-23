@@ -246,6 +246,233 @@ export type ResearchDirectionSeedArtifact = {
   presentation?: { autoOpen?: boolean };
 };
 
+export type ResearchDirectionEvidence = {
+  id: string;
+  paperId: string;
+  role: 'prior_art' | 'gap' | 'method' | 'result' | 'limitation' | 'data' | 'baseline' | 'evaluation' | 'ethics' | 'venue';
+  statement: string;
+  strength?: 'direct' | 'indirect';
+};
+
+export type ResearchDirectionTrace = {
+  evidenceIds: string[];
+  paperIds: string[];
+  constraintIds: string[];
+};
+
+export type ResearchDirectionAssessmentInput = {
+  candidates: Array<{
+    id: string;
+    summary: string;
+    titleSeed?: string;
+    evidenceIds?: string[];
+    caveats?: Array<{
+      id: string;
+      summary: string;
+      severity: 'low' | 'medium' | 'high';
+      evidenceIds?: string[];
+    }>;
+    hypotheses?: Array<{
+      id: string;
+      statement: string;
+      failureCriterion?: string;
+      evidenceIds?: string[];
+      evaluationConstraintId?: string;
+      baselineConstraintIds?: string[];
+    }>;
+    constraintIds?: string[];
+    targetConferenceIds?: string[];
+  }>;
+  evidence?: ResearchDirectionEvidence[];
+  constraints?: Array<{
+    id: string;
+    kind: 'venue' | 'time' | 'data' | 'compute' | 'ethics' | 'baseline' | 'evaluation';
+    label: string;
+    status: 'satisfied' | 'unknown' | 'blocked';
+    required?: boolean;
+    evidenceIds?: string[];
+  }>;
+  targetConferences?: Array<{
+    id: string;
+    name: string;
+    deadline?: string;
+    status: 'satisfied' | 'unknown' | 'blocked';
+    evidenceIds?: string[];
+  }>;
+};
+
+export type ResearchDirectionAssessment = {
+  rank: number;
+  directionId: string;
+  summary: string;
+  score: ResearchDirectionTrace & {
+    total: number;
+    evidence: number;
+    feasibility: number;
+    testability: number;
+    gapOpportunity: number;
+    caveatPenalty: number;
+    blockerPenalty: number;
+  };
+  novelty: ResearchDirectionTrace & { status: 'gap_evidenced' | 'not_established' };
+  caveats: Array<ResearchDirectionTrace & {
+    id: string;
+    summary: string;
+    severity: 'low' | 'medium' | 'high';
+    status: 'cited' | 'needs_evidence';
+  }>;
+  falsifiableHypotheses: Array<ResearchDirectionTrace & {
+    id: string;
+    statement: string;
+    failureCriterion?: string;
+    status: 'ready' | 'needs_evidence' | 'needs_design' | 'blocked';
+  }>;
+  targetConferences: Array<ResearchDirectionTrace & {
+    id: string;
+    name: string;
+    deadline?: string;
+    status: 'satisfied' | 'unknown' | 'blocked';
+  }>;
+  unmetEvidenceGaps: Array<ResearchDirectionTrace & {
+    code: string;
+    severity: 'required' | 'advisory';
+    hypothesisId?: string;
+    caveatId?: string;
+    relatedId?: string;
+  }>;
+  minimumViability: {
+    status: 'viable' | 'needs_evidence' | 'blocked';
+    reasons: Array<ResearchDirectionTrace & {
+      code: string;
+      status: 'supported' | 'unproven' | 'blocked';
+      relatedId?: string;
+    }>;
+  };
+  provisionalTitle: ResearchDirectionTrace & {
+    status: 'accepted' | 'downgraded' | 'rejected';
+    text?: string;
+    reasonCodes: string[];
+  };
+  conclusions: Array<ResearchDirectionTrace & {
+    code: string;
+    status: 'supported' | 'unproven' | 'blocked';
+    relatedId?: string;
+  }>;
+};
+
+export type ResearchDirectionAssessmentSnapshot = {
+  input: ResearchDirectionAssessmentInput;
+  result: {
+    limits: Record<string, number>;
+    rankedDirectionIds: string[];
+    assessments: ResearchDirectionAssessment[];
+  };
+};
+
+export type ResearchDirectionAssessmentArtifact = ResearchDirectionAssessmentSnapshot & {
+  schemaVersion: 1;
+  kind: 'direction_assessment';
+  artifactId: string;
+  createdAt: string;
+  presentation?: { autoOpen?: boolean };
+};
+
+export type ResearchTitleConfirmationSnapshot = {
+  input: {
+    directionId: string;
+    candidateTitle: string;
+    evidence: ResearchDirectionEvidence[];
+    neutralTitle?: string;
+    confirmed?: boolean;
+  };
+  result: {
+    directionId: string;
+    title: ResearchDirectionTrace & {
+      status: 'accepted' | 'downgraded' | 'rejected';
+      text?: string;
+      reasonCodes: string[];
+    };
+    confirmation: {
+      status: 'pending' | 'confirmed';
+      confirmed: boolean;
+      projectNameUpdate: {
+        status: 'not_ready' | 'ready_for_explicit_project_action';
+        name?: string;
+        requiresExplicitUserAction: true;
+      };
+    };
+  };
+};
+
+export type ResearchTitleConfirmationArtifact = ResearchTitleConfirmationSnapshot & {
+  schemaVersion: 1;
+  kind: 'research_title_confirmation';
+  artifactId: string;
+  createdAt: string;
+  presentation?: { autoOpen?: boolean };
+};
+
+export const RESEARCH_DIRECTION_LIFECYCLE_STAGE_IDS = [
+  'cue_classification',
+  'terminology',
+  'constraints',
+  'evidence_gap_analysis',
+  'candidate_comparison',
+  'novelty_value_rescan',
+  'feasibility_ethics_evaluation',
+  'falsifiable_hypotheses_contributions',
+  'minimum_viability',
+  'provisional_title',
+  'project_name_confirmation',
+] as const;
+
+export type ResearchDirectionLifecycleStageId = typeof RESEARCH_DIRECTION_LIFECYCLE_STAGE_IDS[number];
+export type ResearchDirectionLifecycleStageStatus = 'not_started' | 'needs_input' | 'needs_evidence' | 'blocked' | 'awaiting_confirmation' | 'complete';
+
+export type ResearchDirectionLifecycleState = {
+  schemaVersion: 1;
+  kind: 'research_direction_lifecycle';
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  seedInput: ResearchDirectionSeedArtifact['input'];
+  seed: ResearchDirectionSeedArtifact['result'];
+  assessment?: ResearchDirectionAssessmentSnapshot;
+  selectedDirectionId?: string;
+  titleConfirmation?: ResearchTitleConfirmationSnapshot;
+  checklist: {
+    items: Array<{
+      id: ResearchDirectionLifecycleStageId;
+      status: ResearchDirectionLifecycleStageStatus;
+      candidateId?: string;
+      evidenceIds: string[];
+      constraintIds: string[];
+      reasonCodes: string[];
+    }>;
+    completedStageIds: ResearchDirectionLifecycleStageId[];
+    nextStageId?: ResearchDirectionLifecycleStageId;
+    status: 'in_progress' | 'blocked' | 'awaiting_title_confirmation' | 'ready_for_explicit_project_name_action';
+    projectNameAction: {
+      status: 'not_ready' | 'ready_for_explicit_project_action';
+      name?: string;
+      requiresExplicitUserAction: true;
+    };
+  };
+};
+
+export type ResearchDirectionLifecycleArtifact = {
+  schemaVersion: 1;
+  kind: 'research_direction_lifecycle';
+  artifactId: string;
+  createdAt: string;
+  operation: 'loaded' | 'saved';
+  path?: string;
+  created?: boolean;
+  persisted?: boolean;
+  state?: ResearchDirectionLifecycleState;
+  presentation?: { autoOpen?: boolean };
+};
+
 export type LiteratureSearchPlan = {
   query: string;
   limit: number;
@@ -399,7 +626,12 @@ export type LiteratureResearchArtifact = LiteratureSearchArtifact | LiteratureEx
  */
 export type ResearchArtifact = LiteratureResearchArtifact;
 
-export type ResearchPanelArtifact = LiteratureResearchArtifact | ResearchDirectionSeedArtifact;
+export type ResearchPanelArtifact =
+  | LiteratureResearchArtifact
+  | ResearchDirectionSeedArtifact
+  | ResearchDirectionAssessmentArtifact
+  | ResearchTitleConfirmationArtifact
+  | ResearchDirectionLifecycleArtifact;
 
 export type ResearchSettingsSnapshot = {
   global: ResearchSettings;
@@ -630,6 +862,9 @@ export type ZoteroPaperMatch = {
 
 export function isResearchArtifact(value: unknown): value is ResearchPanelArtifact {
   if (isResearchDirectionSeedArtifact(value)) return true;
+  if (isResearchDirectionAssessmentArtifact(value)) return true;
+  if (isResearchTitleConfirmationArtifact(value)) return true;
+  if (isResearchDirectionLifecycleArtifact(value)) return true;
   if (!isResearchArtifactBase(value)) return false;
   if (value.kind === 'literature_search') {
     const paperIds = new Set(value.papers.flatMap((paper) => (
@@ -770,6 +1005,421 @@ function isResearchDirectionCandidate(value: unknown): value is ResearchDirectio
     || !isRecord(value.provisionalTitle.confirmation.projectNameUpdate)) return false;
   return isNonEmptyString(value.provisionalTitle.text)
     || value.provisionalTitle.status === 'rejected';
+}
+
+export function isResearchDirectionAssessmentArtifact(value: unknown): value is ResearchDirectionAssessmentArtifact {
+  return isDirectionArtifactEnvelope(value, 'direction_assessment')
+    && isResearchDirectionAssessmentSnapshot(value);
+}
+
+export function isResearchTitleConfirmationArtifact(value: unknown): value is ResearchTitleConfirmationArtifact {
+  return isDirectionArtifactEnvelope(value, 'research_title_confirmation')
+    && isResearchTitleConfirmationSnapshot(value);
+}
+
+export function isResearchDirectionLifecycleArtifact(value: unknown): value is ResearchDirectionLifecycleArtifact {
+  if (!isDirectionArtifactEnvelope(value, 'research_direction_lifecycle')
+    || (value.operation !== 'loaded' && value.operation !== 'saved')
+    || (value.path !== undefined && !isNonEmptyString(value.path))
+    || (value.created !== undefined && typeof value.created !== 'boolean')
+    || (value.persisted !== undefined && typeof value.persisted !== 'boolean')
+    || (value.state !== undefined && !isResearchDirectionLifecycleState(value.state))) {
+    return false;
+  }
+  return value.operation === 'loaded'
+    || (isNonEmptyString(value.path)
+      && typeof value.created === 'boolean'
+      && typeof value.persisted === 'boolean'
+      && isResearchDirectionLifecycleState(value.state));
+}
+
+function isDirectionArtifactEnvelope(value: unknown, kind: string): value is Record<string, unknown> & {
+  schemaVersion: 1;
+  kind: string;
+  artifactId: string;
+  createdAt: string;
+} {
+  return isRecord(value)
+    && value.schemaVersion === 1
+    && value.kind === kind
+    && isNonEmptyString(value.artifactId)
+    && isNonEmptyString(value.createdAt)
+    && (value.presentation === undefined
+      || (isRecord(value.presentation)
+        && (value.presentation.autoOpen === undefined || typeof value.presentation.autoOpen === 'boolean')));
+}
+
+function isResearchDirectionAssessmentSnapshot(value: unknown): value is ResearchDirectionAssessmentSnapshot {
+  if (!isRecord(value)
+    || !isResearchDirectionAssessmentInput(value.input)
+    || !isRecord(value.result)
+    || !isRecord(value.result.limits)
+    || Object.keys(value.result.limits).length === 0
+    || !Object.values(value.result.limits).every(isNonNegativeFiniteNumber)
+    || !isStringArray(value.result.rankedDirectionIds)
+    || !hasUniqueStrings(value.result.rankedDirectionIds)
+    || !Array.isArray(value.result.assessments)
+    || value.result.assessments.length === 0
+    || value.result.assessments.length > 24
+    || !value.result.assessments.every(isResearchDirectionAssessment)) {
+    return false;
+  }
+  const assessmentIds = value.result.assessments.map((assessment) => assessment.directionId);
+  const rankedDirectionIds = value.result.rankedDirectionIds;
+  return hasUniqueStrings(assessmentIds)
+    && assessmentIds.length === rankedDirectionIds.length
+    && value.result.assessments.every((assessment, index) => assessment.rank === index + 1)
+    && assessmentIds.every((id, index) => rankedDirectionIds[index] === id);
+}
+
+function isResearchDirectionAssessmentInput(value: unknown): value is ResearchDirectionAssessmentInput {
+  return isRecord(value)
+    && Array.isArray(value.candidates)
+    && value.candidates.length > 0
+    && value.candidates.length <= 24
+    && value.candidates.every(isResearchDirectionAssessmentCandidateInput)
+    && (value.evidence === undefined
+      || (Array.isArray(value.evidence) && value.evidence.length <= 320 && value.evidence.every(isResearchDirectionEvidence)))
+    && (value.constraints === undefined
+      || (Array.isArray(value.constraints) && value.constraints.length <= 64 && value.constraints.every(isResearchDirectionAssessmentConstraint)))
+    && (value.targetConferences === undefined
+      || (Array.isArray(value.targetConferences) && value.targetConferences.length <= 16 && value.targetConferences.every(isResearchDirectionTargetConferenceInput)));
+}
+
+function isResearchDirectionAssessmentCandidateInput(value: unknown): boolean {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.summary)
+    && isOptionalString(value.titleSeed)
+    && isOptionalUniqueStringArray(value.evidenceIds)
+    && isOptionalUniqueStringArray(value.constraintIds)
+    && isOptionalUniqueStringArray(value.targetConferenceIds)
+    && (value.caveats === undefined
+      || (Array.isArray(value.caveats) && value.caveats.length <= 12 && value.caveats.every(isResearchDirectionCaveatInput)))
+    && (value.hypotheses === undefined
+      || (Array.isArray(value.hypotheses) && value.hypotheses.length <= 8 && value.hypotheses.every(isResearchDirectionHypothesisInput)));
+}
+
+function isResearchDirectionCaveatInput(value: unknown): boolean {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.summary)
+    && (value.severity === 'low' || value.severity === 'medium' || value.severity === 'high')
+    && isOptionalUniqueStringArray(value.evidenceIds);
+}
+
+function isResearchDirectionHypothesisInput(value: unknown): boolean {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.statement)
+    && isOptionalString(value.failureCriterion)
+    && isOptionalString(value.evaluationConstraintId)
+    && isOptionalUniqueStringArray(value.evidenceIds)
+    && isOptionalUniqueStringArray(value.baselineConstraintIds);
+}
+
+function isResearchDirectionEvidence(value: unknown): value is ResearchDirectionEvidence {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.paperId)
+    && (value.role === 'prior_art'
+      || value.role === 'gap'
+      || value.role === 'method'
+      || value.role === 'result'
+      || value.role === 'limitation'
+      || value.role === 'data'
+      || value.role === 'baseline'
+      || value.role === 'evaluation'
+      || value.role === 'ethics'
+      || value.role === 'venue')
+    && isNonEmptyString(value.statement)
+    && (value.strength === undefined || value.strength === 'direct' || value.strength === 'indirect');
+}
+
+function isResearchDirectionAssessmentConstraint(value: unknown): boolean {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && (value.kind === 'venue'
+      || value.kind === 'time'
+      || value.kind === 'data'
+      || value.kind === 'compute'
+      || value.kind === 'ethics'
+      || value.kind === 'baseline'
+      || value.kind === 'evaluation')
+    && isNonEmptyString(value.label)
+    && (value.status === 'satisfied' || value.status === 'unknown' || value.status === 'blocked')
+    && (value.required === undefined || typeof value.required === 'boolean')
+    && isOptionalUniqueStringArray(value.evidenceIds);
+}
+
+function isResearchDirectionTargetConferenceInput(value: unknown): boolean {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.name)
+    && isOptionalString(value.deadline)
+    && (value.status === 'satisfied' || value.status === 'unknown' || value.status === 'blocked')
+    && isOptionalUniqueStringArray(value.evidenceIds);
+}
+
+function isResearchDirectionAssessment(value: unknown): value is ResearchDirectionAssessment {
+  return isRecord(value)
+    && isPositiveFiniteNumber(value.rank)
+    && Number.isInteger(value.rank)
+    && isNonEmptyString(value.directionId)
+    && isNonEmptyString(value.summary)
+    && isResearchDirectionScore(value.score)
+    && isRecord(value.novelty)
+    && (value.novelty.status === 'gap_evidenced' || value.novelty.status === 'not_established')
+    && isResearchDirectionTrace(value.novelty)
+    && Array.isArray(value.caveats)
+    && value.caveats.every(isAssessedResearchDirectionCaveat)
+    && Array.isArray(value.falsifiableHypotheses)
+    && value.falsifiableHypotheses.every(isAssessedResearchDirectionHypothesis)
+    && Array.isArray(value.targetConferences)
+    && value.targetConferences.every(isAssessedResearchDirectionTargetConference)
+    && Array.isArray(value.unmetEvidenceGaps)
+    && value.unmetEvidenceGaps.every(isResearchDirectionEvidenceGap)
+    && isResearchDirectionMinimumViability(value.minimumViability)
+    && isResearchDirectionProvisionalTitle(value.provisionalTitle)
+    && Array.isArray(value.conclusions)
+    && value.conclusions.every(isResearchDirectionConclusion);
+}
+
+function isResearchDirectionScore(value: unknown): boolean {
+  return isRecord(value)
+    && isResearchDirectionTrace(value)
+    && isFiniteNumber(value.total)
+    && isFiniteNumber(value.evidence)
+    && isFiniteNumber(value.feasibility)
+    && isFiniteNumber(value.testability)
+    && isFiniteNumber(value.gapOpportunity)
+    && isFiniteNumber(value.caveatPenalty)
+    && isFiniteNumber(value.blockerPenalty);
+}
+
+function isResearchDirectionTrace(value: unknown): value is Record<string, unknown> & ResearchDirectionTrace {
+  return isRecord(value)
+    && isStringArray(value.evidenceIds)
+    && hasUniqueStrings(value.evidenceIds)
+    && isStringArray(value.paperIds)
+    && hasUniqueStrings(value.paperIds)
+    && isStringArray(value.constraintIds)
+    && hasUniqueStrings(value.constraintIds);
+}
+
+function isAssessedResearchDirectionCaveat(value: unknown): boolean {
+  return isRecord(value)
+    && isResearchDirectionTrace(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.summary)
+    && (value.severity === 'low' || value.severity === 'medium' || value.severity === 'high')
+    && (value.status === 'cited' || value.status === 'needs_evidence');
+}
+
+function isAssessedResearchDirectionHypothesis(value: unknown): boolean {
+  return isRecord(value)
+    && isResearchDirectionTrace(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.statement)
+    && isOptionalString(value.failureCriterion)
+    && (value.status === 'ready' || value.status === 'needs_evidence' || value.status === 'needs_design' || value.status === 'blocked');
+}
+
+function isAssessedResearchDirectionTargetConference(value: unknown): boolean {
+  return isRecord(value)
+    && isResearchDirectionTrace(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.name)
+    && isOptionalString(value.deadline)
+    && (value.status === 'satisfied' || value.status === 'unknown' || value.status === 'blocked');
+}
+
+function isResearchDirectionEvidenceGap(value: unknown): boolean {
+  return isRecord(value)
+    && isResearchDirectionTrace(value)
+    && isNonEmptyString(value.code)
+    && (value.severity === 'required' || value.severity === 'advisory')
+    && isOptionalString(value.hypothesisId)
+    && isOptionalString(value.caveatId)
+    && isOptionalString(value.relatedId);
+}
+
+function isResearchDirectionConclusion(value: unknown): boolean {
+  return isRecord(value)
+    && isResearchDirectionTrace(value)
+    && isNonEmptyString(value.code)
+    && (value.status === 'supported' || value.status === 'unproven' || value.status === 'blocked')
+    && isOptionalString(value.relatedId);
+}
+
+function isResearchDirectionMinimumViability(value: unknown): boolean {
+  return isRecord(value)
+    && (value.status === 'viable' || value.status === 'needs_evidence' || value.status === 'blocked')
+    && Array.isArray(value.reasons)
+    && value.reasons.every(isResearchDirectionConclusion);
+}
+
+function isResearchDirectionProvisionalTitle(value: unknown): value is ResearchDirectionAssessment['provisionalTitle'] {
+  if (!isRecord(value)
+    || !isResearchDirectionTrace(value)
+    || (value.status !== 'accepted' && value.status !== 'downgraded' && value.status !== 'rejected')
+    || !isStringArray(value.reasonCodes)
+    || !isOptionalString(value.text)) {
+    return false;
+  }
+  return value.status === 'rejected' || isNonEmptyString(value.text);
+}
+
+function isResearchTitleConfirmationSnapshot(value: unknown): value is ResearchTitleConfirmationSnapshot {
+  if (!isRecord(value)
+    || !isRecord(value.input)
+    || !isNonEmptyString(value.input.directionId)
+    || !isNonEmptyString(value.input.candidateTitle)
+    || !Array.isArray(value.input.evidence)
+    || value.input.evidence.length > 48
+    || !value.input.evidence.every(isResearchDirectionEvidence)
+    || !isOptionalString(value.input.neutralTitle)
+    || (value.input.confirmed !== undefined && typeof value.input.confirmed !== 'boolean')
+    || !isRecord(value.result)
+    || value.result.directionId !== value.input.directionId
+    || !isResearchDirectionProvisionalTitle(value.result.title)
+    || !isResearchTitleConfirmation(value.result.confirmation, value.result.title.text)) {
+    return false;
+  }
+  return true;
+}
+
+function isResearchTitleConfirmation(value: unknown, title: unknown): boolean {
+  if (!isRecord(value)
+    || (value.status !== 'pending' && value.status !== 'confirmed')
+    || typeof value.confirmed !== 'boolean'
+    || value.confirmed !== (value.status === 'confirmed')
+    || !isResearchProjectNameAction(value.projectNameUpdate)) {
+    return false;
+  }
+  return value.confirmed
+    ? value.projectNameUpdate.status === 'ready_for_explicit_project_action'
+      && isNonEmptyString(title)
+      && value.projectNameUpdate.name === title
+    : value.projectNameUpdate.status === 'not_ready';
+}
+
+function isResearchProjectNameAction(value: unknown): value is {
+  status: 'not_ready' | 'ready_for_explicit_project_action';
+  name?: string;
+  requiresExplicitUserAction: true;
+} {
+  return isRecord(value)
+    && (value.status === 'not_ready' || value.status === 'ready_for_explicit_project_action')
+    && isOptionalString(value.name)
+    && value.requiresExplicitUserAction === true
+    && (value.status === 'not_ready' || isNonEmptyString(value.name));
+}
+
+function isResearchDirectionLifecycleState(value: unknown): value is ResearchDirectionLifecycleState {
+  if (!isRecord(value)
+    || value.schemaVersion !== 1
+    || value.kind !== 'research_direction_lifecycle'
+    || !isPositiveFiniteNumber(value.revision)
+    || !Number.isInteger(value.revision)
+    || !isNonEmptyString(value.createdAt)
+    || !isNonEmptyString(value.updatedAt)
+    || !isResearchDirectionSeedInputValue(value.seedInput)
+    || !isResearchDirectionSeedResultValue(value.seed)
+    || (value.assessment !== undefined && !isResearchDirectionAssessmentSnapshot(value.assessment))
+    || (value.selectedDirectionId !== undefined && !isNonEmptyString(value.selectedDirectionId))
+    || (value.titleConfirmation !== undefined && !isResearchTitleConfirmationSnapshot(value.titleConfirmation))
+    || !isResearchDirectionLifecycleChecklist(value.checklist)) {
+    return false;
+  }
+  const candidateIds = new Set(value.seed.candidateDirections.map((candidate) => candidate.id));
+  if (value.selectedDirectionId !== undefined && !candidateIds.has(value.selectedDirectionId)) return false;
+  if (value.assessment?.result.assessments.some((assessment) => !candidateIds.has(assessment.directionId))) return false;
+  return value.titleConfirmation === undefined
+    || (value.selectedDirectionId !== undefined
+      && value.titleConfirmation.input.directionId === value.selectedDirectionId
+      && value.titleConfirmation.result.directionId === value.selectedDirectionId);
+}
+
+function isResearchDirectionSeedInputValue(value: unknown): value is ResearchDirectionSeedArtifact['input'] {
+  return isRecord(value)
+    && Array.isArray(value.cues)
+    && value.cues.length > 0
+    && value.cues.every(isResearchDirectionCue)
+    && Array.isArray(value.candidates)
+    && value.candidates.length > 0
+    && value.candidates.every(isResearchDirectionCandidateInput)
+    && (value.terminology === undefined
+      || (Array.isArray(value.terminology) && value.terminology.every(isResearchDirectionTerminology)))
+    && (value.constraints === undefined
+      || (Array.isArray(value.constraints) && value.constraints.every(isResearchDirectionConstraint)));
+}
+
+function isResearchDirectionSeedResultValue(value: unknown): value is ResearchDirectionSeedArtifact['result'] {
+  return isRecord(value)
+    && Array.isArray(value.cues)
+    && value.cues.length > 0
+    && value.cues.every(isResearchDirectionCue)
+    && Array.isArray(value.terminology)
+    && value.terminology.every(isResearchDirectionTerminology)
+    && Array.isArray(value.constraints)
+    && value.constraints.every(isResearchDirectionConstraint)
+    && isResearchDirectionConstraintCoverage(value.constraintCoverage)
+    && Array.isArray(value.candidateDirections)
+    && value.candidateDirections.length > 0
+    && value.candidateDirections.every(isResearchDirectionCandidate);
+}
+
+function isResearchDirectionLifecycleChecklist(value: unknown): boolean {
+  if (!isRecord(value)
+    || !Array.isArray(value.items)
+    || value.items.length !== RESEARCH_DIRECTION_LIFECYCLE_STAGE_IDS.length
+    || !value.items.every(isResearchDirectionLifecycleStage)
+    || !isStringArray(value.completedStageIds)
+    || !hasUniqueStrings(value.completedStageIds)
+    || (value.nextStageId !== undefined && !isResearchDirectionLifecycleStageId(value.nextStageId))
+    || (value.status !== 'in_progress'
+      && value.status !== 'blocked'
+      && value.status !== 'awaiting_title_confirmation'
+      && value.status !== 'ready_for_explicit_project_name_action')
+    || !isResearchProjectNameAction(value.projectNameAction)) {
+    return false;
+  }
+  const itemIds = value.items.map((item) => item.id);
+  const completedIds = value.items.filter((item) => item.status === 'complete').map((item) => item.id);
+  const reportedCompletedIds = value.completedStageIds;
+  const nextItem = value.items.find((item) => item.status !== 'complete');
+  return itemIds.every((id, index) => id === RESEARCH_DIRECTION_LIFECYCLE_STAGE_IDS[index])
+    && completedIds.length === reportedCompletedIds.length
+    && completedIds.every((id, index) => reportedCompletedIds[index] === id)
+    && value.nextStageId === nextItem?.id;
+}
+
+function isResearchDirectionLifecycleStage(value: unknown): boolean {
+  return isRecord(value)
+    && isResearchDirectionLifecycleStageId(value.id)
+    && (value.status === 'not_started'
+      || value.status === 'needs_input'
+      || value.status === 'needs_evidence'
+      || value.status === 'blocked'
+      || value.status === 'awaiting_confirmation'
+      || value.status === 'complete')
+    && isOptionalString(value.candidateId)
+    && isStringArray(value.evidenceIds)
+    && hasUniqueStrings(value.evidenceIds)
+    && isStringArray(value.constraintIds)
+    && hasUniqueStrings(value.constraintIds)
+    && isStringArray(value.reasonCodes)
+    && hasUniqueStrings(value.reasonCodes);
+}
+
+function isResearchDirectionLifecycleStageId(value: unknown): value is ResearchDirectionLifecycleStageId {
+  return typeof value === 'string'
+    && (RESEARCH_DIRECTION_LIFECYCLE_STAGE_IDS as readonly string[]).includes(value);
+}
+
+function isOptionalUniqueStringArray(value: unknown): boolean {
+  return value === undefined || (isStringArray(value) && hasUniqueStrings(value));
 }
 
 function isResearchArtifactBase(value: unknown): value is Record<string, unknown> & {

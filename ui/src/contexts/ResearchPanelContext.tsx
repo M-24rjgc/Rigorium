@@ -50,7 +50,9 @@ export function ResearchPanelProvider({ children }: { children: ReactNode }) {
         artifactProjectPath: projectPath || null,
         isOpen: artifact.presentation?.autoOpen !== false,
         isExpanded: false,
-        selectedPaperId: artifact.kind === 'research_direction_seed' ? null : artifact.papers[0]?.id ?? null,
+        selectedPaperId: artifact.kind === 'literature_search' || artifact.kind === 'literature_expansion'
+          ? artifact.papers[0]?.id ?? null
+          : null,
       };
     });
   }, []);

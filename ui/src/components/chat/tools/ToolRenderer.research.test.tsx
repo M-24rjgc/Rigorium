@@ -2,6 +2,11 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ResearchPanelProvider, useResearchPanel } from '../../../contexts/ResearchPanelContext';
 import type { ResearchArtifact, ResearchDirectionSeedArtifact } from '../../../research/types';
+import {
+  directionAssessmentArtifact,
+  directionLifecycleArtifact,
+  titleConfirmationArtifact,
+} from '../../../research/directionArtifacts.fixtures';
 import { ToolRenderer } from './ToolRenderer';
 
 const artifact: ResearchArtifact = {
@@ -94,7 +99,7 @@ const directionArtifact: ResearchDirectionSeedArtifact = {
 
 function Probe() {
   const panel = useResearchPanel();
-  return <span data-testid="research-state">{panel.isOpen ? 'open' : 'closed'}:{panel.artifact?.artifactId || 'none'}:{panel.artifactProjectPath || 'none'}</span>;
+  return <span data-testid="research-state">{panel.isOpen ? 'open' : 'closed'}:{panel.artifact?.artifactId || 'none'}:{panel.artifactProjectPath || 'none'}:{panel.selectedPaperId || 'none'}</span>;
 }
 
 describe('ToolRenderer literature integration', () => {
@@ -156,7 +161,31 @@ describe('ToolRenderer literature integration', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('research-state').textContent).toContain('open:tool-renderer-direction-artifact:D:/project');
+      expect(screen.getByTestId('research-state').textContent).toContain('open:tool-renderer-direction-artifact:D:/project:none');
+    });
+  });
+
+  it.each([
+    ['direction_assess', directionAssessmentArtifact],
+    ['research_title_confirm', titleConfirmationArtifact],
+    ['research_direction_lifecycle', directionLifecycleArtifact],
+  ])('publishes %s as one non-literature research panel artifact', async (toolName, resultArtifact) => {
+    render(
+      <ResearchPanelProvider>
+        <ToolRenderer
+          toolName={toolName}
+          toolInput={{}}
+          toolResult={{ content: 'done', isError: false, toolUseResult: resultArtifact }}
+          toolId={`call-${toolName}`}
+          mode="result"
+          selectedProject={{ name: 'project', displayName: 'Project', fullPath: 'D:/project' }}
+        />
+        <Probe />
+      </ResearchPanelProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('research-state').textContent).toBe(`open:${resultArtifact.artifactId}:D:/project:none`);
     });
   });
 
@@ -187,7 +216,7 @@ describe('ToolRenderer literature integration', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('research-state').textContent).toBe('closed:none:none');
+      expect(screen.getByTestId('research-state').textContent).toBe('closed:none:none:none');
     });
 
     rerender(
@@ -204,7 +233,7 @@ describe('ToolRenderer literature integration', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('research-state').textContent).toBe('closed:none:none');
+      expect(screen.getByTestId('research-state').textContent).toBe('closed:none:none:none');
     });
   });
 });

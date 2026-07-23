@@ -8,7 +8,14 @@ import { CHAT_DRAFT_INSERT_EVENT } from '../utils/chatDraftInsertion';
 import ResearchPanel from './ResearchPanel';
 import { directedEdgeEndpoints, RESEARCH_CITATION_MARKER_BUFFER } from './graphGeometry';
 import {
+  directionAssessmentArtifact,
+  directionLifecycleArtifact,
+  directionSeedArtifact,
+  titleConfirmationArtifact,
+} from './directionArtifacts.fixtures';
+import {
   isResearchArtifact,
+  type ResearchPanelArtifact,
   type ResearchArtifact,
   type ResearchSettings,
   type ZoteroCloudWriteIntent,
@@ -1559,5 +1566,57 @@ describe('ResearchPanel', () => {
     ))).toBe(true);
     expect(cloudPreview).not.toHaveBeenCalled();
     expect(cloudConfirm).not.toHaveBeenCalled();
+  });
+
+  it('validates and renders direction assessment, title confirmation, and lifecycle artifacts without rename controls', () => {
+    const artifacts: ResearchPanelArtifact[] = [
+      directionAssessmentArtifact,
+      titleConfirmationArtifact,
+      directionLifecycleArtifact,
+    ];
+    for (const item of artifacts) expect(isResearchArtifact(item)).toBe(true);
+
+    const malformedLifecycle = structuredClone(directionLifecycleArtifact) as any;
+    malformedLifecycle.state.checklist.items.pop();
+    expect(isResearchArtifact(malformedLifecycle)).toBe(false);
+
+    const malformedTitle = structuredClone(titleConfirmationArtifact) as any;
+    malformedTitle.result.confirmation.projectNameUpdate.requiresExplicitUserAction = false;
+    expect(isResearchArtifact(malformedTitle)).toBe(false);
+
+    const { rerender } = render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={directionAssessmentArtifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+    expect(screen.getByTestId('research-direction-assessment-panel').textContent).toContain('Assessment score 19');
+    expect(screen.getByTestId('research-direction-assessment-panel').textContent).toContain('Evaluate calibration interventions under distribution shift.');
+    expect(screen.queryByRole('button', { name: /rename|项目名称操作/i })).toBeNull();
+
+    rerender(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={titleConfirmationArtifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+    expect(screen.getByTestId('research-title-confirmation-panel').textContent).toContain('No Project name is changed here');
+    expect(screen.getByTestId('research-title-project-action-note')).not.toBeNull();
+
+    rerender(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={directionLifecycleArtifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+    expect(screen.getByTestId('research-direction-lifecycle-checklist').querySelectorAll('li')).toHaveLength(11);
+    expect(screen.getByTestId('research-direction-lifecycle-panel').textContent).toContain('Direction complete');
+    expect(screen.getByTestId('research-lifecycle-project-action').textContent).toContain('No Project name is changed here');
+    expect(screen.queryByRole('button', { name: /rename|项目名称操作/i })).toBeNull();
+
+    expect(isResearchArtifact(directionSeedArtifact)).toBe(true);
   });
 });

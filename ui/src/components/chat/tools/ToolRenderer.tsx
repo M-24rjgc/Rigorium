@@ -149,7 +149,14 @@ const ToolRendererInner: React.FC<ToolRendererProps> = ({
   }, [mode, toolInput, toolResult]);
 
   const researchArtifact = useMemo<ResearchPanelArtifact | null>(() => {
-    const isResearchArtifactTool = ['literature_search', 'literature_expand', 'research_direction_seed']
+    const isResearchArtifactTool = [
+      'literature_search',
+      'literature_expand',
+      'research_direction_seed',
+      'direction_assess',
+      'research_title_confirm',
+      'research_direction_lifecycle',
+    ]
       .includes(canonicalToolName.toLowerCase());
     if (mode !== 'result' || !isResearchArtifactTool) return null;
     const candidate = toolResult?.toolUseResult ?? parsedData?.toolUseResult ?? parsedData;
