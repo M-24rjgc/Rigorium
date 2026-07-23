@@ -125,6 +125,7 @@ export function createZoteroLibraryProvider(
         available: apiReady || connectorReady,
         apiReady,
         connectorReady,
+        writeMode: connectorReady ? "connector_import" : "read_only",
         checkedAt,
         ...(selectedCollection ? { selectedCollection } : {}),
         ...(errors.length > 0 ? { error: errors.join(" ") } : {}),

@@ -40,6 +40,7 @@ test("Zotero provider reports API, connector, and selected collection readiness"
   assert.equal(status.available, true);
   assert.equal(status.apiReady, true);
   assert.equal(status.connectorReady, true);
+  assert.equal(status.writeMode, "connector_import");
   assert.equal(status.selectedCollection?.name, "Rigorium");
 });
 
@@ -56,8 +57,25 @@ test("Zotero provider reports an unavailable desktop without throwing", async ()
   assert.equal(status.available, false);
   assert.equal(status.apiReady, false);
   assert.equal(status.connectorReady, false);
+  assert.equal(status.writeMode, "read_only");
   assert.match(status.error ?? "", /Local API unavailable/);
   assert.match(status.error ?? "", /Connector unavailable/);
+});
+
+test("Zotero provider reports read-only when only the Local API is available", async () => {
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/api/")) return new Response("ok");
+    if (url.endsWith("/connector/ping")) return new Response("connector unavailable", { status: 503 });
+    return new Response("missing", { status: 404 });
+  };
+  const provider = createZoteroLibraryProvider({ fetchImpl });
+  const status = await provider.getStatus();
+
+  assert.equal(status.available, true);
+  assert.equal(status.apiReady, true);
+  assert.equal(status.connectorReady, false);
+  assert.equal(status.writeMode, "read_only");
 });
 
 test("Zotero writes require explicit confirmation and import BibTeX through the connector", async () => {

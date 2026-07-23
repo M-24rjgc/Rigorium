@@ -680,6 +680,11 @@ export type LibraryProviderStatus = {
   available: boolean;
   apiReady: boolean;
   connectorReady: boolean;
+  /**
+   * The Desktop Local API is read-only. `connector_import` only permits the
+   * separately confirmed connector import flow; it does not imply item edits.
+   */
+  writeMode?: "connector_import" | "read_only";
   checkedAt: string;
   selectedCollection?: ZoteroCollectionTarget;
   error?: string;
