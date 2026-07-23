@@ -18,6 +18,7 @@ declare global {
     };
     rigoriumZoteroLibrary?: {
       importPapers: (papers: unknown[], options?: { projectPath?: string }) => Promise<unknown>;
+      openAttachment: (attachmentKey: string, options?: { projectPath?: string }) => Promise<{ opened: boolean }>;
     };
     // Returns true if a project matching the given name was found and the
     // app navigated to it; false otherwise so callers (e.g. chat slash

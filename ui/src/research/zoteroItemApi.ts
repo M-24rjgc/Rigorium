@@ -4,9 +4,11 @@ import type {
   ZoteroExportFormat,
   ZoteroItemDetailsResult,
   ZoteroItemExportResult,
+  ZoteroTagsResult,
 } from './types';
 
 const ZOTERO_ITEMS_ROUTE = '/api/research/zotero/items';
+const ZOTERO_TAGS_ROUTE = '/api/research/zotero/tags';
 
 type ItemRouteOptions = {
   projectPath?: string;
@@ -45,6 +47,28 @@ export async function getZoteroItemExport(
   });
 }
 
+/**
+ * The tag catalog is a read-only suggestion source. Call it only after the
+ * user explicitly opens tag editing.
+ */
+export async function getZoteroTags(
+  options: ItemRouteOptions & {
+    collectionKey?: string;
+    query?: string;
+    limit?: number;
+    start?: number;
+  } = {},
+): Promise<ZoteroTagsResult> {
+  const parameters = new URLSearchParams();
+  if (options.projectPath) parameters.set('projectPath', options.projectPath);
+  if (options.collectionKey) parameters.set('collectionKey', options.collectionKey);
+  if (options.query) parameters.set('q', options.query);
+  if (options.limit !== undefined) parameters.set('limit', String(options.limit));
+  if (options.start !== undefined) parameters.set('start', String(options.start));
+  const query = parameters.toString();
+  return getZoteroJson<ZoteroTagsResult>(`${ZOTERO_TAGS_ROUTE}${query ? `?${query}` : ''}`);
+}
+
 export async function copyZoteroExportText(value: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -80,7 +104,11 @@ async function getItemJson<T>(
   suffix: string,
   options: ItemRouteOptions & { format?: ZoteroExportFormat },
 ): Promise<T> {
-  const response = await authenticatedFetch(buildItemUrl(itemKey, suffix, options), {
+  return getZoteroJson<T>(buildItemUrl(itemKey, suffix, options));
+}
+
+async function getZoteroJson<T>(route: string): Promise<T> {
+  const response = await authenticatedFetch(route, {
     suppressServerErrorToast: true,
   });
   const body = await response.json().catch(() => null) as { error?: unknown } | null;

@@ -640,6 +640,16 @@
     "sharedTopicEdge": "共享主题（推断）",
     "seedLegend": "种子论文",
     "seedBadge": "种子",
-    "nodeSizeLegend": "节点大小 = 被引次数"
+    "nodeSizeLegend": "节点大小 = 被引次数",
+    "loadingZoteroTags": "正在加载已保存的标签…",
+    "zoteroTagsUnavailable": "已保存的标签不可用：{{error}}",
+    "addZoteroTag": "添加 Zotero 标签 {{tag}}",
+    "showMoreZoteroTags": "显示更多已保存标签",
+    "loadMoreZoteroTags": "加载更多已保存标签",
+    "openAttachmentFile": "打开 {{title}} 的文件",
+    "openAttachment": "打开文件",
+    "openingAttachment": "正在打开…",
+    "attachmentOpened": "已打开本地附件。",
+    "attachmentOpenUnavailable": "打开本地附件需要 Rigorium 桌面应用。"
   }
 }

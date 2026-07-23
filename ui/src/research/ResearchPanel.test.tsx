@@ -30,6 +30,7 @@ vi.mock('./literatureMapApi', () => literatureMapApiMocks);
 let cloudPreview: ReturnType<typeof vi.fn>;
 let cloudConfirm: ReturnType<typeof vi.fn>;
 let libraryImport: ReturnType<typeof vi.fn>;
+let libraryOpenAttachment: ReturnType<typeof vi.fn>;
 
 const artifact: ResearchArtifact = {
   schemaVersion: 1,
@@ -491,9 +492,17 @@ const unmatchedMatches: ZoteroPaperMatch[] = artifact.papers.map((paper) => ({
 
 function installFetchMock(
   matches: ZoteroPaperMatch[] = unmatchedMatches,
-  options: { settings?: ResearchSettings; unavailableError?: string; collectionResponse?: unknown } = {},
+  options: {
+    settings?: ResearchSettings;
+    unavailableError?: string;
+    collectionResponse?: unknown;
+    tagResponse?: unknown;
+    tagResponses?: unknown[];
+  } = {},
 ) {
   const effectiveSettings = options.settings ?? researchSettings;
+  const tagResponses = options.tagResponses ?? (options.tagResponse === undefined ? [] : [options.tagResponse]);
+  let tagResponseIndex = 0;
   vi.mocked(authenticatedFetch).mockImplementation(async (input) => {
     const url = String(input);
     if (url.startsWith('/api/research/zotero/status')) {
@@ -513,6 +522,21 @@ function installFetchMock(
       return options.unavailableError
         ? jsonResponse({ provider: 'zotero', available: false, error: options.unavailableError, matches })
         : jsonResponse({ provider: 'zotero', available: true, matches });
+    }
+    if (url.startsWith('/api/research/zotero/tags?')) {
+      if (options.unavailableError) {
+        return jsonResponse({ provider: 'zotero', available: false, error: options.unavailableError, tags: [], total: 0, start: 0, truncated: false });
+      }
+      if (tagResponses.length) return jsonResponse(tagResponses[Math.min(tagResponseIndex++, tagResponses.length - 1)]);
+      return jsonResponse({
+        provider: 'zotero',
+        available: true,
+        collectionKey: 'COLL1',
+        tags: ['Evidence', 'Methods'],
+        total: 2,
+        start: 0,
+        truncated: false,
+      });
     }
     if (url.startsWith('/api/research/zotero/items?')) {
       if (options.unavailableError) {
@@ -681,6 +705,7 @@ describe('ResearchPanel', () => {
       libraryVersion: 11,
     }));
     libraryImport = vi.fn().mockResolvedValue({ importedCount: 1 });
+    libraryOpenAttachment = vi.fn().mockResolvedValue({ opened: true });
     Object.defineProperty(window, 'rigoriumZoteroCloud', {
       configurable: true,
       value: {
@@ -692,7 +717,7 @@ describe('ResearchPanel', () => {
     });
     Object.defineProperty(window, 'rigoriumZoteroLibrary', {
       configurable: true,
-      value: { importPapers: libraryImport },
+      value: { importPapers: libraryImport, openAttachment: libraryOpenAttachment },
     });
   });
 
@@ -1316,6 +1341,10 @@ describe('ResearchPanel', () => {
     expect(screen.queryByText(/No items found|没有找到文献/i)).toBeNull();
     expect(literatureMapApiMocks.updateProjectLiteratureMap.mock.calls.some(([, , update]) => update.origin === 'zotero')).toBe(false);
     expect(screen.getByTestId('zotero-map-sync-notice').textContent).toContain('Zotero collection could not be loaded; the project map was not changed.');
+
+    fireEvent.click(screen.getByRole('button', { name: /^(Papers|文献)$/i }));
+    expect(screen.getAllByText('First research paper').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Second research paper').length).toBeGreaterThan(0);
   });
 
   it('ignores a stale fixed collection key while following the live Zotero selection', async () => {
@@ -1365,6 +1394,7 @@ describe('ResearchPanel', () => {
     await screen.findByText('Saved collection paper');
     expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/fulltext'))).toBe(false);
     expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/export'))).toBe(false);
+    expect(libraryOpenAttachment).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: /Show details for Saved collection paper/i }));
     expect(await screen.findByText('Metadata')).not.toBeNull();
@@ -1374,6 +1404,14 @@ describe('ResearchPanel', () => {
     expect(screen.getByText('article.pdf')).not.toBeNull();
     expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).startsWith('/api/research/zotero/items/ZITEM1?'))).toBe(true);
     expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/fulltext'))).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Open file for article.pdf/i }));
+    await waitFor(() => expect(libraryOpenAttachment).toHaveBeenCalledWith(
+      'ATTACHMENT1',
+      { projectPath: 'D:/project' },
+    ));
+    expect(await screen.findByText('Local attachment opened.')).not.toBeNull();
+    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/zotero/items/ATTACHMENT1/file'))).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: /Read full text for article.pdf/i }));
     expect(await screen.findByText('Indexed full text from the local Zotero attachment.')).not.toBeNull();
@@ -1443,5 +1481,83 @@ describe('ResearchPanel', () => {
       expect.objectContaining({ planId: 'tag-plan-1' }),
       { projectPath: 'D:/project' },
     );
+  });
+
+  it('browses saved Zotero tags only after tag editing is explicitly opened', async () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={artifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    await screen.findByText('Saved collection paper');
+    fireEvent.click(screen.getByRole('button', { name: /Show details for Saved collection paper/i }));
+    await screen.findByText('Metadata');
+    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/zotero/tags?'))).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Zotero tags' }));
+    expect(await screen.findByTestId('zotero-tag-suggestions')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Add Zotero tag Evidence' })).not.toBeNull();
+    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/zotero/tags?'))).toBe(true);
+    expect(cloudPreview).not.toHaveBeenCalled();
+    expect(cloudConfirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Zotero tag Evidence' }));
+    expect((screen.getByRole('textbox', { name: 'Edit Zotero tags' }) as HTMLInputElement).value).toContain('Evidence');
+    expect(cloudPreview).not.toHaveBeenCalled();
+    expect(cloudConfirm).not.toHaveBeenCalled();
+  });
+
+  it('loads the next Zotero tag page only after the user requests more suggestions', async () => {
+    const firstPageTags = Array.from({ length: 24 }, (_, index) => `Tag ${index + 1}`);
+    installFetchMock(unmatchedMatches, {
+      tagResponses: [
+        {
+          provider: 'zotero',
+          available: true,
+          collectionKey: 'COLL1',
+          tags: firstPageTags,
+          total: 25,
+          start: 0,
+          nextStart: 24,
+          truncated: true,
+        },
+        {
+          provider: 'zotero',
+          available: true,
+          collectionKey: 'COLL1',
+          tags: ['Tag 25'],
+          total: 25,
+          start: 24,
+          truncated: false,
+        },
+      ],
+    });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={artifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    await screen.findByText('Saved collection paper');
+    fireEvent.click(screen.getByRole('button', { name: /Show details for Saved collection paper/i }));
+    await screen.findByText('Metadata');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Zotero tags' }));
+    await screen.findByRole('button', { name: 'Add Zotero tag Tag 24' });
+    expect(screen.queryByRole('button', { name: 'Add Zotero tag Tag 25' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more saved tags' }));
+    expect(await screen.findByRole('button', { name: 'Add Zotero tag Tag 25' })).not.toBeNull();
+    expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => (
+      String(url).includes('/zotero/tags?') && String(url).includes('start=24')
+    ))).toBe(true);
+    expect(cloudPreview).not.toHaveBeenCalled();
+    expect(cloudConfirm).not.toHaveBeenCalled();
   });
 });

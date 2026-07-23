@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { terminologyVerificationFixture } from './research-verification-fixtures.mjs';
+import { openZoteroAttachment } from './zotero-attachment.mjs';
 import { startZoteroBroker } from './zotero-broker.mjs';
 
 const STARTUP_TIMEOUT_MS = 90_000;
@@ -173,6 +174,15 @@ function registerZoteroIpc() {
     return requestDesktopZotero('import', {
       method: 'POST',
       body: { ...normalizeCloudOptions(options), papers, confirmed: true },
+    });
+  });
+  ipcMain.handle('rigorium:zotero-library:open-attachment', async (event, attachmentKey, options) => {
+    assertTrustedMainWindowCaller(event);
+    const query = normalizeCloudOptions(options);
+    return openZoteroAttachment({
+      attachmentKey,
+      requestAttachment: (key) => requestDesktopZotero(`items/${encodeURIComponent(key)}/file`, { query }),
+      openPath: (filePath) => shell.openPath(filePath),
     });
   });
 }

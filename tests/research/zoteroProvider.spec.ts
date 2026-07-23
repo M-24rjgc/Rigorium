@@ -187,6 +187,90 @@ test("Zotero pages top-level item reads with a read-only continuation", async ()
   assert.ok(calls.every((call) => call.url.includes("/items/top?")));
 });
 
+test("Zotero pages collection tag suggestions and keeps attachment file URLs local", async () => {
+  const calls: string[] = [];
+  const attachment = {
+    key: "ATTACH01",
+    data: {
+      key: "ATTACH01",
+      itemType: "attachment",
+      title: "paper.pdf",
+      parentItem: "ITEM1234",
+      contentType: "application/pdf",
+    },
+  };
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes("/collections/COLL1234/items/top/tags?") && url.includes("start=0")) {
+      return new Response(JSON.stringify([{ tag: "Methods" }, { tag: "methods" }, { tag: "Evidence" }]), {
+        headers: { "Total-Results": "4", "Content-Type": "application/json" },
+      });
+    }
+    if (url.includes("/collections/COLL1234/items/top/tags?") && url.includes("start=3")) {
+      return new Response(JSON.stringify([{ tag: "Review" }]), {
+        headers: { "Total-Results": "4", "Content-Type": "application/json" },
+      });
+    }
+    if (url.includes("/items/ATTACH01?format=json")) {
+      return new Response(JSON.stringify(attachment), { headers: { "Content-Type": "application/json" } });
+    }
+    if (url.includes("/items/ATTACH01/file/view/url")) {
+      return new Response("file:///C:/Users/Ada/Zotero/storage/ATTACH01/paper.pdf", {
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+    return new Response("missing", { status: 404 });
+  };
+  const provider = createZoteroLibraryProvider({ fetchImpl });
+
+  const firstPage = await provider.listTags({ collectionKey: "COLL1234", query: "method", limit: 3 });
+  const finalPage = await provider.listTags({ collectionKey: "COLL1234", limit: 3, start: firstPage.nextStart });
+  const file = await provider.getAttachmentFile("attach01");
+
+  assert.deepEqual(firstPage.tags, ["Evidence", "Methods"]);
+  assert.equal(firstPage.start, 0);
+  assert.equal(firstPage.nextStart, 3);
+  assert.equal(firstPage.truncated, true);
+  assert.deepEqual(finalPage.tags, ["Review"]);
+  assert.equal(finalPage.nextStart, undefined);
+  assert.equal(file.attachmentKey, "ATTACH01");
+  assert.equal(file.fileUrl, "file:///C:/Users/Ada/Zotero/storage/ATTACH01/paper.pdf");
+  assert.ok(calls.some((url) => url.includes("/collections/COLL1234/items/top/tags?") && url.includes("q=method")));
+  assert.ok(calls.some((url) => url.includes("/items/ATTACH01/file/view/url")));
+});
+
+test("Zotero rejects non-local attachment URLs before Electron receives them", async () => {
+  const attachment = {
+    key: "ATTACH01",
+    data: { key: "ATTACH01", itemType: "attachment", title: "paper.pdf" },
+  };
+  const provider = createZoteroLibraryProvider({
+    fetchImpl: async (input) => {
+      const url = String(input);
+      if (url.includes("/items/ATTACH01?format=json")) {
+        return new Response(JSON.stringify(attachment), { headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/items/ATTACH01/file/view/url")) return new Response("https://example.test/paper.pdf");
+      return new Response("missing", { status: 404 });
+    },
+  });
+
+  await assert.rejects(provider.getAttachmentFile("ATTACH01"), /safe local attachment file URL/);
+
+  const networkProvider = createZoteroLibraryProvider({
+    fetchImpl: async (input) => {
+      const url = String(input);
+      if (url.includes("/items/ATTACH01?format=json")) {
+        return new Response(JSON.stringify(attachment), { headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/items/ATTACH01/file/view/url")) return new Response("file:////server/share/paper.pdf");
+      return new Response("missing", { status: 404 });
+    },
+  });
+  await assert.rejects(networkProvider.getAttachmentFile("ATTACH01"), /safe local attachment file URL/);
+});
+
 test("Zotero rejects invalid item pagination starts before calling the Local API", async () => {
   let calls = 0;
   const provider = createZoteroLibraryProvider({

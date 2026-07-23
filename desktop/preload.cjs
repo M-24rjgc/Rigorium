@@ -8,6 +8,7 @@ const CLOUD_SYNC_CHANNEL = 'rigorium:zotero-cloud:sync';
 const CLOUD_PREVIEW_CHANNEL = 'rigorium:zotero-cloud:preview';
 const CLOUD_CONFIRM_CHANNEL = 'rigorium:zotero-cloud:confirm';
 const LIBRARY_IMPORT_CHANNEL = 'rigorium:zotero-library:import';
+const LIBRARY_OPEN_ATTACHMENT_CHANNEL = 'rigorium:zotero-library:open-attachment';
 
 function isTrustedAppDocument() {
   try {
@@ -46,5 +47,6 @@ contextBridge.exposeInMainWorld(
   'rigoriumZoteroLibrary',
   Object.freeze({
     importPapers: (papers, options) => invokeFromTrustedDocument(LIBRARY_IMPORT_CHANNEL, papers, options),
+    openAttachment: (attachmentKey, options) => invokeFromTrustedDocument(LIBRARY_OPEN_ATTACHMENT_CHANNEL, attachmentKey, options),
   }),
 );

@@ -164,6 +164,33 @@ router.get('/zotero/collections', async (req, res) => {
   }
 });
 
+router.get('/zotero/tags', async (req, res) => {
+  try {
+    const context = await zoteroContext(req.query.projectPath);
+    const collectionKey = requestCollectionKey(req.query.collectionKey) || configuredCollectionKey(context.settings);
+    const query = queryString(req.query.q);
+    const limit = positiveInteger(req.query.limit, 50, 100);
+    const start = requestZoteroItemStart(req.query.start);
+    const empty = {
+      collectionKey,
+      tags: [],
+      total: 0,
+      start,
+      truncated: false,
+      ...(query ? { query } : {}),
+    };
+    if (!context.enabled) return res.json(disabledZoteroPayload(empty));
+    try {
+      const result = await context.provider.listTags({ collectionKey, query, limit, start });
+      return res.json({ provider: 'zotero', available: true, collectionKey, ...result });
+    } catch (error) {
+      return res.json(unavailableZoteroPayload(error, empty));
+    }
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
 router.get('/zotero/items', async (req, res) => {
   try {
     const context = await zoteroContext(req.query.projectPath);
@@ -171,9 +198,15 @@ router.get('/zotero/items', async (req, res) => {
     const query = queryString(req.query.q);
     const limit = positiveInteger(req.query.limit, 50, 100);
     const start = requestZoteroItemStart(req.query.start);
-    if (!context.enabled) {
-      return res.json(disabledZoteroPayload({ collectionKey, items: [], total: 0, start, truncated: false }));
-    }
+    const empty = {
+      collectionKey,
+      items: [],
+      total: 0,
+      start,
+      truncated: false,
+      ...(query ? { query } : {}),
+    };
+    if (!context.enabled) return res.json(disabledZoteroPayload(empty));
     try {
       const result = await context.provider.listItems({ collectionKey, query, limit, start });
       return res.json({
@@ -186,13 +219,31 @@ router.get('/zotero/items', async (req, res) => {
         ...result,
       });
     } catch (error) {
-      return res.json(unavailableZoteroPayload(error, {
-        collectionKey,
-        items: [],
-        total: 0,
-        start,
-        truncated: false,
-      }));
+      return res.json(unavailableZoteroPayload(error, empty));
+    }
+  } catch (error) {
+    respondError(res, error);
+  }
+});
+
+router.get('/zotero/items/:itemKey/file', (req, res, next) => {
+  if (!isAuthorizedDesktopZoteroCloudRequest(req.get('x-rigorium-zotero-cloud-session'))) {
+    return res.status(401).set('Cache-Control', 'no-store').json({ error: 'Unauthorized.' });
+  }
+  res.set('Cache-Control', 'no-store');
+  next();
+}, async (req, res) => {
+  try {
+    const itemKey = requestZoteroItemKey(req.params.itemKey);
+    const context = await zoteroContext(req.query.projectPath);
+    if (!context.enabled) {
+      return res.json(disabledZoteroPayload({ itemKey, attachmentKey: itemKey }));
+    }
+    try {
+      const attachment = await context.provider.getAttachmentFile(itemKey);
+      return res.json({ provider: 'zotero', available: true, ...attachment });
+    } catch (error) {
+      return respondZoteroReadFailure(res, error, { itemKey, attachmentKey: itemKey });
     }
   } catch (error) {
     respondError(res, error);

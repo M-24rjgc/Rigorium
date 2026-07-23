@@ -10,6 +10,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  FolderOpen,
   FolderTree,
   Library,
   Paperclip,
@@ -33,6 +34,7 @@ import {
   getZoteroAttachmentFullText,
   getZoteroItemDetails,
   getZoteroItemExport,
+  getZoteroTags,
 } from './zoteroItemApi';
 import { confirmZoteroCloudWrite, importPapersIntoZotero, previewZoteroCloudWrite } from './zoteroCloudApi';
 import ZoteroConnectionStatus from './ZoteroConnectionStatus';
@@ -74,6 +76,7 @@ import type {
   ZoteroLibraryNote,
   ZoteroPaperMatch,
   ZoteroStatus,
+  ZoteroTagsResult,
 } from './types';
 
 type ResearchPanelProps = {
@@ -1690,7 +1693,12 @@ function CollectionLibrary({
       ) : result?.items.length ? (
         <div className="divide-y divide-neutral-200 dark:divide-neutral-800">
           {result.items.map((item) => (
-            <CollectionItemRow key={item.key} item={item} projectPath={projectPath} />
+            <CollectionItemRow
+              key={item.key}
+              item={item}
+              projectPath={projectPath}
+              collectionKey={binding.collectionKey}
+            />
           ))}
         </div>
       ) : (
@@ -1724,22 +1732,46 @@ type ZoteroAttachmentTextState = {
   visible?: boolean;
 };
 
+type ZoteroAttachmentOpenState = {
+  status: 'idle' | 'loading' | 'opened' | 'error';
+  error?: string;
+};
+
+type ZoteroTagCatalogState = {
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  data?: ZoteroTagsResult;
+  error?: string;
+  loadingMore?: boolean;
+};
+
 type ZoteroExportAction = `${ZoteroExportFormat}:${'copy' | 'download'}`;
+const ZOTERO_TAG_SUGGESTIONS_STEP = 24;
 
 type ZoteroNoteEditorState =
   | { mode: 'create'; text: string }
   | { mode: 'update'; noteKey: string; text: string }
   | null;
 
-function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; projectPath?: string }) {
+function CollectionItemRow({
+  item,
+  projectPath,
+  collectionKey,
+}: {
+  item: ZoteroLibraryItem;
+  projectPath?: string;
+  collectionKey?: string;
+}) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [detailsState, setDetailsState] = useState<ZoteroItemDetailsState>({ status: 'idle' });
   const [attachmentTextByKey, setAttachmentTextByKey] = useState<Record<string, ZoteroAttachmentTextState>>({});
+  const [attachmentOpenByKey, setAttachmentOpenByKey] = useState<Record<string, ZoteroAttachmentOpenState>>({});
   const [exportAction, setExportAction] = useState<ZoteroExportAction | null>(null);
   const [exportMessage, setExportMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [tagEditorOpen, setTagEditorOpen] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
+  const [tagCatalog, setTagCatalog] = useState<ZoteroTagCatalogState>({ status: 'idle' });
+  const [visibleTagCount, setVisibleTagCount] = useState(ZOTERO_TAG_SUGGESTIONS_STEP);
   const [noteEditor, setNoteEditor] = useState<ZoteroNoteEditorState>(null);
   const [cloudPlan, setCloudPlan] = useState<ZoteroCloudWritePlan | null>(null);
   const [cloudBusy, setCloudBusy] = useState(false);
@@ -1813,6 +1845,43 @@ function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; pro
         }));
       });
   }, [attachmentTextByKey, projectPath]);
+
+  const openAttachmentFile = useCallback((attachment: ZoteroLibraryAttachment) => {
+    const openAttachment = window.rigoriumZoteroLibrary?.openAttachment;
+    if (!openAttachment) {
+      setAttachmentOpenByKey((previous) => ({
+        ...previous,
+        [attachment.key]: {
+          status: 'error',
+          error: t('researchPanel.attachmentOpenUnavailable', {
+            defaultValue: 'Opening local attachments requires the Rigorium desktop app.',
+          }),
+        },
+      }));
+      return;
+    }
+    setAttachmentOpenByKey((previous) => ({
+      ...previous,
+      [attachment.key]: { status: 'loading' },
+    }));
+    void openAttachment(attachment.key, { projectPath })
+      .then((result) => {
+        if (!result?.opened) throw new Error('Zotero did not open the attachment.');
+        setAttachmentOpenByKey((previous) => ({
+          ...previous,
+          [attachment.key]: { status: 'opened' },
+        }));
+      })
+      .catch((error) => {
+        setAttachmentOpenByKey((previous) => ({
+          ...previous,
+          [attachment.key]: {
+            status: 'error',
+            error: error instanceof Error ? error.message : String(error),
+          },
+        }));
+      });
+  }, [projectPath, t]);
 
   const runExport = useCallback((format: ZoteroExportFormat, action: 'copy' | 'download') => {
     const activeAction: ZoteroExportAction = `${format}:${action}`;
@@ -1898,12 +1967,64 @@ function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; pro
       .finally(() => setCloudBusy(false));
   }, [cloudPlan, loadDetails, projectPath, t]);
 
+  const loadTagCatalog = useCallback(() => {
+    setTagCatalog({ status: 'loading' });
+    void getZoteroTags({ collectionKey, projectPath, limit: 100 })
+      .then((data) => setTagCatalog({ status: 'ready', data }))
+      .catch((error) => setTagCatalog({
+        status: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      }));
+  }, [collectionKey, projectPath]);
+
+  const loadMoreTagCatalog = useCallback(() => {
+    const nextStart = tagCatalog.data?.nextStart;
+    if (tagCatalog.status !== 'ready' || nextStart === undefined || tagCatalog.loadingMore) return;
+    setTagCatalog((previous) => ({ ...previous, loadingMore: true, error: undefined }));
+    void getZoteroTags({ collectionKey, projectPath, limit: 100, start: nextStart })
+      .then((nextPage) => {
+        setVisibleTagCount((current) => current + ZOTERO_TAG_SUGGESTIONS_STEP);
+        setTagCatalog((previous) => ({
+          status: 'ready',
+          data: {
+            ...nextPage,
+            tags: mergeZoteroTagSuggestions(previous.data?.tags ?? [], nextPage.tags),
+            total: Math.max(previous.data?.total ?? 0, nextPage.total),
+            start: previous.data?.start ?? 0,
+          },
+          loadingMore: false,
+        }));
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setTagCatalog((previous) => previous.data
+          ? { ...previous, status: 'ready', loadingMore: false, error: message }
+          : { status: 'error', error: message });
+      });
+  }, [collectionKey, projectPath, tagCatalog.data?.nextStart, tagCatalog.loadingMore, tagCatalog.status]);
+
   const startTagEditor = useCallback(() => {
     setCloudMessage(null);
     setTagDraft(detailTags.join(', '));
+    setVisibleTagCount(ZOTERO_TAG_SUGGESTIONS_STEP);
     setTagEditorOpen(true);
     setNoteEditor(null);
-  }, [detailTags]);
+    if (tagCatalog.status !== 'ready') loadTagCatalog();
+  }, [detailTags, loadTagCatalog, tagCatalog.status]);
+
+  const addTagSuggestion = useCallback((tag: string) => {
+    const tags = tagDraft.split(',').map((value) => value.trim()).filter(Boolean);
+    if (!tags.some((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase())) tags.push(tag);
+    setTagDraft(tags.join(', '));
+  }, [tagDraft]);
+
+  const showMoreTagSuggestions = useCallback(() => {
+    if ((tagCatalog.data?.tags.length ?? 0) > visibleTagCount) {
+      setVisibleTagCount((current) => current + ZOTERO_TAG_SUGGESTIONS_STEP);
+      return;
+    }
+    loadMoreTagCatalog();
+  }, [loadMoreTagCatalog, tagCatalog.data?.tags.length, visibleTagCount]);
 
   const previewTagReplacement = useCallback(() => {
     previewCloudWrite({
@@ -2000,9 +2121,13 @@ function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; pro
                 <ZoteroTagEditor
                   value={tagDraft}
                   busy={cloudBusy}
+                  catalog={tagCatalog}
                   onChange={setTagDraft}
                   onCancel={() => setTagEditorOpen(false)}
                   onPreview={previewTagReplacement}
+                  onAddSuggestion={addTagSuggestion}
+                  visibleTagCount={visibleTagCount}
+                  onMoreSuggestions={showMoreTagSuggestions}
                 />
               ) : null}
               <ZoteroItemNotes
@@ -2023,7 +2148,9 @@ function CollectionItemRow({ item, projectPath }: { item: ZoteroLibraryItem; pro
               <ZoteroItemAttachments
                 attachments={detailAttachments}
                 states={attachmentTextByKey}
+                openStates={attachmentOpenByKey}
                 onReadFullText={readAttachmentText}
+                onOpenFile={openAttachmentFile}
               />
               <ZoteroItemExports
                 busyAction={exportAction}
@@ -2191,17 +2318,28 @@ function ZoteroItemNotes({
 function ZoteroTagEditor({
   value,
   busy,
+  catalog,
   onChange,
   onCancel,
   onPreview,
+  onAddSuggestion,
+  visibleTagCount,
+  onMoreSuggestions,
 }: {
   value: string;
   busy: boolean;
+  catalog: ZoteroTagCatalogState;
   onChange: (value: string) => void;
   onCancel: () => void;
   onPreview: () => void;
+  onAddSuggestion: (tag: string) => void;
+  visibleTagCount: number;
+  onMoreSuggestions: () => void;
 }) {
   const { t } = useTranslation();
+  const visibleTags = catalog.data?.tags.slice(0, visibleTagCount) ?? [];
+  const canShowMore = (catalog.data?.tags.length ?? 0) > visibleTags.length;
+  const canLoadMore = catalog.data?.nextStart !== undefined;
   return (
     <section className="rounded-md border border-indigo-200 bg-indigo-50/50 p-2 dark:border-indigo-900/70 dark:bg-indigo-950/20">
       <label className="block text-[10px] font-medium text-neutral-600 dark:text-neutral-300">
@@ -2213,6 +2351,51 @@ function ZoteroTagEditor({
           aria-label={t('researchPanel.editZoteroTags', { defaultValue: 'Edit Zotero tags' })}
         />
       </label>
+      {catalog.status === 'loading' ? (
+        <p className="mt-1.5 flex items-center gap-1 text-[10px] text-neutral-500" role="status">
+          <RefreshCw className="h-3 w-3 animate-spin" />
+          {t('researchPanel.loadingZoteroTags', { defaultValue: 'Loading saved tags…' })}
+        </p>
+      ) : null}
+      {catalog.error ? (
+        <p className="mt-1.5 text-[10px] leading-4 text-amber-700 dark:text-amber-300" role="status">
+          {t('researchPanel.zoteroTagsUnavailable', {
+            defaultValue: 'Saved tags are unavailable: {{error}}',
+            error: catalog.error,
+          })}
+        </p>
+      ) : null}
+      {catalog.status === 'ready' && visibleTags.length ? (
+        <div className="mt-1.5 flex flex-wrap gap-1" data-testid="zotero-tag-suggestions">
+          {visibleTags.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => onAddSuggestion(tag)}
+              disabled={busy}
+              className="inline-flex h-6 max-w-full items-center gap-1 rounded-md border border-indigo-200 bg-white px-1.5 text-[10px] text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-900 dark:bg-neutral-900 dark:text-indigo-300 dark:hover:bg-indigo-950/30"
+              aria-label={t('researchPanel.addZoteroTag', { defaultValue: 'Add Zotero tag {{tag}}', tag })}
+              title={t('researchPanel.addZoteroTag', { defaultValue: 'Add Zotero tag {{tag}}', tag })}
+            >
+              <Plus className="h-3 w-3 shrink-0" />
+              <span className="truncate">{tag}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {catalog.status === 'ready' && (canShowMore || canLoadMore) ? (
+        <button
+          type="button"
+          onClick={onMoreSuggestions}
+          disabled={busy || catalog.loadingMore}
+          className="mt-1.5 inline-flex h-6 items-center gap-1 text-[10px] font-medium text-indigo-700 hover:underline disabled:opacity-50 dark:text-indigo-300"
+        >
+          {catalog.loadingMore ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+          {canShowMore
+            ? t('researchPanel.showMoreZoteroTags', { defaultValue: 'Show more saved tags' })
+            : t('researchPanel.loadMoreZoteroTags', { defaultValue: 'Load more saved tags' })}
+        </button>
+      ) : null}
       <div className="mt-2 flex justify-end gap-1.5">
         <button type="button" onClick={onCancel} disabled={busy} className="inline-flex h-7 items-center rounded-md border border-neutral-200 px-2 text-[10px] font-medium text-neutral-600 dark:border-neutral-700 dark:text-neutral-300">
           {t('researchPanel.cancel', { defaultValue: 'Cancel' })}
@@ -2268,6 +2451,17 @@ function ZoteroNoteEditor({
       </div>
     </section>
   );
+}
+
+function mergeZoteroTagSuggestions(existing: string[], incoming: string[]): string[] {
+  const tags = new Map<string, string>();
+  for (const tag of [...existing, ...incoming]) {
+    const normalized = tag.trim();
+    if (!normalized) continue;
+    const key = normalized.toLocaleLowerCase();
+    if (!tags.has(key)) tags.set(key, normalized);
+  }
+  return [...tags.values()];
 }
 
 function ZoteroCloudWritePreview({
@@ -2326,11 +2520,15 @@ function ZoteroCloudWritePreview({
 function ZoteroItemAttachments({
   attachments,
   states,
+  openStates,
   onReadFullText,
+  onOpenFile,
 }: {
   attachments: ZoteroLibraryAttachment[];
   states: Record<string, ZoteroAttachmentTextState>;
+  openStates: Record<string, ZoteroAttachmentOpenState>;
   onReadFullText: (attachment: ZoteroLibraryAttachment) => void;
+  onOpenFile: (attachment: ZoteroLibraryAttachment) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -2342,6 +2540,7 @@ function ZoteroItemAttachments({
         <div className="mt-1.5 space-y-1.5">
           {attachments.map((attachment) => {
             const state = states[attachment.key] ?? { status: 'idle' };
+            const openState = openStates[attachment.key] ?? { status: 'idle' };
             return (
               <div key={attachment.key} className="rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
                 <div className="flex min-w-0 items-start gap-1.5">
@@ -2352,21 +2551,44 @@ function ZoteroItemAttachments({
                       {[attachment.contentType, attachment.linkMode].filter(Boolean).join(' · ') || t('researchPanel.zoteroAttachment', { defaultValue: 'Attachment' })}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onReadFullText(attachment)}
-                    disabled={state.status === 'loading'}
-                    className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-neutral-200 px-1.5 text-[10px] font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-900"
-                    aria-label={state.status === 'ready' && state.visible
-                      ? t('researchPanel.hideAttachmentFullText', { defaultValue: 'Hide full text for {{title}}', title: attachment.title || attachment.key })
-                      : t('researchPanel.readAttachmentFullText', { defaultValue: 'Read full text for {{title}}', title: attachment.title || attachment.key })}
-                  >
-                    {state.status === 'loading' ? <RefreshCw className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
-                    {state.status === 'ready' && state.visible
-                      ? t('researchPanel.hideFullText', { defaultValue: 'Hide text' })
-                      : t('researchPanel.readFullText', { defaultValue: 'Read text' })}
-                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onOpenFile(attachment)}
+                      disabled={openState.status === 'loading'}
+                      className="inline-flex h-6 items-center gap-1 rounded-md border border-neutral-200 px-1.5 text-[10px] font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-900"
+                      aria-label={t('researchPanel.openAttachmentFile', { defaultValue: 'Open file for {{title}}', title: attachment.title || attachment.key })}
+                      title={t('researchPanel.openAttachmentFile', { defaultValue: 'Open file for {{title}}', title: attachment.title || attachment.key })}
+                    >
+                      {openState.status === 'loading' ? <RefreshCw className="h-3 w-3 animate-spin" /> : <FolderOpen className="h-3 w-3" />}
+                      {openState.status === 'loading'
+                        ? t('researchPanel.openingAttachment', { defaultValue: 'Opening…' })
+                        : t('researchPanel.openAttachment', { defaultValue: 'Open file' })}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onReadFullText(attachment)}
+                      disabled={state.status === 'loading'}
+                      className="inline-flex h-6 items-center gap-1 rounded-md border border-neutral-200 px-1.5 text-[10px] font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-900"
+                      aria-label={state.status === 'ready' && state.visible
+                        ? t('researchPanel.hideAttachmentFullText', { defaultValue: 'Hide full text for {{title}}', title: attachment.title || attachment.key })
+                        : t('researchPanel.readAttachmentFullText', { defaultValue: 'Read full text for {{title}}', title: attachment.title || attachment.key })}
+                    >
+                      {state.status === 'loading' ? <RefreshCw className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+                      {state.status === 'ready' && state.visible
+                        ? t('researchPanel.hideFullText', { defaultValue: 'Hide text' })
+                        : t('researchPanel.readFullText', { defaultValue: 'Read text' })}
+                    </button>
+                  </div>
                 </div>
+                {openState.status === 'opened' ? (
+                  <p className="mt-1.5 text-[10px] leading-4 text-emerald-700 dark:text-emerald-300" role="status">
+                    {t('researchPanel.attachmentOpened', { defaultValue: 'Local attachment opened.' })}
+                  </p>
+                ) : null}
+                {openState.error ? (
+                  <p className="mt-1.5 text-[10px] leading-4 text-amber-700 dark:text-amber-300" role="status">{openState.error}</p>
+                ) : null}
                 {state.error ? (
                   <p className="mt-1.5 text-[10px] leading-4 text-amber-700 dark:text-amber-300">{state.error}</p>
                 ) : null}

@@ -219,6 +219,107 @@ describe('research routes', () => {
     expect(provider.listItems).toHaveBeenCalledTimes(1);
   });
 
+  it('pages tag suggestions only through the read-only provider and preserves an unavailable query', async () => {
+    const provider = localProvider({
+      listTags: vi.fn().mockResolvedValue({
+        tags: ['Evidence', 'Methods'],
+        total: 101,
+        start: 50,
+        nextStart: 100,
+        truncated: true,
+      }),
+    });
+    mocks.createZoteroLibraryProvider.mockReturnValue(provider);
+    const { request } = await createResearchApp();
+
+    const response = await request('/api/research/zotero/tags?collectionKey=COLL1&q=method&limit=50&start=50');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      provider: 'zotero',
+      available: true,
+      collectionKey: 'COLL1',
+      tags: ['Evidence', 'Methods'],
+      total: 101,
+      start: 50,
+      nextStart: 100,
+      truncated: true,
+    });
+    expect(provider.listTags).toHaveBeenCalledWith({
+      collectionKey: 'COLL1',
+      query: 'method',
+      limit: 50,
+      start: 50,
+    });
+
+    provider.listTags.mockRejectedValueOnce(new Error('Zotero Local API is offline.'));
+    const unavailable = await request('/api/research/zotero/tags?collectionKey=COLL1&q=method');
+    expect(unavailable.status).toBe(200);
+    expect(unavailable.body).toEqual({
+      provider: 'zotero',
+      available: false,
+      error: 'Zotero Local API is offline.',
+      collectionKey: 'COLL1',
+      tags: [],
+      total: 0,
+      start: 0,
+      truncated: false,
+      query: 'method',
+    });
+  });
+
+  it('keeps the attachment file route private and traceable to an explicit desktop request', async () => {
+    const provider = localProvider({
+      getAttachmentFile: vi.fn().mockResolvedValue({
+        attachmentKey: 'ATTACH1',
+        fileUrl: 'file:///C:/Users/Ada/Zotero/storage/ATTACH1/paper.pdf',
+      }),
+    });
+    mocks.createZoteroLibraryProvider.mockReturnValue(provider);
+    const { request } = await createResearchApp();
+
+    mocks.isAuthorizedDesktopZoteroCloudRequest.mockReturnValue(false);
+    const rendererAttempt = await request('/api/research/zotero/items/ATTACH1/file');
+    expect(rendererAttempt.status).toBe(401);
+    expect(rendererAttempt.body).toEqual({ error: 'Unauthorized.' });
+    expect(rendererAttempt.headers.get('cache-control')).toBe('no-store');
+    expect(provider.getAttachmentFile).not.toHaveBeenCalled();
+
+    mocks.isAuthorizedDesktopZoteroCloudRequest.mockReturnValue(true);
+    const desktopRequest = await request('/api/research/zotero/items/ATTACH1/file', {
+      headers: { 'x-rigorium-zotero-cloud-session': 'desktop-only' },
+    });
+    expect(desktopRequest.status).toBe(200);
+    expect(desktopRequest.headers.get('cache-control')).toBe('no-store');
+    expect(desktopRequest.body).toEqual({
+      provider: 'zotero',
+      available: true,
+      attachmentKey: 'ATTACH1',
+      fileUrl: 'file:///C:/Users/Ada/Zotero/storage/ATTACH1/paper.pdf',
+    });
+    expect(provider.getAttachmentFile).toHaveBeenCalledWith('ATTACH1');
+
+    const invalid = await request('/api/research/zotero/items/bad-key/file', {
+      headers: { 'x-rigorium-zotero-cloud-session': 'desktop-only' },
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body).toEqual({ error: 'Invalid Zotero item key.' });
+    expect(provider.getAttachmentFile).toHaveBeenCalledTimes(1);
+
+    provider.getAttachmentFile.mockRejectedValueOnce(new Error('Zotero Local API is offline.'));
+    const unavailable = await request('/api/research/zotero/items/ATTACH1/file', {
+      headers: { 'x-rigorium-zotero-cloud-session': 'desktop-only' },
+    });
+    expect(unavailable.status).toBe(200);
+    expect(unavailable.body).toEqual({
+      provider: 'zotero',
+      available: false,
+      error: 'Zotero Local API is offline.',
+      itemKey: 'ATTACH1',
+      attachmentKey: 'ATTACH1',
+    });
+  });
+
   it('previews cloud writes but rejects an unconfirmed cloud execution', async () => {
     const plan = { planId: 'plan-1', requiresConfirmation: true };
     const provider = cloudProvider({ createWritePlan: vi.fn().mockResolvedValue(plan) });
@@ -348,7 +449,9 @@ function localProvider(overrides = {}) {
       writeMode: 'connector_import',
       checkedAt: '2026-07-23T00:00:00.000Z',
     }),
+    listTags: vi.fn(),
     getAttachmentFullText: vi.fn(),
+    getAttachmentFile: vi.fn(),
     exportItem: vi.fn(),
     importPapers: vi.fn(),
     ...overrides,
@@ -381,7 +484,7 @@ async function requestJson(app, path, init = {}) {
       headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
       ...init,
     });
-    return { status: response.status, body: await response.json() };
+    return { status: response.status, headers: response.headers, body: await response.json() };
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
   }

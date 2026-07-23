@@ -6,6 +6,7 @@ import type {
   LibraryProviderStatus,
   ResearchPaper,
   ZoteroAttachment,
+  ZoteroAttachmentFile,
   ZoteroAttachmentFullText,
   ZoteroCitationStyle,
   ZoteroCollectionsResult,
@@ -17,9 +18,11 @@ import type {
   ZoteroItemsResult,
   ZoteroLibraryItem,
   ZoteroListItemsInput,
+  ZoteroListTagsInput,
   ZoteroNote,
   ZoteroPaperMatch,
   ZoteroPaperMatchReason,
+  ZoteroTagsResult,
 } from "../types.js";
 
 const LOCAL_API_ROOT = "/api/users/0";
@@ -203,6 +206,35 @@ export function createZoteroLibraryProvider(
         ...(queryText ? { query: queryText } : {}),
       };
     },
+    async listTags(input: ZoteroListTagsInput = {}): Promise<ZoteroTagsResult> {
+      const collectionKey = normalizeCollectionKey(input.collectionKey);
+      const queryText = normalizedQuery(input.query);
+      const limit = normalizedLimit(input.limit);
+      const start = normalizedStart(input.start);
+      const query = new URLSearchParams({
+        format: "json",
+        limit: String(limit),
+        start: String(start),
+      });
+      if (queryText) query.set("q", queryText);
+      const path = collectionKey
+        ? `${LOCAL_API_ROOT}/collections/${encodeURIComponent(collectionKey)}/items/top/tags?${query.toString()}`
+        : `${LOCAL_API_ROOT}/items/top/tags?${query.toString()}`;
+      const page = await requestLocalApi(path);
+      const rawTags = arrayResponse(page.body);
+      const tags = uniqueTagNames(rawTags.map(normalizeTagName));
+      const nextStart = hasNextPage(page.total, start, rawTags.length, limit)
+        ? start + rawTags.length
+        : undefined;
+      return {
+        tags,
+        total: page.total ?? tags.length,
+        start,
+        ...(nextStart !== undefined ? { nextStart } : {}),
+        truncated: nextStart !== undefined,
+        ...(queryText ? { query: queryText } : {}),
+      };
+    },
     async getItemDetails(itemKey: string): Promise<ZoteroItemDetail> {
       const key = requireZoteroItemKey(itemKey);
       const itemResult = await requestLocalApi(`${LOCAL_API_ROOT}/items/${encodeURIComponent(key)}?format=json`);
@@ -250,6 +282,21 @@ export function createZoteroLibraryProvider(
         `${LOCAL_API_ROOT}/items/${encodeURIComponent(key)}/fulltext`,
       );
       return normalizeAttachmentFullText(key, fullTextResult.body);
+    },
+    async getAttachmentFile(attachmentKey: string): Promise<ZoteroAttachmentFile> {
+      const key = requireZoteroItemKey(attachmentKey);
+      const attachmentResult = await requestLocalApi(`${LOCAL_API_ROOT}/items/${encodeURIComponent(key)}?format=json`);
+      const rawAttachment = singleResponse(attachmentResult.body);
+      const attachment = rawAttachment ? normalizeZoteroAttachment(rawAttachment) : undefined;
+      if (!attachment) {
+        throw new ZoteroInputError("A local file can only be opened for a Zotero attachment.");
+      }
+
+      const fileResult = await requestLocalApi(
+        `${LOCAL_API_ROOT}/items/${encodeURIComponent(key)}/file/view/url`,
+        { accept: "text/plain, */*;q=0.8" },
+      );
+      return normalizeAttachmentFile(key, fileResult.body);
     },
     async exportItem(input): Promise<ZoteroItemExport> {
       const itemKey = requireZoteroItemKey(input.itemKey);
@@ -534,6 +581,33 @@ function normalizeAttachmentFullText(attachmentKey: string, value: unknown): Zot
     totalChars: sourceContent.length,
     ...(version !== undefined ? { version } : {}),
   };
+}
+
+function normalizeAttachmentFile(attachmentKey: string, value: unknown): ZoteroAttachmentFile {
+  const rawUrl = stringValue(value)
+    ?? (isRecord(value) ? stringValue(value.url) ?? stringValue(value.fileUrl) : undefined);
+  if (!rawUrl || rawUrl.length > 16_384) {
+    throw new ZoteroInputError("Zotero did not return a usable local attachment file URL.");
+  }
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (
+      parsed.protocol !== "file:"
+      || (host && host !== "localhost")
+      || parsed.pathname.startsWith("//")
+      || parsed.username
+      || parsed.password
+      || parsed.port
+      || parsed.search
+      || parsed.hash
+    ) {
+      throw new Error("unsafe file URL");
+    }
+    return { attachmentKey, fileUrl: parsed.href };
+  } catch {
+    throw new ZoteroInputError("Zotero did not return a safe local attachment file URL.");
+  }
 }
 
 function sanitizeZoteroData(value: Record<string, unknown>): Record<string, unknown> {
@@ -927,6 +1001,21 @@ function creatorDisplayName(value: unknown): string | undefined {
 
 function tagName(value: unknown): string | undefined {
   return typeof value === "string" ? stringValue(value) : isRecord(value) ? stringValue(value.tag) : undefined;
+}
+
+function normalizeTagName(value: unknown): string | undefined {
+  if (isRecord(value) && isRecord(value.data)) return tagName(value.data);
+  return tagName(value);
+}
+
+function uniqueTagNames(values: Array<string | undefined>): string[] {
+  const tags = new Map<string, string>();
+  for (const value of values) {
+    if (!value) continue;
+    const key = value.toLocaleLowerCase();
+    if (!tags.has(key)) tags.set(key, value);
+  }
+  return [...tags.values()].sort((left, right) => left.localeCompare(right));
 }
 
 function yearFromDate(value: string | undefined): number | undefined {

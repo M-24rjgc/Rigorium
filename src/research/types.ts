@@ -694,6 +694,15 @@ export type ZoteroAttachmentFullText = {
   version?: number;
 };
 
+/**
+ * This file URL is an internal handoff from the Local API to the trusted
+ * Electron main process. It must never be returned to renderer code.
+ */
+export type ZoteroAttachmentFile = {
+  attachmentKey: string;
+  fileUrl: string;
+};
+
 export type ZoteroCitationStyle = "apa" | "chicago-author-date" | "ieee" | "mla";
 
 export type ZoteroItemExportFormat = "bibtex" | "csl-json";
@@ -727,6 +736,25 @@ export type ZoteroListItemsInput = {
 export type ZoteroItemsResult = {
   collection?: ZoteroCollectionTarget;
   items: ZoteroLibraryItem[];
+  total: number;
+  /** The zero-based position used for this page. */
+  start: number;
+  /** The zero-based position for the next page, when another page may exist. */
+  nextStart?: number;
+  truncated: boolean;
+  query?: string;
+};
+
+export type ZoteroListTagsInput = {
+  collectionKey?: string;
+  query?: string;
+  limit?: number;
+  /** Zero-based position of the first matching tag to return. */
+  start?: number;
+};
+
+export type ZoteroTagsResult = {
+  tags: string[];
   total: number;
   /** The zero-based position used for this page. */
   start: number;
@@ -776,8 +804,11 @@ export interface LibraryProvider {
   getSelectedCollection(): Promise<ZoteroCollectionTarget | undefined>;
   listCollections(): Promise<ZoteroCollectionsResult>;
   listItems(input?: ZoteroListItemsInput): Promise<ZoteroItemsResult>;
+  listTags(input?: ZoteroListTagsInput): Promise<ZoteroTagsResult>;
   getItemDetails(itemKey: string): Promise<ZoteroItemDetail>;
   getAttachmentFullText(attachmentKey: string): Promise<ZoteroAttachmentFullText>;
+  /** Internal-only file URL handoff for Electron's guarded open action. */
+  getAttachmentFile(attachmentKey: string): Promise<ZoteroAttachmentFile>;
   exportItem(input: {
     itemKey: string;
     format: ZoteroItemExportFormat;

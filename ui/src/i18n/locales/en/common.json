@@ -642,6 +642,16 @@
     "sharedTopicEdge": "Shared topic (inferred)",
     "seedLegend": "Seed paper",
     "seedBadge": "Seed",
-    "nodeSizeLegend": "Node size = citations"
+    "nodeSizeLegend": "Node size = citations",
+    "loadingZoteroTags": "Loading saved tags…",
+    "zoteroTagsUnavailable": "Saved tags are unavailable: {{error}}",
+    "addZoteroTag": "Add Zotero tag {{tag}}",
+    "showMoreZoteroTags": "Show more saved tags",
+    "loadMoreZoteroTags": "Load more saved tags",
+    "openAttachmentFile": "Open file for {{title}}",
+    "openAttachment": "Open file",
+    "openingAttachment": "Opening…",
+    "attachmentOpened": "Local attachment opened.",
+    "attachmentOpenUnavailable": "Opening local attachments requires the Rigorium desktop app."
   }
 }

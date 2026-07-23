@@ -509,6 +509,25 @@ export type ZoteroAttachmentFullTextResult = {
   version?: number;
 };
 
+export type ZoteroTagsResult = {
+  provider?: 'zotero';
+  available?: boolean;
+  disabled?: boolean;
+  error?: string;
+  collectionKey?: string;
+  tags: string[];
+  total: number;
+  start: number;
+  nextStart?: number;
+  truncated: boolean;
+  query?: string;
+};
+
+/** The renderer receives only an outcome, never the attachment's local path. */
+export type ZoteroAttachmentOpenResult = {
+  opened: boolean;
+};
+
 export type ZoteroExportFormat = 'bibtex' | 'csl-json';
 
 export type ZoteroItemExportResult = {
