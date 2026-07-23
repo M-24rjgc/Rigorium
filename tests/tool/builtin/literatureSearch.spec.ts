@@ -257,6 +257,18 @@ test("literature_search keeps successful variants when an alternate query fails"
   assert.equal(result.data?.sources[0]?.status, "ok");
   assert.deepEqual(result.data?.queryAudit?.map((source) => source.status), ["ok", "error"]);
   assert.match(result.data?.coverage.warnings.join(" ") ?? "", /alternative-1/i);
+  const coverageAudit = result.data?.coverageAudit;
+  assert.ok(coverageAudit);
+  assert.deepEqual(coverageAudit.queryVariants.map((item) => ({
+    id: item.queryVariantId,
+    status: item.status,
+    successful: item.successfulSourceIds,
+    failed: item.failedSourceIds,
+  })), [
+    { id: "primary", status: "complete", successful: ["openalex"], failed: [] },
+    { id: "alternative-1", status: "failed", successful: [], failed: ["openalex"] },
+  ]);
+  assert.match(result.content[0]?.type === "text" ? result.content[0].text : "", /Variant coverage: primary \(complete\), alternative-1 \(failed\)/);
 });
 
 test("literature_search never allocates more query requests than the total result budget", async () => {

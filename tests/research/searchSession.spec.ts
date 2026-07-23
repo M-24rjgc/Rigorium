@@ -6,6 +6,7 @@ import {
   type LiteratureSearchSessionPlan,
   type LiteratureSearchSessionSearchTask,
 } from "../../src/research/literature/searchSession.js";
+import { buildLiteratureSearchCoverageAudit } from "../../src/research/literature/coverageAudit.js";
 import type {
   LiteratureExpansionArtifact,
   LiteratureExpansionPlan,
@@ -136,6 +137,7 @@ function searchArtifact(
     edges: [],
     sources,
     queryAudit,
+    coverageAudit: buildLiteratureSearchCoverageAudit({ plan, queryAudit }),
     coverage: {
       status: "complete",
       resultCount: 1,
@@ -329,6 +331,22 @@ test("a failed task records its reason without losing successful artifacts and s
   assert.deepEqual(result.sourceAudit.map((entry) => [entry.taskId, entry.source.id, entry.source.retrievedAt]), [
     ["successful", "openalex", retrievedAt],
   ]);
+});
+
+test("search session accepts a schema-v1 search artifact created before coverage audit was added", async () => {
+  const task = searchTask("legacy", searchPlan({ query: "legacy query", limit: 2 }));
+  const result = await runLiteratureSearchSession(sessionPlan([task], 2, 1), {
+    search: async (_task, effectivePlan) => {
+      const { coverageAudit: _coverageAudit, ...legacyArtifact } = searchArtifact("legacy", effectivePlan);
+      return legacyArtifact;
+    },
+  }, { now });
+
+  assert.equal(result.status, "complete");
+  const artifact = result.artifacts[0]?.artifact;
+  assert.ok(artifact && artifact.kind === "literature_search");
+  assert.equal(artifact.coverageAudit, undefined);
+  assert.deepEqual(result.sourceAudit.map((entry) => entry.source.queryVariantId), ["primary"]);
 });
 
 test("AbortSignal stops unscheduled work, reaches running executors, and returns an auditable partial session", async () => {

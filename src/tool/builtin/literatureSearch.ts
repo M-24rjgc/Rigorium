@@ -5,6 +5,10 @@ import { createArxivSource, normalizeArxivClassifications } from "../../research
 import { createCrossrefSource } from "../../research/literature/crossrefSource.js";
 import { createOpenAlexSource } from "../../research/literature/openAlexSource.js";
 import { createOpenReviewSource } from "../../research/literature/openReviewSource.js";
+import {
+  buildLiteratureSearchCoverageAudit,
+  type LiteratureSearchCoverageSourceScope,
+} from "../../research/literature/coverageAudit.js";
 import { buildLiteratureTerminology, sanitizeRetrievalUrl } from "../../research/literature/terminology.js";
 import { readResearchSettings } from "../../research/settings.js";
 import type {
@@ -412,9 +416,9 @@ The result includes normalized paper identities, source provenance, real citatio
         ));
       }
       if (disabledOpenReviewResult) {
-        results.push(...queryVariants.map((variant) =>
-          annotateQueryVariant(sanitizeSearchResultUrls(disabledOpenReviewResult), variant.id),
-        ));
+        // OpenReview venue evidence is requested only for the primary query;
+        // do not manufacture alternate-query audit rows when the source is disabled.
+        results.push(annotateQueryVariant(sanitizeSearchResultUrls(disabledOpenReviewResult), "primary"));
       }
       const pool = mergeLiteratureSearchResults({
         requestedSourceIds: plan.sourceIds,
@@ -423,6 +427,12 @@ The result includes normalized paper identities, source provenance, real citatio
         sourcePriority: ["openreview", "openalex", "arxiv", "crossref"],
       });
       const terminology = buildLiteratureTerminology(pool.terminologyObservations);
+      const queryAudit = results.map((result) => result.source);
+      const coverageAudit = buildLiteratureSearchCoverageAudit({
+        plan,
+        queryAudit,
+        sourceScopes: sourceCoverageScopes(variantSources, officialVenueSources, disabledArxivResult, disabledOpenReviewResult),
+      });
       const artifact: LiteratureSearchArtifact = {
         schemaVersion: 1,
         kind: "literature_search",
@@ -433,7 +443,8 @@ The result includes normalized paper identities, source provenance, real citatio
         papers: pool.papers,
         edges: pool.edges,
         sources: pool.sources,
-        queryAudit: results.map((result) => result.source),
+        queryAudit,
+        coverageAudit,
         ...(terminology ? { terminology } : {}),
         coverage: pool.coverage,
         presentation: {
@@ -447,10 +458,14 @@ The result includes normalized paper identities, source provenance, real citatio
 
 function formatToolOutput(artifact: LiteratureSearchArtifact): PilotDeckToolExecutionOutput<LiteratureSearchArtifact> {
   const sourceSummary = artifact.sources.map((source) => `${source.name} (${source.status})`).join(", ");
+  const variantCoverage = artifact.coverageAudit?.queryVariants ?? [];
   const lines = [
     `Academic literature search: ${artifact.plan.query}`,
     ...(artifact.plan.queryVariants && artifact.plan.queryVariants.length > 1
       ? [`Query variants: ${artifact.plan.queryVariants.length}`]
+      : []),
+    ...(variantCoverage.length > 1
+      ? [`Variant coverage: ${variantCoverage.map((item) => `${item.queryVariantId} (${item.status})`).join(", ")}`]
       : []),
     `Sources: ${sourceSummary || "unknown"}`,
     `Results: ${artifact.papers.length}`,
@@ -478,6 +493,20 @@ function formatToolOutput(artifact: LiteratureSearchArtifact): PilotDeckToolExec
       coverageStatus: artifact.coverage.status,
     },
   };
+}
+
+function sourceCoverageScopes(
+  variantSources: LiteratureSource[],
+  officialVenueSources: LiteratureSource[],
+  disabledArxivResult: LiteratureSearchResult | undefined,
+  disabledOpenReviewResult: LiteratureSearchResult | undefined,
+): LiteratureSearchCoverageSourceScope[] {
+  return [
+    ...variantSources.map((source) => ({ sourceId: source.id, scope: "per_query_variant" as const })),
+    ...officialVenueSources.map((source) => ({ sourceId: source.id, scope: "primary_query_only" as const })),
+    ...(disabledArxivResult ? [{ sourceId: disabledArxivResult.source.id, scope: "per_query_variant" as const }] : []),
+    ...(disabledOpenReviewResult ? [{ sourceId: disabledOpenReviewResult.source.id, scope: "primary_query_only" as const }] : []),
+  ];
 }
 
 function finiteInteger(value: unknown): number | undefined {

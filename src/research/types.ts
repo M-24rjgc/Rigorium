@@ -321,6 +321,59 @@ export type ResearchCoverage = {
   failedSourceIds: string[];
 };
 
+/** How a source was intentionally scheduled across query formulations. */
+export type LiteratureSearchSourceExecutionScope = "per_query_variant" | "primary_query_only";
+
+/**
+ * A compact, derived view of coverage for one executed query formulation.
+ * `successfulSourceIds` includes usable-but-partial sources; inspect
+ * `partialSourceIds` before treating the formulation as complete.
+ */
+export type LiteratureSearchQueryVariantCoverage = {
+  queryVariantId: string;
+  query: string;
+  category?: SearchQueryVariantCategory;
+  expectedSourceIds: string[];
+  attemptedSourceIds: string[];
+  successfulSourceIds: string[];
+  partialSourceIds: string[];
+  failedSourceIds: string[];
+  missingSourceIds: string[];
+  /** Sum of provider records before cross-source and cross-query deduplication. */
+  resultCount: number;
+  status: ResearchCoverage["status"];
+};
+
+/**
+ * The complementary source-oriented view of the same query-source audit.
+ * A primary-only source is intentionally not missing from alternate queries.
+ */
+export type LiteratureSearchSourceCoverage = {
+  sourceId: string;
+  sourceName: string;
+  scope: LiteratureSearchSourceExecutionScope;
+  expectedQueryVariantIds: string[];
+  attemptedQueryVariantIds: string[];
+  successfulQueryVariantIds: string[];
+  partialQueryVariantIds: string[];
+  failedQueryVariantIds: string[];
+  missingQueryVariantIds: string[];
+  /** Sum of provider records before cross-source and cross-query deduplication. */
+  resultCount: number;
+  status: ResearchCoverage["status"];
+};
+
+/**
+ * A deterministic projection of raw `queryAudit` rows. It keeps the original
+ * rows authoritative while making source-by-variant coverage directly usable.
+ */
+export type LiteratureSearchCoverageAudit = {
+  status: ResearchCoverage["status"];
+  queryVariants: LiteratureSearchQueryVariantCoverage[];
+  sources: LiteratureSearchSourceCoverage[];
+  warnings: string[];
+};
+
 /**
  * A normalized provider-native terminology record held only while search
  * attempts are merged. It is intentionally distinct from ResearchPaper.topics
@@ -454,6 +507,11 @@ export type LiteratureSearchArtifact = {
   sources: ResearchSourceStatus[];
   /** One source status per executed query variant, before source aggregation. */
   queryAudit?: ResearchSourceStatus[];
+  /**
+   * Derived source-by-query coverage emitted by current tools. Optional so
+   * persisted schema-v1 artifacts created before this projection remain valid.
+   */
+  coverageAudit?: LiteratureSearchCoverageAudit;
   /** Evidence-backed OpenAlex terminology observations from the final paper pool. */
   terminology?: LiteratureTerminology;
   coverage: ResearchCoverage;
