@@ -7,6 +7,7 @@ import { getZoteroCloudStatus } from '../../../../research/zoteroCloudApi';
 import type {
   ResearchArxivSourceSettings,
   ResearchLiteratureSourceSettings,
+  ResearchOpenReviewSourceSettings,
   ResearchSettings,
   ResearchSettingsSnapshot,
   ZoteroCollection,
@@ -33,6 +34,10 @@ const defaultArxivSourceSettings: ResearchArxivSourceSettings = {
   enabled: true,
 };
 
+const defaultOpenReviewSourceSettings: ResearchOpenReviewSourceSettings = {
+  enabled: true,
+};
+
 function normalizeResearchSettings(settings: ResearchSettings): ResearchSettings {
   return {
     ...settings,
@@ -47,6 +52,10 @@ function normalizeResearchSettings(settings: ResearchSettings): ResearchSettings
         arxiv: {
           ...defaultArxivSourceSettings,
           ...settings.literature.sources.arxiv,
+        },
+        openreview: {
+          ...defaultOpenReviewSourceSettings,
+          ...settings.literature.sources.openreview,
         },
       },
     },
@@ -392,6 +401,22 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
       },
     } : current);
   };
+  const updateOpenReview = (value: Partial<ResearchOpenReviewSourceSettings>) => {
+    setDraft((current) => current ? {
+      ...current,
+      literature: {
+        ...current.literature,
+        sources: {
+          ...current.literature.sources,
+          openreview: {
+            ...defaultOpenReviewSourceSettings,
+            ...current.literature.sources.openreview,
+            ...value,
+          },
+        },
+      },
+    } : current);
+  };
   const updateZoteroCloud = (value: Partial<ResearchSettings['zotero']['cloud']>) => {
     setDraft((current) => current ? {
       ...current,
@@ -400,7 +425,11 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
   };
   const crossrefSource = draft.literature.sources.crossref ?? defaultCrossrefSourceSettings;
   const arxivSource = draft.literature.sources.arxiv ?? defaultArxivSourceSettings;
-  const noLiteratureSourcesEnabled = !draft.literature.sources.openalex.enabled && !crossrefSource.enabled && !arxivSource.enabled;
+  const openReviewSource = draft.literature.sources.openreview ?? defaultOpenReviewSourceSettings;
+  const noLiteratureSourcesEnabled = !draft.literature.sources.openalex.enabled
+    && !crossrefSource.enabled
+    && !arxivSource.enabled
+    && !openReviewSource.enabled;
 
   return (
     <div className="space-y-8">
@@ -508,6 +537,16 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
               checked={arxivSource.enabled}
               onChange={(enabled) => updateArxiv({ enabled })}
               ariaLabel="arXiv"
+            />
+          </SettingsRow>
+          <SettingsRow
+            label="OpenReview"
+            description={t('research.sources.openreviewDescription', { defaultValue: 'Official venue records and review metadata when an explicit OpenReview venue is selected.' })}
+          >
+            <SettingsToggle
+              checked={openReviewSource.enabled}
+              onChange={(enabled) => updateOpenReview({ enabled })}
+              ariaLabel="OpenReview"
             />
           </SettingsRow>
           <SettingsRow label={t('research.remoteMetadata', { defaultValue: 'Allow remote metadata search' })}>
@@ -797,6 +836,13 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
                   ? t('research.zotero.ready', { defaultValue: 'Ready · {{name}}', name: zoteroStatus.selectedCollection?.name || 'My Library' })
                   : zoteroStatus.error || t('research.zotero.notReady', { defaultValue: 'Zotero is not ready.' })}
               </span>
+              {zoteroStatus.writeMode ? (
+                <span className="block text-[11px] leading-4 text-muted-foreground" data-testid="zotero-write-mode">
+                  {zoteroStatus.writeMode === 'connector_import'
+                    ? t('research.zotero.writeMode.connectorImport', { defaultValue: 'Confirmed imports use the Zotero Connector.' })
+                    : t('research.zotero.writeMode.readOnly', { defaultValue: 'The local API is read-only; imports are unavailable.' })}
+                </span>
+              ) : null}
             </div>
           ) : null}
         </div>

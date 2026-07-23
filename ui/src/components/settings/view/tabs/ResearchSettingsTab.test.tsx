@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { I18nextProvider } from 'react-i18next';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '../../../../i18n/config';
-import type { ResearchSettings } from '../../../../research/types';
+import type { ResearchSettings, ZoteroStatus } from '../../../../research/types';
 import { authenticatedFetch } from '../../../../utils/api';
 import ResearchSettingsTab from './ResearchSettingsTab';
 
@@ -16,6 +16,7 @@ const settings: ResearchSettings = {
       openalex: { enabled: true, mailto: '' },
       crossref: { enabled: true, mailto: '' },
       arxiv: { enabled: true },
+      openreview: { enabled: true },
     },
     search: { defaultLimit: 12, fromYear: null, toYear: null, sort: 'relevance' },
     budget: { maxResultsPerSearch: 25, requestTimeoutMs: 20_000 },
@@ -161,8 +162,10 @@ describe('ResearchSettingsTab Zotero collections', () => {
     const openAlexToggle = await screen.findByRole('switch', { name: 'OpenAlex' });
     const crossrefToggle = screen.getByRole('switch', { name: 'Crossref' });
     const arxivToggle = screen.getByRole('switch', { name: 'arXiv' });
+    const openReviewToggle = screen.getByRole('switch', { name: 'OpenReview' });
     expect(crossrefToggle.getAttribute('aria-checked')).toBe('true');
     expect(arxivToggle.getAttribute('aria-checked')).toBe('true');
+    expect(openReviewToggle.getAttribute('aria-checked')).toBe('true');
     expect(screen.getByText('Preprint metadata, abstracts, and subject categories; it has no citation-graph data.')).not.toBeNull();
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Crossref contact email' }), {
@@ -171,6 +174,8 @@ describe('ResearchSettingsTab Zotero collections', () => {
     fireEvent.click(openAlexToggle);
     fireEvent.click(crossrefToggle);
     fireEvent.click(arxivToggle);
+    fireEvent.click(openReviewToggle);
+    fireEvent.click(screen.getByRole('switch', { name: 'Allow remote metadata search' }));
     expect(screen.getByRole('status').textContent).toContain('No literature source is enabled.');
 
     fireEvent.click(screen.getByRole('button', { name: /Save research settings|保存科研设置/i }));
@@ -182,7 +187,9 @@ describe('ResearchSettingsTab Zotero collections', () => {
       openalex: { enabled: false, mailto: '' },
       crossref: { enabled: false, mailto: 'researcher@example.test' },
       arxiv: { enabled: false },
+      openreview: { enabled: false },
     });
+    expect(payload.settings.privacy.allowRemoteMetadataSearch).toBe(false);
   });
 
   it('shows a Zotero availability error returned with HTTP 200', async () => {
@@ -203,6 +210,45 @@ describe('ResearchSettingsTab Zotero collections', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Browse collections|浏览 Collection/i }));
     expect(await screen.findByText('Zotero Desktop is not running.')).not.toBeNull();
     expect(screen.queryByText(/No collections found|没有找到 Collection/i)).toBeNull();
+  });
+
+  it('shows the local Zotero write mode without implying direct Local API edits', async () => {
+    let status: ZoteroStatus = {
+      provider: 'zotero',
+      available: true,
+      apiReady: true,
+      connectorReady: true,
+      writeMode: 'connector_import',
+      checkedAt: '2026-07-23T00:00:00.000Z',
+    };
+    vi.mocked(authenticatedFetch).mockImplementation(async (input, init) => {
+      const url = String(input);
+      const options = requestOptions(init);
+      if (url.startsWith('/api/research/settings') && options.method !== 'PUT') {
+        return response({ global: settings, effective: settings, projectOverride: null, paths: { global: 'settings.json' } });
+      }
+      if (url.startsWith('/api/research/zotero/status')) return response(status);
+      return response({ error: `Unexpected request: ${url}` });
+    });
+
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchSettingsTab projects={[]} />
+      </I18nextProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /Test Zotero|测试 Zotero/i }));
+    expect((await screen.findByTestId('zotero-write-mode')).textContent).toContain('Confirmed imports use the Zotero Connector.');
+
+    status = {
+      ...status,
+      connectorReady: false,
+      writeMode: 'read_only',
+    };
+    fireEvent.click(screen.getByRole('button', { name: /Test Zotero|测试 Zotero/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId('zotero-write-mode').textContent).toContain('The local API is read-only; imports are unavailable.');
+    });
   });
 
   it('stores and removes the global cloud credential through the desktop bridge with explicit removal confirmation', async () => {
