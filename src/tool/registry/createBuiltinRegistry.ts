@@ -53,6 +53,10 @@ import {
   createTaskWaitTool,
 } from "../builtin/taskTools.js";
 import { createWebFetchTool, type CreateWebFetchToolOptions } from "../builtin/webFetch.js";
+import {
+  createDeepSeekNativeSearchTool,
+  type CreateDeepSeekNativeSearchToolOptions,
+} from "../builtin/deepseekNativeSearch.js";
 import { createWebSearchTool, type CreateWebSearchToolOptions } from "../builtin/webSearch.js";
 import { createReadSkillTool, type ReadSkillDeps } from "../builtin/readSkill.js";
 import { createWriteFileTool } from "../builtin/writeFile.js";
@@ -66,6 +70,8 @@ export type CreateBuiltinRegistryOptions = {
    * and customize apiKey / endpoint.
    */
   webSearch?: CreateWebSearchToolOptions | false;
+  /** Independent DeepSeek server-side search. It is separate from web_search. */
+  deepseekNativeSearch?: CreateDeepSeekNativeSearchToolOptions | false;
   /**
    * `agent` subagent tool. **Opt-in** because it requires a model client at
    * execution time — the AgentLoop forwards the loop's model client through
@@ -150,6 +156,9 @@ export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): T
   registry.register(createExecuteCodeTool());
   if (options?.webSearch !== false) {
     registry.register(createWebSearchTool(options?.webSearch));
+  }
+  if (options?.deepseekNativeSearch !== false) {
+    registry.register(createDeepSeekNativeSearchTool(options?.deepseekNativeSearch));
   }
   if (options?.webFetch !== false) {
     registry.register(createWebFetchTool(options?.webFetch));

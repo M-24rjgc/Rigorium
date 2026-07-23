@@ -12,6 +12,7 @@ export const ASK_MODE_ALLOWED_TOOLS = new Set([
   "grep",
   "glob",
   "web_search",
+  "deepseek_native_search",
   "web_fetch",
   "ask_user_question",
   "read_skill",

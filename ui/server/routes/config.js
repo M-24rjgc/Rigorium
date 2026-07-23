@@ -26,7 +26,9 @@ import {
   isExpectedProviderModelsResponseShape,
   isExpectedProviderResponseShape,
 } from '../../../src/model/providerEndpoint.js';
+import { searchDeepSeekNative } from '../../../src/deepseek-native-search/index.js';
 import { NetworkFetchError, networkFetch } from '../../../src/network/fetch.js';
+import { resolveDeepSeekNativeSearchConfig } from '../../../src/pilot/config/resolveDeepSeekNativeSearch.js';
 import {
   OFFICE_PREVIEW_SERVICE_LIBREOFFICE,
   OFFICE_PREVIEW_SERVICE_NONE,
@@ -793,6 +795,68 @@ router.post('/test-web-search', async (req, res) => {
     return res.json({ ok: false, error: err.message || String(err) });
   }
 });
+
+/**
+ * Probe DeepSeek's server-side native search through the same shared client
+ * used by the agent tool. Credentials may come from this temporary form
+ * submission, the dedicated search setting, environment, or an existing
+ * DeepSeek model provider. No credential is returned to the browser.
+ */
+router.post('/test-deepseek-native-search', async (req, res) => {
+  const record = readPilotDeckConfigFile();
+  if (record.parseError) {
+    return res.status(400).json({ ok: false, error: 'Invalid config YAML.' });
+  }
+
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const nativeFromConfig = record.config?.tools?.deepseekNativeSearch;
+  const nativeSearch = {
+    ...(nativeFromConfig && typeof nativeFromConfig === 'object' ? nativeFromConfig : {}),
+    ...readNativeSearchProbeOverrides(body),
+  };
+  const resolved = resolveDeepSeekNativeSearchConfig({
+    nativeSearch,
+    modelProviders: record.config?.model?.providers,
+    environment: process.env,
+  });
+  const startedAt = Date.now();
+
+  try {
+    const evidence = await searchDeepSeekNative({
+      ...resolved.settings,
+      ...(resolved.apiKeySource === 'environment' || resolved.apiKeySource === 'model_provider'
+        ? { credentialSource: 'automatic' }
+        : {}),
+      query: 'DeepSeek native search connection test. Reply concisely.',
+      timeoutMs: 15_000,
+      maxTokens: 256,
+      maxUses: 1,
+      maxCitations: 3,
+    });
+    return res.json({
+      ok: true,
+      latencyMs: Date.now() - startedAt,
+      citationCount: evidence.citations.length,
+    });
+  } catch (error) {
+    return res.json({
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+function readNativeSearchProbeOverrides(body) {
+  const result = {};
+  for (const field of ['apiKey', 'endpoint', 'model']) {
+    const value = typeof body[field] === 'string' ? body[field].trim() : '';
+    // The settings endpoint masks stored credentials before they reach the
+    // browser. Treat the sentinel as absent so server-side resolution wins.
+    if (value && value !== '********') result[field] = value;
+  }
+  return result;
+}
 
 function readPath(value, pathValue) {
   return pathValue.split('.').reduce((current, segment) => {

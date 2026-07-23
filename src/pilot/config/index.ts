@@ -9,6 +9,13 @@ export { mergeConfigSources } from "./merge.js";
 export { redactConfig } from "./redact.js";
 export { parseAdaptersConfig, parseGatewayConfig } from "./parseGatewayConfig.js";
 export {
+  isDeepSeekModelProvider,
+  isOfficialDeepSeekApiUrl,
+  resolveDeepSeekNativeSearchConfig,
+  type DeepSeekNativeSearchConfigResolution,
+  type ResolveDeepSeekNativeSearchConfigInput,
+} from "./resolveDeepSeekNativeSearch.js";
+export {
   PilotConfigError,
   type PilotAgentConfig,
   type PilotAgentModelSelection,
@@ -29,5 +36,6 @@ export {
   type PilotRouterConfig,
   type PilotProxyConfig,
   type PilotToolsConfig,
+  type PilotDeepSeekNativeSearchConfig,
   type PilotWebSearchConfig,
 } from "./types.js";

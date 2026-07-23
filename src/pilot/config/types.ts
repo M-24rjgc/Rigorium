@@ -158,8 +158,16 @@ export type PilotWebSearchConfig = {
   customProvider?: PilotWebSearchCustomProviderConfig;
 };
 
+/** Independent configuration for the DeepSeek server-side native-search capability. */
+export type PilotDeepSeekNativeSearchConfig = {
+  apiKey?: string;
+  endpoint?: string;
+  model?: string;
+};
+
 export type PilotToolsConfig = {
   webSearch?: PilotWebSearchConfig;
+  deepseekNativeSearch?: PilotDeepSeekNativeSearchConfig;
 };
 
 export type PilotProxyConfig = {

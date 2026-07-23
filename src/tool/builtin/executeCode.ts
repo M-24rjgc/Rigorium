@@ -100,6 +100,7 @@ const MAX_STDOUT_BYTES = 50_000;
 const MAX_STDERR_BYTES = 10_000;
 const EXECUTE_CODE_ALLOWED_TOOLS = new Set([
   "web_search",
+  "deepseek_native_search",
   "web_fetch",
   "read_file",
   "write_file",
@@ -116,7 +117,7 @@ export function createExecuteCodeTool(): PilotDeckToolDefinition<ExecuteCodeInpu
       "Run a local Python 3 script that can call a small allow-list of Rigorium tools via `import pilotdeck_tools`. " +
       "The script runs from the workspace cwd and inherits the same runtime environment as normal tools such as bash, including configured API, proxy, PATH, virtualenv, and conda variables; do not print secrets or dump the full environment. " +
       "Only the script's final stdout/stderr summary is returned to the model; intermediate tool results stay inside the script. " +
-      "Available helper functions: web_search, web_fetch, read_file, write_file, edit_file, grep, glob, bash. " +
+      "Available helper functions: web_search, deepseek_native_search, web_fetch, read_file, write_file, edit_file, grep, glob, bash. " +
       "Use normal Python control flow to orchestrate tools: loops for batch work, conditionals for branching, data structures for aggregation, and try/except around individual helper calls when one failure should not abort the whole script. Helper failures raise RuntimeError. You can chain helper results, e.g. grep -> read_file -> edit_file. Print only the concise final result needed by the agent. " +
       "Before modifying an existing file, call read_file first so Rigorium can verify freshness. Prefer edit_file for targeted changes and write_file for new files or complete rewrites. " +
       "Notebook edits, agent, task tools, MCP tools, and execute_code itself are not available.",
@@ -559,6 +560,10 @@ def web_search(query, country=None):
     if country is not None:
         args["gl"] = country
     return _call("web_search", args)
+
+
+def deepseek_native_search(query):
+    return _call("deepseek_native_search", {"query": query})
 
 
 def web_fetch(url, mode=None, prompt=None):

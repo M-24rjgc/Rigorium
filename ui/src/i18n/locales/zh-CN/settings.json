@@ -649,6 +649,10 @@
         "label": "搜索",
         "description": "Web 搜索提供商"
       },
+      "deepseekNativeSearch": {
+        "label": "DeepSeek 原生搜索",
+        "description": "DeepSeek 服务端网页搜索"
+      },
       "customEnv": {
         "label": "环境变量",
         "description": "跨会话持久化的自定义环境变量"
@@ -1076,6 +1080,35 @@
           "testing": "测试中…",
           "needsKey": "请先填写 API Key。",
           "success": "连接正常：{{count}} 条结果，{{latency}}ms。",
+          "failedPrefix": "连接失败：{{error}}"
+        }
+      },
+      "deepseekNativeSearch": {
+        "title": "DeepSeek 原生搜索",
+        "description": "独立配置 DeepSeek 服务端网页搜索，不影响智能体的 web_search 提供商。",
+        "apiKey": {
+          "label": "DeepSeek API 密钥",
+          "description": "可选。留空时会复用已配置 DeepSeek 模型提供商的密钥。",
+          "placeholder": "DeepSeek API Key",
+          "maskedPlaceholder": "已保留现有密钥，如需替换请重新输入",
+          "keyHidden": "密钥已隐藏；留空会继续保留，重新输入可替换。",
+          "reuseProvider": "正在复用模型提供商 {{provider}} 已配置的 API 密钥。"
+        },
+        "endpoint": {
+          "label": "Anthropic 兼容接口地址",
+          "description": "除非 DeepSeek 文档提供替代地址，否则请保留默认值。",
+          "placeholder": "默认接口地址"
+        },
+        "model": {
+          "label": "模型",
+          "description": "用于生成简洁原生搜索答案的模型。",
+          "placeholder": "deepseek-v4-flash"
+        },
+        "test": {
+          "button": "测试连接",
+          "testing": "测试中…",
+          "needsKey": "请先配置 DeepSeek API Key 或 DeepSeek 模型提供商。",
+          "success": "连接正常：{{count}} 条引用，{{latency}}ms。",
           "failedPrefix": "连接失败：{{error}}"
         }
       },

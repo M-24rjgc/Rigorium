@@ -32,6 +32,11 @@
       "title": "Web Search Not Ready",
       "description": "The search API key is missing or invalid. Please go to Settings -> Config -> Search to check your search provider and API key.",
       "openSettings": "Go to Settings"
+    },
+    "deepSeekNativeSearchNotConfigured": {
+      "title": "DeepSeek Native Search Not Ready",
+      "description": "Configure a DeepSeek API key, or reuse the key from an existing DeepSeek model provider, in Settings -> Config -> DeepSeek Native Search.",
+      "openSettings": "Go to DeepSeek Native Search"
     }
   },
   "setupRequired": {

@@ -61,7 +61,12 @@ import {
 } from "../mcp/index.js";
 import { createModelRuntime, type ModelRuntime } from "../model/index.js";
 import { createDefaultPermissionContext, type PermissionRule } from "../permission/index.js";
-import { loadPilotConfig, resolvePilotHome, type PilotProxyConfig } from "../pilot/index.js";
+import {
+  loadPilotConfig,
+  resolveDeepSeekNativeSearchConfig,
+  resolvePilotHome,
+  type PilotProxyConfig,
+} from "../pilot/index.js";
 import { createPilotConfigStoreSync, type PilotConfigStore } from "../pilot/config/PilotConfigStore.js";
 import type { PilotAgentModelSelection, PilotConfigSnapshot } from "../pilot/config/types.js";
 import { DEFAULT_JUDGE_TIMEOUT_MS, DEFAULT_ALLOWED_TOOLS, DEFAULT_TRIGGER_TIERS, type RouterConfig } from "../router/config/schema.js";
@@ -711,15 +716,20 @@ class ProjectRuntimeRegistry {
       onCompletion: (event) => this.emitBackgroundTaskCompletion(event),
     });
     const webSearchConfig = snapshot.config.tools?.webSearch;
+    const deepseekNativeSearchConfig = snapshot.config.tools?.deepseekNativeSearch;
+    const deepseekNativeSearch = resolveDeepSeekNativeSearchConfig({
+      nativeSearch: deepseekNativeSearchConfig,
+      modelProviders: snapshot.config.model.providers,
+      environment: this.options.env,
+    });
     const tools = createBuiltinRegistry({
       backgroundTasks: { runtime: backgroundTasks },
       readSkill: {
         loader: (name) => pluginRuntime.loadSkillPrompt(name),
         lister: () => pluginRuntime.getAllSkills(),
       },
-      // Pass the YAML-configured web-search provider through to the built-in
-      // `web_search` tool. When absent, the tool may infer GLM/Tavily from
-      // provider-specific environment variables.
+      // Pass YAML-configured search capabilities through without coupling the
+      // generic web_search provider chain to DeepSeek native search.
       ...(webSearchConfig
         ? {
             webSearch: {
@@ -730,6 +740,12 @@ class ProjectRuntimeRegistry {
             },
           }
         : {}),
+      deepseekNativeSearch: {
+        ...deepseekNativeSearch.settings,
+        ...(deepseekNativeSearch.apiKeySource === "environment" || deepseekNativeSearch.apiKeySource === "model_provider"
+          ? { credentialSource: "automatic" as const }
+          : {}),
+      },
     });
     for (const tool of this._extraTools) {
       tools.register(tool);

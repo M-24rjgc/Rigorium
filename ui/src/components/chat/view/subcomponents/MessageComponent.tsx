@@ -105,6 +105,11 @@ function isWebSearchError(toolName: string | undefined): boolean {
   return name === 'web_search' || name === 'websearch';
 }
 
+function isDeepSeekNativeSearchError(toolName: string | undefined): boolean {
+  const name = (toolName ?? '').toLowerCase();
+  return name === 'deepseek_native_search' || name === 'deepseeknativesearch';
+}
+
 function getAttachmentTypeLabel(name?: string, mimeType?: string): string {
   const ext = String(name || '').split('.').pop()?.toUpperCase();
   if (ext && ext !== String(name || '').toUpperCase()) return ext;
@@ -470,6 +475,38 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
                                   >
                                     <Settings className="h-3 w-3" />
                                     {t('toolUseError.webSearchNotConfigured.openSettings', { defaultValue: 'Go to Settings' })}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        if (isDeepSeekNativeSearchError(message.toolName) && message.toolResult?.errorCode === 'setup_required') {
+                          return (
+                            <div className="my-1.5 overflow-hidden rounded-lg border border-amber-200 bg-amber-50/70 dark:border-amber-800/50 dark:bg-amber-950/20">
+                              <div className="flex items-start gap-3 px-4 py-3">
+                                <Search className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                                    {t('toolUseError.deepSeekNativeSearchNotConfigured.title', { defaultValue: 'DeepSeek Native Search Not Ready' })}
+                                  </div>
+                                  <div className="mt-1 text-xs leading-5 text-amber-700/90 dark:text-amber-300/80">
+                                    {t('toolUseError.deepSeekNativeSearchNotConfigured.description', { defaultValue: 'Configure a DeepSeek API key, or reuse the key from an existing DeepSeek model provider, in Settings -> Config -> DeepSeek Native Search.' })}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (typeof window !== 'undefined' && window.openSettings) {
+                                        window.openSettings('config:deepseekNativeSearch');
+                                      } else if (onShowSettings) {
+                                        onShowSettings();
+                                      }
+                                    }}
+                                    className="mt-2.5 inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-white/80 px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-white dark:border-amber-700/60 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50"
+                                  >
+                                    <Settings className="h-3 w-3" />
+                                    {t('toolUseError.deepSeekNativeSearchNotConfigured.openSettings', { defaultValue: 'Go to DeepSeek Native Search' })}
                                   </button>
                                 </div>
                               </div>

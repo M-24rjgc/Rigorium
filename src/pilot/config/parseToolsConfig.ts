@@ -1,6 +1,7 @@
 import { isRecord } from "../../model/config/schema.js";
 import type {
   PilotConfigDiagnostic,
+  PilotDeepSeekNativeSearchConfig,
   PilotToolsConfig,
   PilotWebSearchConfig,
   PilotWebSearchCustomAuth,
@@ -16,6 +17,10 @@ import type {
  *       provider: glm                    # glm | tavily | custom
  *       apiKey: "..."
  *       endpoint: https://api.z.ai/api/paas/v4/web_search
+ *     deepseekNativeSearch:
+ *       apiKey: "..."
+ *       endpoint: https://api.deepseek.com/anthropic/v1/messages
+ *       model: deepseek-v4-flash
  *
  * Unknown fields produce non-fatal warnings so future additions don't break
  * older deployments.  Returns `undefined` when the section is missing or
@@ -40,9 +45,10 @@ export function parseToolsConfig(
   }
 
   const webSearch = parseWebSearch(rawTools.webSearch, diagnostics);
+  const deepseekNativeSearch = parseDeepSeekNativeSearch(rawTools.deepseekNativeSearch, diagnostics);
 
   for (const key of Object.keys(rawTools)) {
-    if (key !== "webSearch") {
+    if (key !== "webSearch" && key !== "deepseekNativeSearch") {
       diagnostics.push({
         code: "TOOLS_UNKNOWN_FIELD",
         severity: "warning",
@@ -53,10 +59,55 @@ export function parseToolsConfig(
     }
   }
 
-  if (!webSearch) {
+  if (!webSearch && !deepseekNativeSearch) {
     return undefined;
   }
-  return { webSearch };
+  return {
+    ...(webSearch ? { webSearch } : {}),
+    ...(deepseekNativeSearch ? { deepseekNativeSearch } : {}),
+  };
+}
+
+function parseDeepSeekNativeSearch(
+  raw: unknown,
+  diagnostics: PilotConfigDiagnostic[],
+): PilotDeepSeekNativeSearchConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    diagnostics.push({
+      code: "TOOLS_DEEPSEEK_NATIVE_SEARCH_INVALID",
+      severity: "fatal",
+      message: "tools.deepseekNativeSearch must be an object.",
+      path: "tools.deepseekNativeSearch",
+      recoverable: false,
+    });
+    return undefined;
+  }
+
+  const result: PilotDeepSeekNativeSearchConfig = {};
+  for (const field of ["apiKey", "endpoint", "model"] as const) {
+    const parsed = parseOptionalStringField(
+      raw[field],
+      `tools.deepseekNativeSearch.${field}`,
+      diagnostics,
+      "TOOLS_DEEPSEEK_NATIVE_SEARCH_STRING_INVALID",
+    );
+    if (parsed !== undefined) result[field] = parsed;
+  }
+
+  for (const key of Object.keys(raw)) {
+    if (key !== "apiKey" && key !== "endpoint" && key !== "model") {
+      diagnostics.push({
+        code: "TOOLS_DEEPSEEK_NATIVE_SEARCH_UNKNOWN_FIELD",
+        severity: "warning",
+        message: `Unknown tools.deepseekNativeSearch field ${key}.`,
+        path: `tools.deepseekNativeSearch.${key}`,
+        recoverable: true,
+      });
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function parseWebSearch(
@@ -268,11 +319,12 @@ function parseOptionalStringField(
   raw: unknown,
   path: string,
   diagnostics: PilotConfigDiagnostic[],
+  code = "TOOLS_WEB_SEARCH_CUSTOM_STRING_INVALID",
 ): string | undefined {
   if (raw === undefined) return undefined;
   if (typeof raw !== "string" || raw.trim().length === 0) {
     diagnostics.push({
-      code: "TOOLS_WEB_SEARCH_CUSTOM_STRING_INVALID",
+      code,
       severity: "fatal",
       message: `${path} must be a non-empty string.`,
       path,

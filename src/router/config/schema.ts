@@ -128,6 +128,7 @@ export const DEFAULT_ALLOWED_TOOLS = [
 export const DEFAULT_BLOCKED_TOOLS = [
   "mcp__browser-use__",
   "web_search",
+  "deepseek_native_search",
   "web_fetch",
 ];
 

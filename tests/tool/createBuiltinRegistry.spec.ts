@@ -20,6 +20,7 @@ test("builtin registry registers literature deep search by default and permits e
   assert.equal(defaultRegistry.has("research_direction_seed"), true);
   assert.equal(defaultRegistry.has("research_direction_lifecycle"), true);
   assert.equal(defaultRegistry.has("research_title_confirm"), true);
+  assert.equal(defaultRegistry.has("deepseek_native_search"), true);
 
   const disabledRegistry = createBuiltinRegistry({
     ...unrelatedToolsDisabled,
@@ -30,6 +31,7 @@ test("builtin registry registers literature deep search by default and permits e
     researchDirectionSeed: false,
     researchDirectionLifecycle: false,
     researchTitleConfirmation: false,
+    deepseekNativeSearch: false,
   });
   assert.equal(disabledRegistry.has("literature_expand"), false);
   assert.equal(disabledRegistry.has("literature_deep_search"), false);
@@ -38,5 +40,6 @@ test("builtin registry registers literature deep search by default and permits e
   assert.equal(disabledRegistry.has("research_direction_seed"), false);
   assert.equal(disabledRegistry.has("research_direction_lifecycle"), false);
   assert.equal(disabledRegistry.has("research_title_confirm"), false);
+  assert.equal(disabledRegistry.has("deepseek_native_search"), false);
   assert.equal(disabledRegistry.has("literature_search"), true);
 });

@@ -649,6 +649,10 @@
         "label": "Search",
         "description": "Web search provider"
       },
+      "deepseekNativeSearch": {
+        "label": "DeepSeek Native Search",
+        "description": "DeepSeek server-side web search"
+      },
       "customEnv": {
         "label": "Env Vars",
         "description": "Custom environment variables for sessions"
@@ -1076,6 +1080,35 @@
           "testing": "Testing…",
           "needsKey": "Enter an API key first.",
           "success": "Connected: {{count}} result(s), {{latency}}ms.",
+          "failedPrefix": "Connection failed: {{error}}"
+        }
+      },
+      "deepseekNativeSearch": {
+        "title": "DeepSeek Native Search",
+        "description": "Configure DeepSeek's server-side web search separately from the agent's web_search provider.",
+        "apiKey": {
+          "label": "DeepSeek API key",
+          "description": "Optional. Leave blank to reuse the key configured for an existing DeepSeek model provider.",
+          "placeholder": "DeepSeek API key",
+          "maskedPlaceholder": "Existing key kept — type to replace",
+          "keyHidden": "Key hidden; leave as-is to keep, retype to replace.",
+          "reuseProvider": "Using the API key already configured for model provider {{provider}}."
+        },
+        "endpoint": {
+          "label": "Anthropic-compatible endpoint",
+          "description": "Leave the default unless DeepSeek documents a replacement endpoint.",
+          "placeholder": "Default endpoint"
+        },
+        "model": {
+          "label": "Model",
+          "description": "Model used for the concise native-search answer.",
+          "placeholder": "deepseek-v4-flash"
+        },
+        "test": {
+          "button": "Test connection",
+          "testing": "Testing…",
+          "needsKey": "Configure a DeepSeek API key or a DeepSeek model provider first.",
+          "success": "Connected: {{count}} citation(s), {{latency}}ms.",
           "failedPrefix": "Connection failed: {{error}}"
         }
       },

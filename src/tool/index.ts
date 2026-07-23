@@ -176,6 +176,27 @@ export {
   type WebSearchOutput,
 } from "./builtin/webSearch.js";
 export {
+  createDeepSeekNativeSearchTool,
+  type CreateDeepSeekNativeSearchToolOptions,
+  type DeepSeekNativeSearchInput,
+} from "./builtin/deepseekNativeSearch.js";
+export {
+  DEEPSEEK_NATIVE_SEARCH_DEFAULT_ENDPOINT,
+  DEEPSEEK_NATIVE_SEARCH_DEFAULT_MODEL,
+  DEEPSEEK_NATIVE_SEARCH_TOOL_VARIANTS,
+  DeepSeekNativeSearchError,
+  resolveDeepSeekNativeSearchSettings,
+  searchDeepSeekNative,
+  type DeepSeekNativeSearchCitation,
+  type DeepSeekNativeSearchDiagnostics,
+  type DeepSeekNativeSearchErrorCode,
+  type DeepSeekNativeSearchEvidenceBundle,
+  type DeepSeekNativeSearchSettings,
+  type DeepSeekNativeSearchUsage,
+  type ResolvedDeepSeekNativeSearchSettings,
+  type SearchDeepSeekNativeInput,
+} from "../deepseek-native-search/index.js";
+export {
   buildMcpToolWireName,
   createMcpTool,
   type CreateMcpToolOptions,

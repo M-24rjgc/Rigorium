@@ -240,6 +240,59 @@ describe('config test-connection route', () => {
   });
 });
 
+describe('config DeepSeek native-search probe route', () => {
+  it('reuses an official DeepSeek model-provider key without returning it', async () => {
+    const searchDeepSeekNative = vi.fn(async (input) => {
+      expect(input.apiKey).toBe('provider-key');
+      return { citations: [{ url: 'https://example.test' }] };
+    });
+    const { request } = await createConfigApp({
+      config: {
+        model: {
+          providers: {
+            deepseek: {
+              url: 'https://api.deepseek.com/v1',
+              apiKey: 'provider-key',
+            },
+          },
+        },
+      },
+      searchDeepSeekNative,
+    });
+
+    const data = await request('/api/config/test-deepseek-native-search', { method: 'POST', body: '{}' });
+
+    expect(data).toMatchObject({ ok: true, citationCount: 1 });
+    expect(JSON.stringify(data)).not.toContain('provider-key');
+    expect(searchDeepSeekNative).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not pass an inherited key to a custom endpoint', async () => {
+    const searchDeepSeekNative = vi.fn(async (input) => {
+      expect(input.apiKey).toBeUndefined();
+      expect(input.endpoint).toBe('https://untrusted.example/messages');
+      return { citations: [] };
+    });
+    const { request } = await createConfigApp({
+      config: {
+        tools: { deepseekNativeSearch: { endpoint: 'https://untrusted.example/messages' } },
+        model: {
+          providers: {
+            deepseek: {
+              url: 'https://api.deepseek.com/v1',
+              apiKey: 'provider-key',
+            },
+          },
+        },
+      },
+      searchDeepSeekNative,
+    });
+
+    await request('/api/config/test-deepseek-native-search', { method: 'POST', body: '{}' });
+    expect(searchDeepSeekNative).toHaveBeenCalledTimes(1);
+  });
+});
+
 
 describe('config routes invalid YAML fallback', () => {
   it('returns raw invalid YAML instead of failing GET /api/config', async () => {
@@ -313,7 +366,7 @@ describe('config routes invalid YAML fallback', () => {
   });
 });
 
-async function createConfigApp() {
+async function createConfigApp(options = {}) {
   vi.doMock('../services/pilotdeckConfigWatcher.js', () => ({
     suppressNextWatchEvent: vi.fn(),
   }));
@@ -324,13 +377,16 @@ async function createConfigApp() {
     const actual = await vi.importActual('../services/pilotdeckConfig.js');
     return {
       ...actual,
-      readPilotDeckConfigFile: vi.fn(() => ({ exists: false, configPath: '', config: {}, rawYaml: {} })),
+      readPilotDeckConfigFile: vi.fn(() => ({ exists: false, configPath: '', config: options.config ?? {}, rawYaml: {} })),
       writePilotDeckConfig: vi.fn(),
       writeRawPilotDeckYaml: vi.fn(),
     };
   });
   vi.doMock('../pilotdeck-bridge.js', () => ({
     getPilotDeckGateway: vi.fn(async () => ({ reloadConfig: vi.fn(async () => undefined) })),
+  }));
+  vi.doMock('../../../src/deepseek-native-search/index.js', () => ({
+    searchDeepSeekNative: options.searchDeepSeekNative ?? vi.fn(async () => ({ citations: [] })),
   }));
 
   const { default: configRoutes } = await import('./config.js');

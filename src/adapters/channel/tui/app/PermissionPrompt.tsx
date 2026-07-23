@@ -57,7 +57,9 @@ export function extractDetail(toolName: string, payload: unknown): string | null
       return null;
     }
     case "web_search":
-    case "webSearch": {
+    case "webSearch":
+    case "deepseek_native_search":
+    case "DeepSeekNativeSearch": {
       const query = record.query ?? record.search_term;
       return typeof query === "string" ? query : null;
     }

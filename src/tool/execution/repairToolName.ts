@@ -52,6 +52,11 @@ const BUILTIN_ALIASES: Record<string, string[]> = {
   search_web: ["web_search"],
   searchweb: ["web_search"],
 
+  deepseek_native_search: ["deepseek_native_search", "deepseeknativesearch"],
+  deepseeknativesearch: ["deepseek_native_search", "deepseeknativesearch"],
+  deepseek_search: ["deepseek_native_search"],
+  deepseeksearch: ["deepseek_native_search"],
+
   todo_write: ["todo_write", "todowrite"],
   todowrite: ["todo_write", "todowrite"],
   todo: ["todo_write"],

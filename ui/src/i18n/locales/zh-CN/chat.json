@@ -32,6 +32,11 @@
       "title": "网页搜索未就绪",
       "description": "搜索 API Key 缺失或无效。请前往设置 -> 配置 -> 搜索检查搜索服务和 API Key。",
       "openSettings": "前往设置"
+    },
+    "deepSeekNativeSearchNotConfigured": {
+      "title": "DeepSeek 原生搜索未就绪",
+      "description": "请在设置 -> 配置 -> DeepSeek 原生搜索中配置 DeepSeek API Key，或复用已有 DeepSeek 模型提供商的密钥。",
+      "openSettings": "前往 DeepSeek 原生搜索"
     }
   },
   "setupRequired": {

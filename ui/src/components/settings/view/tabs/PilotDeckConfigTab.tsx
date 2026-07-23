@@ -217,10 +217,15 @@ type PilotDeckConfig = {
         publishedAtField?: string;
       };
     };
+    deepseekNativeSearch?: {
+      apiKey?: string;
+      endpoint?: string;
+      model?: string;
+    };
   };
 };
 
-type SectionId = 'models' | 'agents' | 'memory' | 'tools' | 'router' | 'gateway' | 'officePreview' | 'customEnv' | 'alwaysOn' | 'cron' | 'advanced';
+type SectionId = 'models' | 'agents' | 'memory' | 'tools' | 'deepseekNativeSearch' | 'router' | 'gateway' | 'officePreview' | 'customEnv' | 'alwaysOn' | 'cron' | 'advanced';
 
 const SECTIONS: Array<{ id: SectionId; labelKey: string; descriptionKey: string }> = [
   { id: 'advanced',  labelKey: 'runtime',   descriptionKey: 'runtime' },
@@ -230,6 +235,7 @@ const SECTIONS: Array<{ id: SectionId; labelKey: string; descriptionKey: string 
   { id: 'cron',      labelKey: 'cron',      descriptionKey: 'cron' },
   { id: 'memory',    labelKey: 'memory',    descriptionKey: 'memory' },
   { id: 'tools',     labelKey: 'tools',     descriptionKey: 'tools' },
+  { id: 'deepseekNativeSearch', labelKey: 'deepseekNativeSearch', descriptionKey: 'deepseekNativeSearch' },
   { id: 'router',    labelKey: 'router',    descriptionKey: 'router' },
   { id: 'gateway',   labelKey: 'gateway',   descriptionKey: 'gateway' },
   { id: 'officePreview', labelKey: 'officePreview', descriptionKey: 'officePreview' },
@@ -238,7 +244,7 @@ const SECTIONS: Array<{ id: SectionId; labelKey: string; descriptionKey: string 
 
 const SECTION_GROUPS: Array<{ id: 'basic' | 'features' | 'extensions' | 'advanced'; sections: SectionId[] }> = [
   { id: 'basic', sections: ['models', 'agents'] },
-  { id: 'features', sections: ['router', 'memory', 'tools', 'alwaysOn', 'cron', 'gateway'] },
+  { id: 'features', sections: ['router', 'memory', 'tools', 'deepseekNativeSearch', 'alwaysOn', 'cron', 'gateway'] },
   { id: 'extensions', sections: ['officePreview'] },
   { id: 'advanced', sections: ['advanced', 'customEnv'] },
 ];
@@ -249,6 +255,7 @@ const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   router: Route,
   memory: Brain,
   tools: Search,
+  deepseekNativeSearch: Search,
   alwaysOn: Zap,
   cron: Clock,
   gateway: Wifi,
@@ -497,6 +504,28 @@ function secretDisplayValue(value: string | undefined): string {
 function hasUsableSecret(value: string | undefined): boolean {
   const trimmed = (value ?? '').trim();
   return Boolean(trimmed) && !isMaskedSecret(trimmed) && trimmed !== 'PLACEHOLDER_RUN_ONBOARDING_TO_REPLACE' && !trimmed.startsWith('PLACEHOLDER_');
+}
+
+function hasConfiguredSecret(value: string | undefined): boolean {
+  return isMaskedSecret(value) || hasUsableSecret(value);
+}
+
+function isOfficialDeepSeekApiUrl(value: string | undefined): boolean {
+  if (!value?.trim()) return false;
+  try {
+    return new URL(value).hostname.toLowerCase() === 'api.deepseek.com';
+  } catch {
+    return false;
+  }
+}
+
+function findReusableDeepSeekProvider(config: PilotDeckConfig): string | undefined {
+  const providers = config.model?.providers ?? {};
+  const entries = Object.entries(providers).filter(([, provider]) =>
+    hasConfiguredSecret(provider?.apiKey) && isOfficialDeepSeekApiUrl(provider?.url),
+  );
+  const byId = entries.find(([id]) => id.trim().toLowerCase() === 'deepseek');
+  return (byId ?? entries[0])?.[0];
 }
 
 function providerDisplayName(providerId: string, catalogEntry?: CatalogProvider, emptyFallback = 'Custom Provider'): string {
@@ -2659,6 +2688,7 @@ function ToolsSection({ config, onChange }: { config: PilotDeckConfig; onChange:
 
   const setProvider = (nextProvider: 'glm' | 'tavily' | 'custom') => {
     const nextTools = {
+      ...(config.tools ?? {}),
       webSearch: {
         provider: nextProvider,
         ...(nextProvider === 'glm' ? { endpoint: glmDefaultEndpoint } : {}),
@@ -2677,7 +2707,9 @@ function ToolsSection({ config, onChange }: { config: PilotDeckConfig; onChange:
     } else {
       nextWs[field] = trimmed;
     }
-    const nextTools = Object.keys(nextWs).length > 0 ? { webSearch: nextWs } : undefined;
+    const nextTools = Object.keys(nextWs).length > 0
+      ? { ...(config.tools ?? {}), webSearch: nextWs }
+      : config.tools;
     onChange(patch(config, ['tools'], nextTools));
     resetTest();
   };
@@ -2703,7 +2735,7 @@ function ToolsSection({ config, onChange }: { config: PilotDeckConfig; onChange:
     if (Object.keys(nextWs.customProvider ?? {}).length === 0) {
       delete nextWs.customProvider;
     }
-    onChange(patch(config, ['tools'], { webSearch: nextWs }));
+    onChange(patch(config, ['tools'], { ...(config.tools ?? {}), webSearch: nextWs }));
     resetTest();
   };
 
@@ -2895,6 +2927,163 @@ function ToolsSection({ config, onChange }: { config: PilotDeckConfig; onChange:
             {testStatus === 'error' && (
               <span className="inline-flex items-center gap-1.5 text-xs text-destructive">
                 <XCircle className="h-3.5 w-3.5" />
+                {testMessage}
+              </span>
+            )}
+          </div>
+        </div>
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
+function DeepSeekNativeSearchSection({ config, onChange }: { config: PilotDeckConfig; onChange: (next: PilotDeckConfig) => void }) {
+  const { t } = useTranslation('settings');
+  const defaultEndpoint = 'https://api.deepseek.com/anthropic/v1/messages';
+  const defaultModel = 'deepseek-v4-flash';
+  const native = config.tools?.deepseekNativeSearch ?? {};
+  const apiKey = typeof native.apiKey === 'string' ? native.apiKey : '';
+  const endpoint = typeof native.endpoint === 'string' ? native.endpoint : '';
+  const model = typeof native.model === 'string' ? native.model : '';
+  const endpointValue = endpoint || defaultEndpoint;
+  const modelValue = model || defaultModel;
+  const reusableProviderId = findReusableDeepSeekProvider(config);
+  const hasDedicatedKey = hasConfiguredSecret(apiKey);
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testMessage, setTestMessage] = useState('');
+
+  const resetTest = () => {
+    setTestStatus('idle');
+    setTestMessage('');
+  };
+
+  const setField = (field: 'apiKey' | 'endpoint' | 'model', value: string) => {
+    const nextNative: NonNullable<NonNullable<PilotDeckConfig['tools']>['deepseekNativeSearch']> = { ...native };
+    if (value === '') {
+      delete nextNative[field];
+    } else {
+      nextNative[field] = value;
+    }
+    const nextTools: NonNullable<PilotDeckConfig['tools']> = { ...(config.tools ?? {}) };
+    if (Object.keys(nextNative).length > 0) {
+      nextTools.deepseekNativeSearch = nextNative;
+    } else {
+      delete nextTools.deepseekNativeSearch;
+    }
+    onChange(patch(config, ['tools'], Object.keys(nextTools).length > 0 ? nextTools : undefined));
+    resetTest();
+  };
+
+  const handleTest = async () => {
+    const typedKey = hasUsableSecret(apiKey) ? apiKey.trim() : undefined;
+    setTestStatus('testing');
+    setTestMessage('');
+    try {
+      const res = await authenticatedFetch('/api/config/test-deepseek-native-search', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...(typedKey ? { apiKey: typedKey } : {}),
+          endpoint: endpointValue.trim(),
+          model: modelValue.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setTestStatus('success');
+        setTestMessage(t('pilotDeckConfig.panels.deepseekNativeSearch.test.success', {
+          count: data.citationCount ?? 0,
+          latency: data.latencyMs ?? 0,
+        }));
+      } else {
+        setTestStatus('error');
+        setTestMessage(t('pilotDeckConfig.panels.deepseekNativeSearch.test.failedPrefix', { error: data.error || 'unknown' }));
+      }
+    } catch (err) {
+      setTestStatus('error');
+      setTestMessage(t('pilotDeckConfig.panels.deepseekNativeSearch.test.failedPrefix', {
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    }
+  };
+
+  return (
+    <SettingsSection
+      title={t('pilotDeckConfig.panels.deepseekNativeSearch.title')}
+      description={t('pilotDeckConfig.panels.deepseekNativeSearch.description')}
+    >
+      <SettingsCard divided>
+        <FormRow
+          label={t('pilotDeckConfig.panels.deepseekNativeSearch.apiKey.label')}
+          description={t('pilotDeckConfig.panels.deepseekNativeSearch.apiKey.description')}
+        >
+          <SecretTextInput
+            value={apiKey}
+            emptyPlaceholder={t('pilotDeckConfig.panels.deepseekNativeSearch.apiKey.placeholder')}
+            maskedPlaceholder={t('pilotDeckConfig.panels.deepseekNativeSearch.apiKey.maskedPlaceholder')}
+            monospace
+            onChange={(value) => setField('apiKey', value)}
+          />
+          {isMaskedSecret(apiKey) && (
+            <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+              <Info className="h-3 w-3" />
+              {t('pilotDeckConfig.panels.deepseekNativeSearch.apiKey.keyHidden')}
+            </p>
+          )}
+          {!hasDedicatedKey && reusableProviderId && (
+            <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+              <CheckCircle2 className="h-3 w-3" />
+              {t('pilotDeckConfig.panels.deepseekNativeSearch.apiKey.reuseProvider', { provider: reusableProviderId })}
+            </p>
+          )}
+        </FormRow>
+        <FormRow
+          label={t('pilotDeckConfig.panels.deepseekNativeSearch.endpoint.label')}
+          description={t('pilotDeckConfig.panels.deepseekNativeSearch.endpoint.description')}
+        >
+          <TextInput
+            value={endpointValue}
+            placeholder={defaultEndpoint}
+            monospace
+            onChange={(value) => setField('endpoint', value)}
+          />
+        </FormRow>
+        <FormRow
+          label={t('pilotDeckConfig.panels.deepseekNativeSearch.model.label')}
+          description={t('pilotDeckConfig.panels.deepseekNativeSearch.model.description')}
+        >
+          <TextInput
+            value={modelValue}
+            placeholder={defaultModel}
+            monospace
+            onChange={(value) => setField('model', value)}
+          />
+        </FormRow>
+        <div className="flex flex-col gap-2 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTest}
+              disabled={testStatus === 'testing'}
+            >
+              {testStatus === 'testing' ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              {testStatus === 'testing'
+                ? t('pilotDeckConfig.panels.deepseekNativeSearch.test.testing')
+                : t('pilotDeckConfig.panels.deepseekNativeSearch.test.button')}
+            </Button>
+            {testStatus === 'success' && (
+              <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-green-700 dark:text-green-400">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                {testMessage}
+              </span>
+            )}
+            {testStatus === 'error' && (
+              <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-destructive">
+                <XCircle className="h-3.5 w-3.5 shrink-0" />
                 {testMessage}
               </span>
             )}
@@ -4026,6 +4215,7 @@ export default function PilotDeckConfigTab({
               {activeSection === 'agents' && <AgentsSection config={parsedConfig} onChange={onFormChange} />}
               {activeSection === 'memory' && <MemorySection config={parsedConfig} projects={projects} onChange={onFormChange} />}
               {activeSection === 'tools' && <ToolsSection config={parsedConfig} onChange={onFormChange} />}
+              {activeSection === 'deepseekNativeSearch' && <DeepSeekNativeSearchSection config={parsedConfig} onChange={onFormChange} />}
               {activeSection === 'router' && <RouterSection config={parsedConfig} onChange={onFormChange} />}
               {activeSection === 'gateway' && <GatewaySection config={parsedConfig} onChange={onFormChange} />}
               {activeSection === 'officePreview' && <OfficePreviewSection config={parsedConfig} onChange={onFormChange} />}

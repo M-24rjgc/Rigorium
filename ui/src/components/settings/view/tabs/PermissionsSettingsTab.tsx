@@ -36,6 +36,7 @@ const QUICK_ADD_TOOLS = [
   'task_create',
   'web_fetch',
   'web_search',
+  'deepseek_native_search',
 ];
 
 const QUICK_BLOCK_TOOLS_UNIX = ['bash:rm:*', 'bash:sudo:*'];
