@@ -1384,6 +1384,7 @@
       "crossrefMailto": "Crossref contact email",
       "crossrefMailtoDescription": "Optional polite identity for Crossref metadata requests.",
       "arxivDescription": "Preprint metadata, abstracts, and subject categories; it has no citation-graph data.",
+      "openreviewDescription": "Official venue records and review metadata when an explicit OpenReview venue is selected.",
       "noneEnabled": "No literature source is enabled. Searches remain unavailable until at least one source is turned on."
     },
     "search": {
@@ -1411,7 +1412,49 @@
       "selectedCollection": "Use the collection selected in Zotero",
       "test": "Test Zotero",
       "ready": "Ready · {{name}}",
-      "notReady": "Zotero is not ready."
+      "notReady": "Zotero is not ready.",
+      "collectionBinding": "Collection binding",
+      "followSelection": "Follows the current Zotero selection.",
+      "currentSelection": "Current Zotero selection",
+      "fixedCollection": "Uses one fixed collection for this scope.",
+      "browseCollections": "Browse collections",
+      "filterCollections": "Filter collections",
+      "refreshCollections": "Refresh collections",
+      "loadingCollections": "Loading collections…",
+      "noCollections": "No collections found.",
+      "noCollection": "No collection bound",
+      "collectionsTruncated": "Only the first {{count}} collections are shown.",
+      "bindCollection": "Bind {{name}}",
+      "cloud": {
+        "enabled": "Enable Zotero cloud writes",
+        "enabledDescription": "Tags and notes require an explicit preview and confirmation.",
+        "libraryType": "Cloud library",
+        "userLibrary": "My library",
+        "groupLibrary": "Group library",
+        "libraryId": "Group library ID",
+        "credential": "Secure API credential",
+        "credentialPlaceholder": "Zotero API key",
+        "credentialMissing": "A Zotero API key is required before cloud writes can connect.",
+        "credentialMissingShort": "Configure the global credential first",
+        "credentialConfigured": "Stored with Windows protection. The key is never shown again.",
+        "credentialConfiguredShort": "Global credential configured",
+        "credentialUnavailable": "Secure storage is available only in the Rigorium desktop app.",
+        "credentialSaved": "Zotero cloud credential saved securely.",
+        "credentialCleared": "Zotero cloud credential removed.",
+        "saveCredential": "Store key",
+        "removeCredential": "Remove key",
+        "confirmClearCredential": "Confirm remove",
+        "connection": "Cloud connection",
+        "test": "Test cloud",
+        "ready": "Ready · {{library}}",
+        "readOnly": "Connected, but read-only.",
+        "notReady": "Zotero cloud is not ready.",
+        "desktopOnly": "Secure Zotero cloud credentials require the Rigorium desktop app."
+      },
+      "writeMode": {
+        "connectorImport": "Confirmed imports use the Zotero Connector.",
+        "readOnly": "The local API is read-only; imports are unavailable."
+      }
     },
     "citationPrivacy": {
       "title": "Citation and privacy"

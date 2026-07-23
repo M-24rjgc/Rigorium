@@ -1378,6 +1378,7 @@
       "crossrefMailto": "Crossref 联系邮箱",
       "crossrefMailtoDescription": "可选，用于 Crossref 元数据请求标识。",
       "arxivDescription": "提供预印本元数据、摘要和学科分类；不提供引用图数据。",
+      "openreviewDescription": "选择明确的 OpenReview venue 后，提供官方 venue 记录和评审元数据。",
       "noneEnabled": "当前没有启用任何文献来源；至少开启一个来源后才能检索。"
     },
     "search": {
@@ -1405,7 +1406,49 @@
       "selectedCollection": "使用 Zotero 当前选中的 Collection",
       "test": "测试 Zotero",
       "ready": "已连接 · {{name}}",
-      "notReady": "Zotero 尚未就绪。"
+      "notReady": "Zotero 尚未就绪。",
+      "collectionBinding": "Collection 绑定",
+      "followSelection": "跟随 Zotero 当前选中的 Collection。",
+      "currentSelection": "当前 Zotero 选择",
+      "fixedCollection": "当前作用域使用一个固定 Collection。",
+      "browseCollections": "浏览 Collection",
+      "filterCollections": "筛选 Collection",
+      "refreshCollections": "刷新 Collection",
+      "loadingCollections": "正在加载 Collection…",
+      "noCollections": "未找到 Collection。",
+      "noCollection": "未绑定 Collection",
+      "collectionsTruncated": "仅显示前 {{count}} 个 Collection。",
+      "bindCollection": "绑定 {{name}}",
+      "cloud": {
+        "enabled": "启用 Zotero 云端写入",
+        "enabledDescription": "标签和笔记必须先预览并明确确认。",
+        "libraryType": "云端库类型",
+        "userLibrary": "我的库",
+        "groupLibrary": "群组库",
+        "libraryId": "群组库 ID",
+        "credential": "安全 API 凭据",
+        "credentialPlaceholder": "Zotero API 密钥",
+        "credentialMissing": "连接云端写入前需要配置 Zotero API 密钥。",
+        "credentialMissingShort": "请先配置全局凭据",
+        "credentialConfigured": "已使用 Windows 保护存储，密钥不会再次显示。",
+        "credentialConfiguredShort": "已配置全局凭据",
+        "credentialUnavailable": "安全存储仅在 Rigorium 桌面应用中可用。",
+        "credentialSaved": "Zotero 云端凭据已安全保存。",
+        "credentialCleared": "Zotero 云端凭据已移除。",
+        "saveCredential": "保存密钥",
+        "removeCredential": "移除密钥",
+        "confirmClearCredential": "确认移除",
+        "connection": "云端连接",
+        "test": "测试云端连接",
+        "ready": "已就绪 · {{library}}",
+        "readOnly": "已连接，但仅可读。",
+        "notReady": "Zotero 云端尚未就绪。",
+        "desktopOnly": "安全 Zotero 云端凭据需要使用 Rigorium 桌面应用。"
+      },
+      "writeMode": {
+        "connectorImport": "确认后的导入通过 Zotero Connector 执行。",
+        "readOnly": "本地接口只读，无法导入。"
+      }
     },
     "citationPrivacy": {
       "title": "引用与隐私"
