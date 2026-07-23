@@ -219,7 +219,12 @@ function aggregateSourceStatus(attempts: LiteratureSearchResult[]): ResearchSour
   const first = sourceAttempts[0];
   if (!first) throw new Error("Cannot aggregate an empty literature source result set.");
   if (sourceAttempts.length === 1) {
-    const { queryVariantId: _queryVariantId, ...source } = first;
+    const {
+      queryVariantId: _queryVariantId,
+      queryLanguage: _queryLanguage,
+      queryProvenance: _queryProvenance,
+      ...source
+    } = first;
     return source;
   }
 
@@ -428,14 +433,19 @@ function normalizeProvenance(
 ): ResearchPaperProvenance[] {
   const supplied = paper.provenance
     .filter((item) => item.sourceId === source.id && Number.isFinite(item.rank) && item.rank > 0)
-    .map((item) => source.queryVariantId && !item.queryVariantId
-      ? { ...item, queryVariantId: source.queryVariantId }
-      : item);
+    .map((item) => ({
+      ...item,
+      ...(source.queryVariantId && !item.queryVariantId ? { queryVariantId: source.queryVariantId } : {}),
+      ...(source.queryLanguage && !item.queryLanguage ? { queryLanguage: source.queryLanguage } : {}),
+      ...(source.queryProvenance && !item.queryProvenance ? { queryProvenance: source.queryProvenance } : {}),
+    }));
   if (supplied.length > 0) return supplied;
   return [{
     sourceId: source.id,
     sourceRecordId: paper.id,
     ...(source.queryVariantId ? { queryVariantId: source.queryVariantId } : {}),
+    ...(source.queryLanguage ? { queryLanguage: source.queryLanguage } : {}),
+    ...(source.queryProvenance ? { queryProvenance: source.queryProvenance } : {}),
     rank: fallbackRank,
     retrievedAt: source.retrievedAt,
     ...(source.queryUrl ? { queryUrl: source.queryUrl } : {}),
@@ -449,6 +459,8 @@ function uniqueProvenance(items: ResearchPaperProvenance[], sourcePriority: Map<
       sourceId: item.sourceId,
       ...(item.sourceRecordId ? { sourceRecordId: item.sourceRecordId } : {}),
       ...(item.queryVariantId ? { queryVariantId: item.queryVariantId } : {}),
+      ...(item.queryLanguage ? { queryLanguage: item.queryLanguage } : {}),
+      ...(item.queryProvenance ? { queryProvenance: item.queryProvenance } : {}),
       rank: Math.max(1, Math.round(item.rank)),
       retrievedAt: item.retrievedAt,
       ...(item.queryUrl ? { queryUrl: item.queryUrl } : {}),

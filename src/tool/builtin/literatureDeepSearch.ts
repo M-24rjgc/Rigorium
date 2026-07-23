@@ -18,6 +18,7 @@ import type {
   LiteratureExpansionDirection,
   LiteratureExpansionPlan,
   LiteratureExpansionSeed,
+  LiteratureSpecificQueryScope,
   LiteratureSearchArtifact,
   ResearchSettings,
   SearchClassification,
@@ -25,7 +26,7 @@ import type {
   SearchVenueSet,
 } from "../../research/types.js";
 import {
-  buildSearchQueryVariants,
+  buildLiteratureSearchSemantics,
   createLiteratureSearchTool,
   normalizeVenueSet,
   type CreateLiteratureSearchToolOptions,
@@ -54,11 +55,16 @@ const MAX_TASKS = 32;
 export type LiteratureDeepSearchSearchTaskInput = {
   id: string;
   kind: "search";
+  /** Explicit query-search mode. */
+  mode?: "broad" | "specific";
+  /** Backward-compatible alias: `question` maps to specific mode. */
   queryKind?: "broad" | "question";
   intent: string;
   stageId?: string;
   dependsOn?: string[];
   query: string;
+  language?: string;
+  specificity?: Partial<LiteratureSpecificQueryScope>;
   queryVariants?: LiteratureSearchInput["queryVariants"];
   limit?: number;
   fromYear?: number;
@@ -199,11 +205,22 @@ Use this when a natural-language research goal needs several coordinated queries
             properties: {
               id: { type: "string", description: "Unique task ID within this session." },
               kind: { type: "string", enum: ["search", "expansion"] },
-              queryKind: { type: "string", enum: ["broad", "question"] },
+              mode: { type: "string", enum: ["broad", "specific"] },
+              queryKind: { type: "string", enum: ["broad", "question"], description: "Deprecated alias; question maps to specific mode." },
               intent: { type: "string", description: "Why this task is part of the research goal." },
               stageId: { type: "string" },
               dependsOn: { type: "array", items: { type: "string" }, maxItems: MAX_TASKS },
               query: { type: "string" },
+              language: { type: "string", description: "Declared BCP-47 language tag; never inferred." },
+              specificity: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  focus: { type: "string" },
+                  requiredConcepts: { type: "array", maxItems: 12, items: { type: "string" } },
+                  excludedConcepts: { type: "array", maxItems: 12, items: { type: "string" } },
+                },
+              },
               queryVariants: {
                 type: "array",
                 maxItems: 3,
@@ -213,11 +230,25 @@ Use this when a natural-language research goal needs several coordinated queries
                   additionalProperties: false,
                   properties: {
                     query: { type: "string" },
+                    language: { type: "string" },
                     category: {
                       type: "string",
                       enum: ["synonym", "abbreviation", "historical_term", "adjacent_field"],
                     },
                     rationale: { type: "string" },
+                    provenance: {
+                      type: "object",
+                      additionalProperties: false,
+                      required: ["kind"],
+                      properties: {
+                        kind: { type: "string", enum: ["agent_selected", "terminology_candidate", "translation"] },
+                        artifactId: { type: "string" },
+                        candidateIds: { type: "array", maxItems: 24, items: { type: "string" } },
+                        sourceVariantId: { type: "string" },
+                        sourceLanguage: { type: "string" },
+                        method: { type: "string", enum: ["agent_selected", "user_supplied"] },
+                      },
+                    },
                   },
                 },
               },
@@ -468,7 +499,22 @@ function buildSearchTask(
 ): LiteratureSearchSessionSearchTask {
   const query = input.query.trim();
   const limit = boundedSearchLimit(input.limit, settings);
-  const queryVariants = buildSearchQueryVariants(query, input.queryVariants, limit);
+  const mode = input.mode ?? (input.queryKind === "question" ? "specific" : input.queryKind ?? "broad");
+  const legacyMode = input.queryKind === "question" ? "specific" : input.queryKind;
+  if (input.mode && legacyMode && input.mode !== legacyMode) {
+    throw new PilotDeckToolRuntimeError("invalid_tool_input", "mode and queryKind must describe the same search mode.");
+  }
+  const specificity = input.specificity ?? (input.queryKind === "question"
+    ? { focus: input.intent.trim() }
+    : undefined);
+  const semantics = buildLiteratureSearchSemantics({
+    query,
+    mode,
+    language: input.language,
+    specificity,
+    queryVariants: input.queryVariants,
+  }, limit);
+  const queryVariants = semantics.queryVariants;
   let classifications: string[];
   try {
     classifications = normalizeArxivClassifications(input.classifications);
@@ -498,12 +544,14 @@ function buildSearchTask(
   return {
     id: input.id.trim(),
     kind: "search",
-    queryKind: input.queryKind ?? "broad",
+    queryKind: semantics.mode,
     intent: { text: input.intent.trim() },
     ...(input.stageId?.trim() ? { stageId: input.stageId.trim() } : {}),
     ...(input.dependsOn ? { dependsOn: input.dependsOn.map((dependency) => dependency.trim()) } : {}),
     plan: {
       query,
+      mode: semantics.mode,
+      ...(semantics.specificity ? { specificity: semantics.specificity } : {}),
       limit,
       ...(fromYear !== undefined ? { fromYear } : {}),
       ...(toYear !== undefined ? { toYear } : {}),
@@ -540,11 +588,18 @@ function buildExpansionTask(
 function searchInputFromPlan(plan: SearchPlan): LiteratureSearchInput {
   const alternatives = plan.queryVariants?.slice(1).map((variant) => ({
     query: variant.query,
+    ...(variant.language?.source === "declared" ? { language: variant.language.tag } : {}),
     ...(variant.category && variant.category !== "primary" ? { category: variant.category } : {}),
     ...(variant.rationale ? { rationale: variant.rationale } : {}),
+    ...(variant.provenance ? { provenance: variant.provenance } : {}),
   }));
   return {
     query: plan.query,
+    ...(plan.mode ? { mode: plan.mode } : {}),
+    ...(plan.queryVariants?.[0]?.language?.source === "declared"
+      ? { language: plan.queryVariants[0].language.tag }
+      : {}),
+    ...(plan.specificity ? { specificity: plan.specificity } : {}),
     ...(alternatives && alternatives.length > 0 ? { queryVariants: alternatives } : {}),
     limit: plan.limit,
     ...(plan.fromYear !== undefined ? { fromYear: plan.fromYear } : {}),
@@ -723,8 +778,28 @@ function validateDeepSearchInput(
     }
     if (rawTask.kind === "search") {
       if (!nonEmptyString(rawTask.query)) issues.push(issue(`${path}.query`, "is required and must be non-empty text."));
+      if (rawTask.mode !== undefined && rawTask.mode !== "broad" && rawTask.mode !== "specific") {
+        issues.push(issue(`${path}.mode`, "must be broad or specific."));
+      }
       if (rawTask.queryKind !== undefined && rawTask.queryKind !== "broad" && rawTask.queryKind !== "question") {
         issues.push(issue(`${path}.queryKind`, "must be broad or question."));
+      }
+      const legacyMode = rawTask.queryKind === "question" ? "specific" : rawTask.queryKind;
+      if (rawTask.mode && legacyMode && rawTask.mode !== legacyMode) {
+        issues.push(issue(`${path}.mode`, "must agree with queryKind when both are provided."));
+      }
+      if (rawTask.language !== undefined && !nonEmptyString(rawTask.language)) {
+        issues.push(issue(`${path}.language`, "must be non-empty text when provided."));
+      }
+      if (rawTask.specificity !== undefined && !isRecord(rawTask.specificity)) {
+        issues.push(issue(`${path}.specificity`, "must be an object when provided."));
+      }
+      const effectiveMode = rawTask.mode ?? legacyMode ?? "broad";
+      if (effectiveMode === "specific" && rawTask.queryKind !== "question" && rawTask.specificity === undefined) {
+        issues.push(issue(`${path}.specificity`, "is required for specific mode."));
+      }
+      if (effectiveMode === "broad" && rawTask.specificity !== undefined) {
+        issues.push(issue(`${path}.specificity`, "is not allowed for broad mode."));
       }
       if (rawTask.limit !== undefined && !finitePositiveNumber(rawTask.limit)) {
         issues.push(issue(`${path}.limit`, "must be a positive finite number."));

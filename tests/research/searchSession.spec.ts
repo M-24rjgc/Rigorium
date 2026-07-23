@@ -62,6 +62,8 @@ function source(input: {
 function searchPlan(input: {
   query: string;
   limit: number;
+  mode?: SearchPlan["mode"];
+  specificity?: SearchPlan["specificity"];
   queryVariants?: SearchPlan["queryVariants"];
   fromYear?: number;
   toYear?: number;
@@ -69,6 +71,8 @@ function searchPlan(input: {
 }): SearchPlan {
   return {
     query: input.query,
+    ...(input.mode ? { mode: input.mode } : {}),
+    ...(input.specificity ? { specificity: input.specificity } : {}),
     limit: input.limit,
     ...(input.fromYear ? { fromYear: input.fromYear } : {}),
     ...(input.toYear ? { toYear: input.toYear } : {}),
@@ -258,6 +262,12 @@ test("search session reserves a strict shared result budget and preserves venue/
       { id: "primary", query: "retrieval NeurIPS", requestLimit: 3, category: "primary" },
       { id: "alternative-1", query: "retrieval augmented generation NeurIPS", requestLimit: 2, category: "adjacent_field" },
     ],
+    mode: "specific",
+    specificity: {
+      focus: "Identify the retrieval method accepted at NeurIPS.",
+      requiredConcepts: ["retrieval method", "NeurIPS"],
+      excludedConcepts: [],
+    },
     fromYear: 2023,
     toYear: 2025,
     venueSet: {
@@ -265,7 +275,7 @@ test("search session reserves a strict shared result budget and preserves venue/
       name: "NeurIPS 2025",
       venues: [{ id: "neurips", name: "NeurIPS", year: 2025, status: "accepted" }],
     },
-  }), { queryKind: "question", dependsOn: ["broad"] });
+  }), { queryKind: "specific", dependsOn: ["broad"] });
   const seenSearchPlans = new Map<string, SearchPlan>();
   let seenExpansionPlan: LiteratureExpansionPlan | undefined;
 

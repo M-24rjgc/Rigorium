@@ -156,6 +156,34 @@ export type SearchQueryVariantCategory =
   | "historical_term"
   | "adjacent_field";
 
+export type LiteratureSearchMode = "broad" | "specific" | "citation" | "deep";
+
+export type LiteratureQueryLanguage = {
+  /** Canonical BCP-47 language tag, or `und` when no language was declared. */
+  tag: string;
+  source: "declared" | "undetermined";
+};
+
+export type LiteratureSpecificQueryScope = {
+  focus?: string;
+  requiredConcepts: string[];
+  excludedConcepts: string[];
+};
+
+export type LiteratureQueryVariantProvenance =
+  | { kind: "agent_selected" }
+  | {
+    kind: "terminology_candidate";
+    artifactId: string;
+    candidateIds: string[];
+  }
+  | {
+    kind: "translation";
+    sourceVariantId: string;
+    sourceLanguage: string;
+    method: "agent_selected" | "user_supplied";
+  };
+
 export type SearchQueryVariant = {
   /** Stable artifact-local identifier assigned by the literature tool. */
   id: string;
@@ -166,10 +194,18 @@ export type SearchQueryVariant = {
   category?: SearchQueryVariantCategory;
   /** Optional concise reason for using this alternative formulation. */
   rationale?: string;
+  /** Declared query language; optional only for persisted legacy artifacts. */
+  language?: LiteratureQueryLanguage;
+  /** Why this exact formulation was selected; optional only for legacy artifacts. */
+  provenance?: LiteratureQueryVariantProvenance;
 };
 
 export type SearchPlan = {
   query: string;
+  /** Explicit query-search mode. Optional only for persisted legacy artifacts. */
+  mode?: Extract<LiteratureSearchMode, "broad" | "specific">;
+  /** Required by current tools when mode is `specific`. */
+  specificity?: LiteratureSpecificQueryScope;
   limit: number;
   fromYear?: number;
   toYear?: number;
@@ -191,6 +227,8 @@ export type ResearchPaperProvenance = {
   sourceRecordId?: string;
   /** Artifact-local query variant that returned this source record. */
   queryVariantId?: string;
+  queryLanguage?: LiteratureQueryLanguage;
+  queryProvenance?: LiteratureQueryVariantProvenance;
   /** One-based position in this source's response for the submitted plan. */
   rank: number;
   retrievedAt: string;
@@ -303,6 +341,8 @@ export type ResearchSourceStatus = {
   name: string;
   /** Present only for one query-source attempt in a query audit. */
   queryVariantId?: string;
+  queryLanguage?: LiteratureQueryLanguage;
+  queryProvenance?: LiteratureQueryVariantProvenance;
   status: "ok" | "error" | "disabled";
   /** A successful response with known incomplete provider coverage. */
   partial?: boolean;

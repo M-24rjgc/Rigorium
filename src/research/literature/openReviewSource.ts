@@ -88,12 +88,14 @@ export function createOpenReviewSource(
             },
           });
           if (!response.ok) {
-            const body = await response.text().catch(() => response.statusText);
+            // Failure details can contain challenge URLs or other provider-side
+            // data. Preserve the deterministic HTTP outcome, not the body.
+            await response.body?.cancel().catch(() => undefined);
             return {
               constraint,
               url,
               papers: [],
-              error: `OpenReview API error (${response.status}): ${truncate(body || response.statusText, 400)}`,
+              error: `OpenReview API request returned HTTP ${response.status}.`,
             } satisfies VenueAttempt;
           }
 

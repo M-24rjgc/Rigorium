@@ -91,6 +91,38 @@ test("OpenReview is enabled by default but remains dormant without an explicit o
   assert.match(result.source.coverage, /No official OpenReview venue identifier/i);
 });
 
+test("OpenReview preserves an HTTP failure without retaining a remote challenge body", async () => {
+  const source = createOpenReviewSource({
+    endpoint: "https://openreview.test/notes",
+    fetchImpl: async () => jsonResponse({
+      message: "Challenge verification required",
+      challengeUrl: "https://openreview.test/challenge?one-time=do-not-persist",
+    }, 403),
+  });
+
+  const result = await source.search({
+    query: "graph learning",
+    limit: 5,
+    sort: "relevance",
+    sourceIds: ["openreview"],
+    venueSet: {
+      id: "iclr-2024",
+      name: "ICLR 2024",
+      venues: [{
+        id: "iclr-main",
+        name: "ICLR",
+        year: 2024,
+        status: "accepted",
+        openReviewVenueId: acceptedVenueId,
+      }],
+    },
+  });
+
+  assert.equal(result.source.status, "error");
+  assert.match(result.source.error ?? "", /HTTP 403/);
+  assert.doesNotMatch(result.source.error ?? "", /challenge|one-time|persist/i);
+});
+
 test("OpenReview preserves an explicit submission-stage constraint without treating it as accepted", async () => {
   const source = createOpenReviewSource({
     endpoint: "https://openreview.test/notes",

@@ -18,8 +18,8 @@ export type LiteratureSearchSessionStageId = string;
 export type LiteratureSearchSessionSearchTask = {
   id: string;
   kind: "search";
-  /** Whether this is a recall-oriented query or an answer-oriented question. */
-  queryKind: "broad" | "question";
+  /** Explicit query mode; legacy deep-search `question` inputs are normalized before reaching the session. */
+  queryKind: "broad" | "specific";
   /** Natural-language purpose retained from the agent's externally built plan. */
   intent: SearchIntent;
   /**
@@ -126,6 +126,8 @@ export type LiteratureSearchSessionSearchRequestAudit = {
   query: string;
   requestedResultSlots: number;
   allocatedResultSlots: number;
+  queryLanguage?: SearchQueryVariant["language"];
+  queryProvenance?: SearchQueryVariant["provenance"];
   status: "scheduled" | "excluded";
   exclusionReason?: LiteratureSearchSessionTaskReasonCode;
 };
@@ -682,6 +684,8 @@ function requestAudit(
       query: variant.query,
       requestedResultSlots: variant.requestLimit,
       allocatedResultSlots: allocated?.requestLimit ?? 0,
+      ...(variant.language ? { queryLanguage: variant.language } : {}),
+      ...(variant.provenance ? { queryProvenance: variant.provenance } : {}),
       status: allocated ? "scheduled" as const : "excluded" as const,
       ...(allocated ? {} : { exclusionReason: exclusionReason ?? "budget_exhausted" }),
     };
@@ -905,6 +909,18 @@ function validateSessionPlan(plan: LiteratureSearchSessionPlan): void {
 function validateSearchTask(task: LiteratureSearchSessionSearchTask): void {
   if (!isNonEmptyText(task.plan?.query)) throw new Error(`Search task ${task.id} requires a non-empty query.`);
   if (!isPositiveInteger(task.plan.limit)) throw new Error(`Search task ${task.id} requires a positive plan limit.`);
+  if (task.queryKind !== "broad" && task.queryKind !== "specific") {
+    throw new Error(`Search task ${task.id} has an invalid query mode.`);
+  }
+  if (task.plan.mode !== undefined && task.plan.mode !== task.queryKind) {
+    throw new Error(`Search task ${task.id} query mode must match its plan mode.`);
+  }
+  if (task.queryKind === "specific" && !task.plan.specificity) {
+    throw new Error(`Search task ${task.id} specific mode requires a specific-query scope.`);
+  }
+  if (task.queryKind === "broad" && task.plan.specificity) {
+    throw new Error(`Search task ${task.id} broad mode cannot include a specific-query scope.`);
+  }
   if (task.plan.fromYear !== undefined && !isPositiveInteger(task.plan.fromYear)) {
     throw new Error(`Search task ${task.id} has an invalid fromYear.`);
   }

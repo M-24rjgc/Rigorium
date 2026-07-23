@@ -6,6 +6,10 @@ import { createCrossrefSource } from "../../research/literature/crossrefSource.j
 import { createOpenAlexSource } from "../../research/literature/openAlexSource.js";
 import { createOpenReviewSource } from "../../research/literature/openReviewSource.js";
 import {
+  LiteratureSearchSemanticsError,
+  normalizeLiteratureSearchQuerySemantics,
+} from "../../research/literature/searchSemantics.js";
+import {
   buildLiteratureSearchCoverageAudit,
   type LiteratureSearchCoverageSourceScope,
 } from "../../research/literature/coverageAudit.js";
@@ -15,6 +19,8 @@ import type {
   LiteratureSearchResult,
   LiteratureSource,
   LiteratureSearchArtifact,
+  LiteratureQueryVariantProvenance,
+  LiteratureSpecificQueryScope,
   LiteratureTerminologySourceRecord,
   LiteratureTerminologyTaxonomyLevelRecord,
   ResearchPaper,
@@ -34,12 +40,21 @@ import type {
 
 export type LiteratureSearchInput = {
   query: string;
+  /** Recall-oriented broad search or an explicitly scoped specific search. */
+  mode?: "broad" | "specific";
+  /** Declared BCP-47 query language. The tool never guesses from text. */
+  language?: string;
+  /** Required when mode is specific; records intent without rewriting provider grammar. */
+  specificity?: Partial<LiteratureSpecificQueryScope>;
   /** Agent-selected alternative terminology for the same natural-language goal. */
   queryVariants?: Array<{
     query: string;
+    /** Declared BCP-47 language for this exact formulation. */
+    language?: string;
     /** The tool reserves primary for the main query. */
     category?: Exclude<SearchQueryVariantCategory, "primary">;
     rationale?: string;
+    provenance?: LiteratureQueryVariantProvenance;
   }>;
   limit?: number;
   fromYear?: number;
@@ -92,7 +107,7 @@ export function createLiteratureSearchTool(
     title: "Search Academic Literature",
     description: `Search real academic literature and produce a structured research artifact for Rigorium's research panel.
 
-Use this tool when the user asks for papers, prior work, related work, a literature review, research directions, novelty checking, seminal work, recent academic work, or evidence for a research question. Translate the user's natural-language goal into a focused query and optional year range. Do not ask the user to type a slash command.
+Use this tool when the user asks in natural language for papers, prior work, related work, a literature review, research directions, novelty checking, seminal work, recent academic work, or evidence for a research question. Choose broad mode for recall and specific mode only with an explicit focus or concept scope. Do not ask the user to type a slash command.
 
 The result includes normalized paper identities, source provenance, real citation links among returned papers, and clearly marked inferred shared-topic links. This tool only searches metadata; it does not modify Zotero. Formal Zotero writes require a separate explicit user action in the research panel.`,
     kind: "network",
@@ -105,6 +120,24 @@ The result includes normalized paper identities, source provenance, real citatio
           type: "string",
           description: "Focused academic literature query derived from the user's natural-language research goal.",
         },
+        mode: {
+          type: "string",
+          enum: ["broad", "specific"],
+          description: "Broad recall search or a specific search with an explicit scope.",
+        },
+        language: {
+          type: "string",
+          description: "Optional declared BCP-47 language tag for the primary query. Never inferred.",
+        },
+        specificity: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            focus: { type: "string" },
+            requiredConcepts: { type: "array", maxItems: 12, items: { type: "string" } },
+            excludedConcepts: { type: "array", maxItems: 12, items: { type: "string" } },
+          },
+        },
         queryVariants: {
           type: "array",
           maxItems: 3,
@@ -115,12 +148,26 @@ The result includes normalized paper identities, source provenance, real citatio
             required: ["query"],
             properties: {
               query: { type: "string" },
+              language: { type: "string", description: "Declared BCP-47 language tag for this formulation." },
               category: {
                 type: "string",
                 enum: ["synonym", "abbreviation", "historical_term", "adjacent_field"],
                 description: "Optional reason category. The primary query is assigned primary automatically.",
               },
               rationale: { type: "string" },
+              provenance: {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind"],
+                properties: {
+                  kind: { type: "string", enum: ["agent_selected", "terminology_candidate", "translation"] },
+                  artifactId: { type: "string" },
+                  candidateIds: { type: "array", maxItems: 24, items: { type: "string" } },
+                  sourceVariantId: { type: "string" },
+                  sourceLanguage: { type: "string" },
+                  method: { type: "string", enum: ["agent_selected", "user_supplied"] },
+                },
+              },
             },
           },
         },
@@ -271,7 +318,8 @@ The result includes normalized paper identities, source provenance, real citatio
           "Invalid venue set: " + (error instanceof Error ? error.message : String(error)),
         );
       }
-      const queryVariants = buildSearchQueryVariants(query, input.queryVariants, limit);
+      const semantics = buildLiteratureSearchSemantics({ ...input, query }, limit);
+      const queryVariants = semantics.queryVariants;
 
       const sources: LiteratureSource[] = [];
       let disabledArxivResult: LiteratureSearchResult | undefined;
@@ -363,6 +411,8 @@ The result includes normalized paper identities, source provenance, real citatio
 
       const plan: SearchPlan = {
         query,
+        mode: semantics.mode,
+        ...(semantics.specificity ? { specificity: semantics.specificity } : {}),
         limit,
         ...(fromYear ? { fromYear } : {}),
         ...(toYear ? { toYear } : {}),
@@ -397,7 +447,7 @@ The result includes normalized paper identities, source provenance, real citatio
         })));
         return variantResults.map((result) => annotateQueryVariant(
           applyVenueMetadataFilter(sanitizeSearchResultUrls(result), venueSet),
-          variant.id,
+          variant,
         ));
       }))).flat();
       if (officialVenueSources.length > 0) {
@@ -407,18 +457,18 @@ The result includes normalized paper identities, source provenance, real citatio
         })));
         results.push(...officialResults.map((result) => annotateQueryVariant(
           sanitizeSearchResultUrls(result),
-          "primary",
+          queryVariants[0]!,
         )));
       }
       if (disabledArxivResult) {
         results.push(...queryVariants.map((variant) =>
-          annotateQueryVariant(sanitizeSearchResultUrls(disabledArxivResult), variant.id),
+          annotateQueryVariant(sanitizeSearchResultUrls(disabledArxivResult), variant),
         ));
       }
       if (disabledOpenReviewResult) {
         // OpenReview venue evidence is requested only for the primary query;
         // do not manufacture alternate-query audit rows when the source is disabled.
-        results.push(annotateQueryVariant(sanitizeSearchResultUrls(disabledOpenReviewResult), "primary"));
+        results.push(annotateQueryVariant(sanitizeSearchResultUrls(disabledOpenReviewResult), queryVariants[0]!));
       }
       const pool = mergeLiteratureSearchResults({
         requestedSourceIds: plan.sourceIds,
@@ -517,74 +567,41 @@ export function buildSearchQueryVariants(
   primaryQuery: string,
   alternatives: LiteratureSearchInput["queryVariants"],
   totalLimit: number,
+  options: Pick<LiteratureSearchInput, "mode" | "language" | "specificity"> = {},
 ): SearchQueryVariant[] {
-  if (alternatives !== undefined && !Array.isArray(alternatives)) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "queryVariants must be an array when provided.");
-  }
-  if ((alternatives?.length ?? 0) > 3) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "literature_search accepts at most three alternative query variants.");
-  }
-
-  const candidates: Array<{
-    query: string;
-    category?: SearchQueryVariantCategory;
-    rationale?: string;
-  }> = [{ query: primaryQuery, category: "primary" }];
-  const fingerprints = new Set([queryFingerprint(primaryQuery)]);
-  for (const alternative of alternatives ?? []) {
-    if (!isRecord(alternative) || typeof alternative.query !== "string") {
-      throw new PilotDeckToolRuntimeError("invalid_tool_input", "Each query variant requires a non-empty query string.");
-    }
-    const query = alternative.query.trim();
-    if (!query) {
-      throw new PilotDeckToolRuntimeError("invalid_tool_input", "Each query variant requires a non-empty query string.");
-    }
-    let category: Exclude<SearchQueryVariantCategory, "primary"> | undefined;
-    if (alternative.category !== undefined) {
-      const rawCategory: unknown = alternative.category;
-      if (!isSearchQueryVariantCategory(rawCategory) || rawCategory === "primary") {
-        throw new PilotDeckToolRuntimeError(
-          "invalid_tool_input",
-          "A query variant category must be synonym, abbreviation, historical_term, or adjacent_field.",
-        );
-      }
-      category = rawCategory;
-    }
-
-    if (alternative.rationale !== undefined && typeof alternative.rationale !== "string") {
-      throw new PilotDeckToolRuntimeError("invalid_tool_input", "A query variant rationale must be text when provided.");
-    }
-    const rationale = alternative.rationale?.trim();
-    const fingerprint = queryFingerprint(query);
-    if (fingerprints.has(fingerprint)) continue;
-    fingerprints.add(fingerprint);
-    candidates.push({
-      query,
-      ...(category ? { category } : {}),
-      ...(rationale ? { rationale } : {}),
-    });
-  }
-
-  // Every executed formulation needs at least one result slot. When the user
-  // requests fewer total results than formulations, keep the primary query
-  // and only the earliest alternatives that fit inside that total budget.
-  const executableCandidates = candidates.slice(0, Math.max(1, totalLimit));
-  const requestLimits = allocateVariantLimits(totalLimit, executableCandidates.length);
-  return executableCandidates.map((candidate, index) => ({
-    id: index === 0 ? "primary" : `alternative-${index}`,
-    query: candidate.query,
-    requestLimit: requestLimits[index] ?? 1,
-    ...(candidate.category ? { category: candidate.category } : {}),
-    ...(candidate.rationale ? { rationale: candidate.rationale } : {}),
-  }));
+  return buildLiteratureSearchSemantics({
+    query: primaryQuery,
+    queryVariants: alternatives,
+    ...options,
+  }, totalLimit).queryVariants;
 }
 
-function isSearchQueryVariantCategory(value: unknown): value is SearchQueryVariantCategory {
-  return value === "primary"
-    || value === "synonym"
-    || value === "abbreviation"
-    || value === "historical_term"
-    || value === "adjacent_field";
+export function buildLiteratureSearchSemantics(
+  input: Pick<LiteratureSearchInput, "query" | "mode" | "language" | "specificity" | "queryVariants">,
+  totalLimit: number,
+): {
+  mode: "broad" | "specific";
+  specificity?: LiteratureSpecificQueryScope;
+  queryVariants: SearchQueryVariant[];
+} {
+  try {
+    const semantics = normalizeLiteratureSearchQuerySemantics(input);
+    const executableVariants = semantics.queryVariants.slice(0, Math.max(1, totalLimit));
+    const requestLimits = allocateVariantLimits(totalLimit, executableVariants.length);
+    return {
+      mode: semantics.mode,
+      ...(semantics.specificity ? { specificity: semantics.specificity } : {}),
+      queryVariants: executableVariants.map((variant, index) => ({
+        ...variant,
+        requestLimit: requestLimits[index] ?? 1,
+      })),
+    };
+  } catch (error) {
+    if (error instanceof LiteratureSearchSemanticsError) {
+      throw new PilotDeckToolRuntimeError("invalid_tool_input", error.message);
+    }
+    throw error;
+  }
 }
 
 function allocateVariantLimits(totalLimit: number, count: number): number[] {
@@ -593,18 +610,23 @@ function allocateVariantLimits(totalLimit: number, count: number): number[] {
   return Array.from({ length: count }, (_, index) => Math.max(1, base + (index < remainder ? 1 : 0)));
 }
 
-function annotateQueryVariant(result: LiteratureSearchResult, queryVariantId: string): LiteratureSearchResult {
+function annotateQueryVariant(result: LiteratureSearchResult, variant: SearchQueryVariant): LiteratureSearchResult {
+  const semanticAudit = {
+    queryVariantId: variant.id,
+    ...(variant.language ? { queryLanguage: variant.language } : {}),
+    ...(variant.provenance ? { queryProvenance: variant.provenance } : {}),
+  };
   return {
     ...result,
-    source: { ...result.source, queryVariantId },
+    source: { ...result.source, ...semanticAudit },
     papers: result.papers.map((paper) => ({
       ...paper,
-      provenance: paper.provenance.map((provenance) => ({ ...provenance, queryVariantId })),
+      provenance: paper.provenance.map((provenance) => ({ ...provenance, ...semanticAudit })),
     })),
     ...(result.terminologyObservations ? {
       terminologyObservations: result.terminologyObservations.map((observation) => ({
         ...observation,
-        queryVariantId,
+        queryVariantId: variant.id,
       })),
     } : {}),
   };
@@ -873,10 +895,6 @@ function mergeVenueEvidence<T extends NonNullable<ResearchPaper["venueEvidence"]
     seen.add(key);
     return true;
   });
-}
-
-function queryFingerprint(query: string): string {
-  return query.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

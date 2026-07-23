@@ -122,6 +122,8 @@ test("literature_search normalizes OpenAlex papers and real citation edges", asy
     query: "research agents",
     requestLimit: 2,
     category: "primary",
+    language: { tag: "und", source: "undetermined" },
+    provenance: { kind: "agent_selected" },
   }]);
   const openAlexUrl = requestedUrls.find((url) => url.includes("api.openalex.org")) ?? "";
   const crossrefUrl = requestedUrls.find((url) => url.includes("api.crossref.org")) ?? "";
@@ -136,7 +138,7 @@ test("literature_search normalizes OpenAlex papers and real citation edges", asy
   );
 });
 
-test("literature_search audits agent-selected query variants and merges their candidate records", async () => {
+test("literature_search preserves specific multilingual semantics through query and paper audits", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-literature-variants-"));
   const pilotHome = join(root, "pilot-home");
   await writeResearchSettings({
@@ -160,10 +162,10 @@ test("literature_search audits agent-selected query variants and merges their ca
       const url = new URL(String(input));
       requestedUrls.push(url);
       const search = url.searchParams.get("search");
-      if (search === "research agents") {
+      if (search === "研究智能体") {
         return jsonResponse({ meta: { count: 1 }, results: [openAlexPayload.results[0]] });
       }
-      if (search === "agentic systems") {
+      if (search === "research agents") {
         return jsonResponse({ meta: { count: 2 }, results: [openAlexPayload.results[0], openAlexPayload.results[1]] });
       }
       throw new Error(`Unexpected query: ${search}`);
@@ -172,12 +174,26 @@ test("literature_search audits agent-selected query variants and merges their ca
 
   const result = await tool.execute(
     {
-      query: "research agents",
+      query: "研究智能体",
+      mode: "specific",
+      language: "zh-hans",
+      specificity: {
+        focus: "Compare research-agent system designs.",
+        requiredConcepts: ["research agent"],
+        excludedConcepts: [],
+      },
       limit: 5,
       queryVariants: [{
-        query: "agentic systems",
-        category: "adjacent_field",
-        rationale: "common adjacent terminology",
+        query: "research agents",
+        language: "en",
+        category: "synonym",
+        rationale: "English formulation for cross-language recall.",
+        provenance: {
+          kind: "translation",
+          sourceVariantId: "primary",
+          sourceLanguage: "zh-Hans",
+          method: "agent_selected",
+        },
       }],
     },
     {
@@ -188,20 +204,44 @@ test("literature_search audits agent-selected query variants and merges their ca
   );
 
   assert.deepEqual(result.data?.plan.queryVariants, [
-    { id: "primary", query: "research agents", requestLimit: 3, category: "primary" },
+    {
+      id: "primary",
+      query: "研究智能体",
+      requestLimit: 3,
+      category: "primary",
+      language: { tag: "zh-Hans", source: "declared" },
+      provenance: { kind: "agent_selected" },
+    },
     {
       id: "alternative-1",
-      query: "agentic systems",
+      query: "research agents",
       requestLimit: 2,
-      category: "adjacent_field",
-      rationale: "common adjacent terminology",
+      category: "synonym",
+      rationale: "English formulation for cross-language recall.",
+      language: { tag: "en", source: "declared" },
+      provenance: {
+        kind: "translation",
+        sourceVariantId: "primary",
+        sourceLanguage: "zh-Hans",
+        method: "agent_selected",
+      },
     },
   ]);
+  assert.equal(result.data?.plan.mode, "specific");
+  assert.deepEqual(result.data?.plan.specificity, {
+    focus: "Compare research-agent system designs.",
+    requiredConcepts: ["research agent"],
+    excludedConcepts: [],
+  });
   assert.deepEqual(
     requestedUrls.map((url) => [url.searchParams.get("search"), url.searchParams.get("per-page")]),
-    [["research agents", "3"], ["agentic systems", "2"]],
+    [["研究智能体", "3"], ["research agents", "2"]],
   );
   assert.deepEqual(result.data?.queryAudit?.map((source) => source.queryVariantId), ["primary", "alternative-1"]);
+  assert.deepEqual(result.data?.queryAudit?.map((source) => [
+    source.queryLanguage?.tag,
+    source.queryProvenance?.kind,
+  ]), [["zh-Hans", "agent_selected"], ["en", "translation"]]);
   assert.equal(result.data?.sources.length, 1);
   assert.equal(result.data?.sources[0]?.queryVariantId, undefined);
   assert.equal(result.data?.sources[0]?.resultCount, 3);
@@ -209,6 +249,10 @@ test("literature_search audits agent-selected query variants and merges their ca
   assert.deepEqual(
     duplicated?.provenance.map((provenance) => provenance.queryVariantId).sort(),
     ["alternative-1", "primary"],
+  );
+  assert.deepEqual(
+    duplicated?.provenance.map((provenance) => provenance.queryLanguage?.tag).sort(),
+    ["en", "zh-Hans"],
   );
 });
 

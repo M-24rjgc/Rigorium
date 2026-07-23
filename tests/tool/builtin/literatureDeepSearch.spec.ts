@@ -326,7 +326,13 @@ test("literature_deep_search runs an explicit task graph with bounded concurrenc
         id: "follow-up",
         kind: "search",
         intent: "Run the answer-oriented comparison after the two recall searches complete.",
-        queryKind: "question",
+        mode: "specific",
+        language: "en",
+        specificity: {
+          focus: "Compare foundation-model and agentic-system approaches.",
+          requiredConcepts: ["foundation model", "agentic system"],
+          excludedConcepts: [],
+        },
         dependsOn: ["foundation", "agents"],
         query: "foundation model agent comparison",
         limit: 1,
@@ -346,6 +352,17 @@ test("literature_deep_search runs an explicit task graph with bounded concurrenc
     ["follow-up", "succeeded"],
   ]);
   assert.equal(startedQueries.at(-1), "foundation model agent comparison");
+  const followUp = result.data?.artifacts.find((item) => item.taskId === "follow-up")?.artifact;
+  assert.equal(followUp?.kind, "literature_search");
+  if (followUp?.kind === "literature_search") {
+    assert.equal(followUp.plan.mode, "specific");
+    assert.deepEqual(followUp.plan.specificity, {
+      focus: "Compare foundation-model and agentic-system approaches.",
+      requiredConcepts: ["foundation model", "agentic system"],
+      excludedConcepts: [],
+    });
+    assert.deepEqual(followUp.plan.queryVariants?.[0]?.language, { tag: "en", source: "declared" });
+  }
   assert.deepEqual(result.data?.sourceAudit.map((entry) => entry.taskId), ["foundation", "agents", "follow-up"]);
   assert.equal(result.data?.execution.timeoutMs, 1_000);
   assert.equal(result.data?.execution.timedOut, false);
