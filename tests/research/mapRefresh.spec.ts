@@ -230,6 +230,104 @@ test("a stale refresh revision is rejected without overwriting the current map",
   assert.equal(loaded?.map.nodes.some((node) => node.id === "must-not-persist"), false);
 });
 
+test("monitor refresh adds review-only candidates, preserves user state, and returns bridge provenance", async () => {
+  const root = await projectRoot("candidate-review");
+  const center = paper({ id: "B", title: "User-reviewed center paper" });
+  const created = await updateProjectLiveLiteratureMap({
+    projectRoot: root,
+    mapId: "map-candidate-review",
+    update: { origin: "search", papers: [center] },
+    now: firstTime,
+  });
+  const reviewed = await setProjectLiveLiteratureMapNodeState({
+    projectRoot: root,
+    mapId: "map-candidate-review",
+    paperId: center.id,
+    expectedRevision: created.map.revision,
+    state: { status: "core", position: { x: 240, y: 80, pinned: true } },
+    now: firstTime,
+  });
+
+  const result = await refreshProjectLiteratureMap({
+    projectRoot: root,
+    mapId: "map-candidate-review",
+    expectedRevision: reviewed.map.revision,
+    providers: [{
+      id: "agent-monitor",
+      coverage: "New citation candidates for the active research project.",
+      refresh: async () => ({
+        papers: [paper({ id: "A" }), paper({ id: "C" })],
+        edges: [
+          { id: "a-b", source: "A", target: "B", type: "citation", weight: 1, inferred: false },
+          { id: "b-c", source: "B", target: "C", type: "citation", weight: 1, inferred: false },
+        ],
+      }),
+    }],
+    now: () => secondTime,
+  });
+
+  assert.deepEqual(result.candidateReview, {
+    reviewRequired: true,
+    newCandidatePaperIds: ["A", "C"],
+    pendingCandidatePaperIds: ["A", "C"],
+    updatedExistingPaperIds: [],
+    classificationPolicy: "new_nodes_candidate_existing_state_preserved",
+    zoteroWritePerformed: false,
+    snapshotCreated: false,
+    destructiveMapChangePerformed: false,
+  });
+  const centerAfterRefresh = result.map?.map.nodes.find((node) => node.id === center.id);
+  assert.ok(centerAfterRefresh);
+  assert.equal(centerAfterRefresh.status, "core");
+  assert.deepEqual(centerAfterRefresh.position, { x: 240, y: 80, pinned: true });
+  assert.deepEqual(result.bridgeAnalysis?.bridges.map((bridge) => bridge.paperId), ["B"]);
+  assert.deepEqual(
+    result.bridgeAnalysis?.bridges[0]?.supportingRelations.map((relation) => relation.edgeId),
+    ["citation:A:B", "citation:B:C"],
+  );
+});
+
+test("read-only monitor payloads reject write intents and successful empty polls do not create a map", async () => {
+  const rejectedRoot = await projectRoot("write-intent");
+  const rejected = await refreshProjectLiteratureMap({
+    projectRoot: rejectedRoot,
+    mapId: "map-write-intent",
+    providers: [{
+      id: "unsafe-provider",
+      coverage: "A provider that returned an out-of-contract write request.",
+      refresh: async () => ({
+        papers: [paper({ id: "must-not-persist" })],
+        zoteroWrite: { collection: "silent-write" },
+      } as never),
+    }],
+    now: () => firstTime,
+  });
+
+  assert.deepEqual(rejected.sources.map((source) => source.state), ["failed"]);
+  assert.match(rejected.sources[0]?.error ?? "", /does not allow zoteroWrite/u);
+  assert.equal(rejected.map, undefined);
+  assert.equal(await loadProjectLiveLiteratureMap({ projectRoot: rejectedRoot }), undefined);
+  assert.deepEqual(rejected.candidateReview.newCandidatePaperIds, []);
+  assert.equal(rejected.candidateReview.zoteroWritePerformed, false);
+
+  const emptyRoot = await projectRoot("empty-poll");
+  const empty = await refreshProjectLiteratureMap({
+    projectRoot: emptyRoot,
+    mapId: "map-empty-poll",
+    providers: [{
+      id: "empty-provider",
+      coverage: "No new papers in this polling interval.",
+      refresh: async () => ({ papers: [], edges: [] }),
+    }],
+    now: () => secondTime,
+  });
+
+  assert.deepEqual(empty.sources.map((source) => source.state), ["succeeded"]);
+  assert.equal(empty.map, undefined);
+  assert.equal(empty.candidateReview.reviewRequired, false);
+  assert.equal(await loadProjectLiveLiteratureMap({ projectRoot: emptyRoot }), undefined);
+});
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

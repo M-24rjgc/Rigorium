@@ -247,6 +247,80 @@ describe('project literature map routes', () => {
       scheduledProviderCalls: 1,
       scheduledCost: 1,
     });
+    expect(result.body.candidateReview).toEqual({
+      reviewRequired: true,
+      newCandidatePaperIds: ['W2'],
+      pendingCandidatePaperIds: ['W2'],
+      updatedExistingPaperIds: [],
+      classificationPolicy: 'new_nodes_candidate_existing_state_preserved',
+      zoteroWritePerformed: false,
+      snapshotCreated: false,
+      destructiveMapChangePerformed: false,
+    });
+    expect(result.body.bridgeAnalysis).toMatchObject({
+      kind: 'literature_bridge_analysis',
+      sourceRevision: result.body.map.revision,
+      bridges: [],
+    });
+  });
+
+  it('reports bridge papers from the persisted revision without mutating the map', async () => {
+    const projectPath = await projectRoot();
+    const { request } = await createLiteratureMapApp();
+    const papers = ['A', 'B', 'C'].map((id) => ({
+      ...paper,
+      id,
+      identity: { openAlexId: `https://openalex.org/${id}` },
+      title: `Paper ${id}`,
+      provenance: [{ ...paper.provenance[0], sourceRecordId: id }],
+    }));
+    const created = await request('/api/research/literature-map/update', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectPath,
+        mapId: 'project-bridge-map',
+        update: {
+          origin: 'search',
+          papers,
+          edges: [
+            { id: 'a-b', source: 'A', target: 'B', type: 'citation', weight: 1, inferred: false },
+            { id: 'b-c', source: 'B', target: 'C', type: 'citation', weight: 1, inferred: false },
+          ],
+        },
+      }),
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+
+    const analysis = await request(
+      `/api/research/literature-map/bridges?projectPath=${encodeURIComponent(projectPath)}`,
+    );
+    expect(analysis.status, JSON.stringify(analysis.body)).toBe(200);
+    expect(analysis.body).toMatchObject({
+      kind: 'literature_bridge_analysis',
+      mapId: 'project-bridge-map',
+      sourceRevision: created.body.map.revision,
+      relationPolicy: 'observed_citations',
+      graphProjection: 'undirected',
+    });
+    expect(analysis.body.bridges).toEqual([
+      expect.objectContaining({
+        paperId: 'B',
+        componentIncrease: 1,
+        directNeighborPaperIds: ['A', 'C'],
+        supportingRelations: [
+          expect.objectContaining({ edgeId: 'citation:A:B', inferred: false }),
+          expect.objectContaining({ edgeId: 'citation:B:C', inferred: false }),
+        ],
+      }),
+    ]);
+
+    const reloaded = await request(`/api/research/literature-map?projectPath=${encodeURIComponent(projectPath)}`);
+    expect(reloaded.body.map.revision).toBe(created.body.map.revision);
+    const invalidPolicy = await request(
+      `/api/research/literature-map/bridges?projectPath=${encodeURIComponent(projectPath)}&relationPolicy=centrality`,
+    );
+    expect(invalidPolicy.status).toBe(400);
+    expect(invalidPolicy.body.code).toBe('invalid_input');
   });
 
   it('rejects refresh payloads outside the read-only refresh contract and preserves revision conflicts', async () => {

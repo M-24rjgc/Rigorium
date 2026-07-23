@@ -1,4 +1,6 @@
 import type { ResearchPaper, ResearchRelationEdge } from "../types.js";
+import { analyzeLiteratureMapBridges } from "./bridgeDetection.js";
+import type { LiteratureBridgeAnalysis } from "./bridgeDetection.js";
 import { updateProjectLiveLiteratureMap } from "./mapRepository.js";
 import type { ProjectLiveLiteratureMapResult } from "./mapRepository.js";
 
@@ -64,8 +66,22 @@ export type LiteratureMapRefreshResult = Readonly<{
     scheduledProviderCalls: number;
     scheduledCost: number;
   }>;
-  /** Undefined when no provider returned a successful result. */
+  candidateReview: LiteratureMapCandidateReview;
+  /** Undefined when no successful provider returned papers or relations. */
   map?: ProjectLiveLiteratureMapResult;
+  /** Computed only from the committed live-map revision. */
+  bridgeAnalysis?: LiteratureBridgeAnalysis;
+}>;
+
+export type LiteratureMapCandidateReview = Readonly<{
+  reviewRequired: boolean;
+  newCandidatePaperIds: readonly string[];
+  pendingCandidatePaperIds: readonly string[];
+  updatedExistingPaperIds: readonly string[];
+  classificationPolicy: "new_nodes_candidate_existing_state_preserved";
+  zoteroWritePerformed: false;
+  snapshotCreated: false;
+  destructiveMapChangePerformed: false;
 }>;
 
 export type RefreshProjectLiteratureMapInput = Readonly<{
@@ -152,15 +168,16 @@ export async function refreshProjectLiteratureMap(
     return cancelledAudit(provider, providerCost(provider), now().toISOString());
   });
   const successfulPayloads = payloads.filter((payload): payload is LiteratureMapRefreshPayload => Boolean(payload));
-  const map = successfulPayloads.length === 0
+  const actionablePayloads = successfulPayloads.filter(hasMapRecords);
+  const map = actionablePayloads.length === 0
     ? undefined
     : await updateProjectLiveLiteratureMap({
       projectRoot,
       mapId,
       update: {
         origin: "monitor",
-        papers: successfulPayloads.flatMap((payload) => payload.papers ?? []),
-        edges: successfulPayloads.flatMap((payload) => payload.edges ?? []),
+        papers: actionablePayloads.flatMap((payload) => payload.papers ?? []),
+        edges: actionablePayloads.flatMap((payload) => payload.edges ?? []),
       },
       ...(input.expectedRevision === undefined ? {} : { expectedRevision: input.expectedRevision }),
       now: now(),
@@ -175,7 +192,9 @@ export async function refreshProjectLiteratureMap(
       scheduledProviderCalls: scheduled.length,
       scheduledCost,
     },
+    candidateReview: candidateReviewFor(map),
     ...(map ? { map } : {}),
+    ...(map ? { bridgeAnalysis: analyzeLiteratureMapBridges(map.map) } : {}),
   };
 }
 
@@ -264,6 +283,12 @@ function normalizePayload(value: LiteratureMapRefreshPayload): LiteratureMapRefr
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError("A refresh provider must return an object payload.");
   }
+  const allowedKeys = new Set(["papers", "edges", "coverage"]);
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) {
+      throw new TypeError(`A read-only refresh provider payload does not allow ${key}.`);
+    }
+  }
   if (value.papers !== undefined && !Array.isArray(value.papers)) {
     throw new TypeError("A refresh provider payload papers field must be an array.");
   }
@@ -274,6 +299,34 @@ function normalizePayload(value: LiteratureMapRefreshPayload): LiteratureMapRefr
     throw new TypeError("A refresh provider payload coverage field must be a non-empty string.");
   }
   return value;
+}
+
+function hasMapRecords(payload: LiteratureMapRefreshPayload): boolean {
+  return (payload.papers?.length ?? 0) > 0 || (payload.edges?.length ?? 0) > 0;
+}
+
+function candidateReviewFor(map: ProjectLiveLiteratureMapResult | undefined): LiteratureMapCandidateReview {
+  const pendingCandidatePaperIds = map
+    ? map.map.nodes
+      .filter((node) => !node.tombstone && node.status === "candidate" && node.origins.includes("monitor"))
+      .map((node) => node.id)
+      .sort(compareText)
+    : [];
+  const newCandidatePaperIds = map
+    ? map.diff.nodes.added
+      .filter((paperId) => map.map.nodes.some((node) => node.id === paperId && node.status === "candidate"))
+      .sort(compareText)
+    : [];
+  return {
+    reviewRequired: pendingCandidatePaperIds.length > 0,
+    newCandidatePaperIds,
+    pendingCandidatePaperIds,
+    updatedExistingPaperIds: map ? [...map.diff.nodes.updated].sort(compareText) : [],
+    classificationPolicy: "new_nodes_candidate_existing_state_preserved",
+    zoteroWritePerformed: false,
+    snapshotCreated: false,
+    destructiveMapChangePerformed: false,
+  };
 }
 
 function providerCost(provider: LiteratureMapRefreshProvider): number {
@@ -337,4 +390,8 @@ function assertExpectedRevision(value: number | undefined): void {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function compareText(left: string, right: string): number {
+  return left.localeCompare(right, "en");
 }

@@ -13,6 +13,7 @@ import {
   setProjectLiveLiteratureMapNodeState,
   updateProjectLiveLiteratureMap,
 } from '../../../src/research/literature/mapRepository.ts';
+import { analyzeLiteratureMapBridges } from '../../../src/research/literature/bridgeDetection.ts';
 import { refreshProjectLiteratureMap } from '../../../src/research/literature/mapRefresh.ts';
 
 const router = express.Router();
@@ -47,6 +48,22 @@ router.get('/', async (req, res) => {
     }
     const seedPaperId = await loadSeedPaperId(projectRoot, document.map.mapId);
     return res.json({ map: document.map, lastDiff: document.lastDiff, seedPaperId });
+  } catch (error) {
+    return respondError(res, error);
+  }
+});
+
+/** Compute traceable bridge papers without changing the live map. */
+router.get('/bridges', async (req, res) => {
+  try {
+    const projectRoot = await validatedProjectRoot(req.query.projectPath);
+    const document = await loadProjectLiveLiteratureMap({ projectRoot });
+    if (!document) {
+      throw new LiteratureMapHttpError('live_map_not_found', 'Cannot analyze bridges before a literature map exists.', 404);
+    }
+    return res.json(analyzeLiteratureMapBridges(document.map, {
+      relationPolicy: requestedBridgeRelationPolicy(req.query.relationPolicy),
+    }));
   } catch (error) {
     return respondError(res, error);
   }
@@ -97,6 +114,8 @@ router.post('/refresh', async (req, res) => {
       cancelled: result.cancelled,
       sources: result.sources,
       budget: result.budget,
+      candidateReview: result.candidateReview,
+      bridgeAnalysis: result.bridgeAnalysis ?? null,
       map: mapResult?.map ?? null,
       diff: mapResult?.diff ?? null,
       created: mapResult?.created ?? false,
@@ -453,6 +472,17 @@ function requestedRevision(value) {
   if (value === undefined) return undefined;
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new LiteratureMapHttpError('invalid_input', 'expectedRevision must be a non-negative integer.');
+  }
+  return value;
+}
+
+function requestedBridgeRelationPolicy(value) {
+  if (value === undefined) return 'observed_citations';
+  if (value !== 'observed_citations' && value !== 'all_active_relations') {
+    throw new LiteratureMapHttpError(
+      'invalid_input',
+      'relationPolicy must be observed_citations or all_active_relations.',
+    );
   }
   return value;
 }
