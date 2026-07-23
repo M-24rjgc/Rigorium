@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ResearchPanelProvider, useResearchPanel } from '../../../contexts/ResearchPanelContext';
-import type { ResearchArtifact } from '../../../research/types';
+import type { ResearchArtifact, ResearchDirectionSeedArtifact } from '../../../research/types';
 import { ToolRenderer } from './ToolRenderer';
 
 const artifact: ResearchArtifact = {
@@ -46,6 +46,49 @@ const expansionArtifact: ResearchArtifact = {
     { direction: 'citations', status: 'unavailable', resultCount: 0, truncated: false },
   ],
   coverage: { status: 'failed', resultCount: 1, warnings: [] },
+  presentation: { autoOpen: true },
+};
+
+const directionArtifact: ResearchDirectionSeedArtifact = {
+  schemaVersion: 1,
+  kind: 'research_direction_seed',
+  artifactId: 'tool-renderer-direction-artifact',
+  createdAt: '2026-07-23T00:00:00.000Z',
+  input: {
+    cues: [{ id: 'interest', kind: 'interest', text: 'Reliable model evaluation' }],
+    candidates: [{
+      id: 'evaluation-under-shift',
+      summary: 'Evaluate calibration under distribution shift.',
+      cueIds: ['interest'],
+    }],
+  },
+  result: {
+    cues: [{ id: 'interest', kind: 'interest', text: 'Reliable model evaluation' }],
+    terminology: [],
+    constraints: [],
+    constraintCoverage: { status: 'not_provided', suppliedConstraintIds: [], unresolvedConstraintIds: [] },
+    candidateDirections: [{
+      id: 'evaluation-under-shift',
+      summary: 'Evaluate calibration under distribution shift.',
+      cueIds: ['interest'],
+      terminologyIds: [],
+      constraintIds: [],
+      hypotheses: [],
+      contributions: [],
+      provisionalTitle: {
+        status: 'proposed',
+        text: 'Provisional: Evaluating calibration under distribution shift',
+        origin: 'summary_fallback',
+        reasonCodes: ['provisional'],
+        confirmation: {
+          status: 'pending',
+          confirmed: false,
+          requiresExplicitUserAction: true,
+          projectNameUpdate: { status: 'not_ready', requiresExplicitUserAction: true },
+        },
+      },
+    }],
+  },
   presentation: { autoOpen: true },
 };
 
@@ -94,6 +137,26 @@ describe('ToolRenderer literature integration', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('research-state').textContent).toContain('open:tool-renderer-expansion-artifact:D:/project');
+    });
+  });
+
+  it('publishes a research direction seed without treating it as a paper selection', async () => {
+    render(
+      <ResearchPanelProvider>
+        <ToolRenderer
+          toolName="research_direction_seed"
+          toolInput={{ cues: ['Reliable model evaluation'] }}
+          toolResult={{ content: 'done', isError: false, toolUseResult: directionArtifact }}
+          toolId="call-research-direction"
+          mode="result"
+          selectedProject={{ name: 'project', displayName: 'Project', fullPath: 'D:/project' }}
+        />
+        <Probe />
+      </ResearchPanelProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('research-state').textContent).toContain('open:tool-renderer-direction-artifact:D:/project');
     });
   });
 

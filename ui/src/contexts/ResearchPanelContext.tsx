@@ -1,9 +1,9 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { isResearchArtifact, type ResearchArtifact } from '../research/types';
+import { isResearchArtifact, type ResearchPanelArtifact } from '../research/types';
 
 type ResearchPanelState = {
-  artifact: ResearchArtifact | null;
+  artifact: ResearchPanelArtifact | null;
   artifactProjectPath: string | null;
   isOpen: boolean;
   isExpanded: boolean;
@@ -11,7 +11,7 @@ type ResearchPanelState = {
 };
 
 type ResearchPanelContextValue = ResearchPanelState & {
-  ingestArtifact: (artifact: ResearchArtifact, projectPath?: string | null) => void;
+  ingestArtifact: (artifact: ResearchPanelArtifact, projectPath?: string | null) => void;
   openPanel: () => void;
   closePanel: () => void;
   setExpanded: (expanded: boolean) => void;
@@ -42,7 +42,7 @@ export function ResearchPanelProvider({ children }: { children: ReactNode }) {
     selectedPaperId: null,
   });
 
-  const ingestArtifact = useCallback((artifact: ResearchArtifact, projectPath?: string | null) => {
+  const ingestArtifact = useCallback((artifact: ResearchPanelArtifact, projectPath?: string | null) => {
     setState((current) => {
       if (current.artifact?.artifactId === artifact.artifactId) return current;
       return {
@@ -50,7 +50,7 @@ export function ResearchPanelProvider({ children }: { children: ReactNode }) {
         artifactProjectPath: projectPath || null,
         isOpen: artifact.presentation?.autoOpen !== false,
         isExpanded: false,
-        selectedPaperId: artifact.papers[0]?.id ?? null,
+        selectedPaperId: artifact.kind === 'research_direction_seed' ? null : artifact.papers[0]?.id ?? null,
       };
     });
   }, []);

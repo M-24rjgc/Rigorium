@@ -51,9 +51,11 @@ import {
   type ProjectLiteratureMapNodeStatus,
 } from './literatureMapApi';
 import type {
-  ResearchArtifact,
+  ResearchPanelArtifact,
+  LiteratureResearchArtifact,
   LiteratureSearchArtifact,
   LiteratureExpansionDirectionResult,
+  ResearchDirectionSeedArtifact,
   ResearchPaper,
   ResearchPaperProvenance,
   ResearchSettingsSnapshot,
@@ -75,7 +77,7 @@ import type {
 } from './types';
 
 type ResearchPanelProps = {
-  artifact: ResearchArtifact;
+  artifact: ResearchPanelArtifact;
   projectPath?: string;
 };
 
@@ -100,6 +102,16 @@ type ZoteroMapSyncNotice = {
 };
 
 export default function ResearchPanel({ artifact, projectPath }: ResearchPanelProps) {
+  if (artifact.kind === 'research_direction_seed') {
+    return <ResearchDirectionPanel artifact={artifact} />;
+  }
+  return <LiteratureResearchPanel artifact={artifact} projectPath={projectPath} />;
+}
+
+function LiteratureResearchPanel({ artifact, projectPath }: {
+  artifact: LiteratureResearchArtifact;
+  projectPath?: string;
+}) {
   const { t } = useTranslation();
   const { selectedPaperId, selectPaper } = useResearchPanel();
   const [view, setView] = useState<'map' | 'papers' | 'collection'>('map');
@@ -967,7 +979,7 @@ function CoverageSummary({
   artifact,
   sourceNameById,
 }: {
-  artifact: ResearchArtifact;
+  artifact: LiteratureResearchArtifact;
   sourceNameById: ReadonlyMap<string, string>;
 }) {
   const { t } = useTranslation();
@@ -2704,6 +2716,148 @@ function zoteroMapSyncNoMergeText(skipped: number, truncated: boolean): string {
   return messages.join(' ');
 }
 
+function ResearchDirectionPanel({ artifact }: { artifact: ResearchDirectionSeedArtifact }) {
+  const { t } = useTranslation();
+  const [selectedCandidateId, setSelectedCandidateId] = useState(
+    artifact.result.candidateDirections[0]?.id ?? null,
+  );
+  const candidate = artifact.result.candidateDirections.find((item) => item.id === selectedCandidateId)
+    ?? artifact.result.candidateDirections[0]
+    ?? null;
+
+  const insertCandidateDraft = () => {
+    if (!candidate) return;
+    const title = candidate.provisionalTitle.text ?? t('researchPanel.directionNoTitle', { defaultValue: 'No title proposed' });
+    const text = [
+      '[Research direction candidate]',
+      `Candidate: ${candidate.id}`,
+      `Summary: ${candidate.summary}`,
+      `Provisional title: ${title}`,
+      candidate.hypotheses.length > 0
+        ? `Hypotheses:\n${candidate.hypotheses.map((item) => `- ${item.statement}`).join('\n')}`
+        : null,
+      candidate.contributions.length > 0
+        ? `Contribution drafts:\n${candidate.contributions.map((item) => `- ${item.statement}`).join('\n')}`
+        : null,
+      candidate.constraintIds.length > 0 ? `Constraint IDs: ${candidate.constraintIds.join(', ')}` : null,
+      'Title confirmation: pending explicit user action',
+    ].filter((line): line is string => Boolean(line)).join('\n');
+    window.dispatchEvent(new CustomEvent(CHAT_DRAFT_INSERT_EVENT, {
+      detail: { text, source: 'research-direction' },
+    }));
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-neutral-50/70 dark:bg-neutral-950" data-testid="research-direction-panel">
+      <header className="shrink-0 border-b border-neutral-200 bg-white px-3 py-3 dark:border-neutral-800 dark:bg-neutral-950">
+        <p className="text-[13px] font-semibold text-neutral-900 dark:text-neutral-100">
+          {t('researchPanel.directionTitle', { defaultValue: 'Research direction candidates / 研究方向候选' })}
+        </p>
+        <p className="mt-1 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+          {t('researchPanel.directionSubtitle', { defaultValue: 'Traceable starting points from the current conversation. / 来自当前对话的可追溯起点。' })}
+        </p>
+      </header>
+
+      <section className="shrink-0 border-b border-neutral-200 px-3 py-3 dark:border-neutral-800" aria-labelledby="research-direction-cues">
+        <h2 id="research-direction-cues" className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+          {t('researchPanel.directionCues', { defaultValue: 'Starting cues / 起始线索' })}
+        </h2>
+        <ul className="mt-2 space-y-1.5">
+          {artifact.result.cues.map((cue) => (
+            <li key={cue.id} className="text-[11px] leading-4 text-neutral-700 dark:text-neutral-300">
+              <span className="font-medium text-neutral-500 dark:text-neutral-400">{cue.kind}</span>
+              <span className="mx-1 text-neutral-300 dark:text-neutral-700">/</span>
+              {cue.text}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="min-h-0 flex-1 px-3 py-3" aria-labelledby="research-direction-candidates">
+        <div className="flex items-center justify-between gap-2">
+          <h2 id="research-direction-candidates" className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+            {t('researchPanel.directionCandidates', { defaultValue: 'Candidates / 候选方向' })}
+          </h2>
+          <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{artifact.result.candidateDirections.length}</span>
+        </div>
+        <div className="mt-2 space-y-1.5" role="tablist" aria-label="Research direction candidates / 研究方向候选">
+          {artifact.result.candidateDirections.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={item.id === candidate?.id}
+              onClick={() => setSelectedCandidateId(item.id)}
+              className={cn(
+                'flex w-full items-start justify-between gap-2 border px-2.5 py-2 text-left text-[11px] transition',
+                item.id === candidate?.id
+                  ? 'border-neutral-900 bg-white text-neutral-900 dark:border-neutral-200 dark:bg-neutral-900 dark:text-neutral-100'
+                  : 'border-neutral-200 bg-transparent text-neutral-600 hover:bg-white dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-900',
+              )}
+            >
+              <span className="min-w-0">
+                <span className="block font-medium">{item.id}</span>
+                <span className="mt-0.5 block line-clamp-2 leading-4">{item.summary}</span>
+              </span>
+              <ChevronRight aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {candidate ? (
+        <section className="shrink-0 border-t border-neutral-200 bg-white px-3 py-3 dark:border-neutral-800 dark:bg-neutral-950" aria-labelledby="research-direction-detail">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h2 id="research-direction-detail" className="text-[12px] font-semibold text-neutral-900 dark:text-neutral-100">{candidate.id}</h2>
+              <p className="mt-1 text-[11px] leading-4 text-neutral-600 dark:text-neutral-300">{candidate.summary}</p>
+            </div>
+            <span className="shrink-0 text-[10px] text-amber-700 dark:text-amber-300">
+              {candidate.provisionalTitle.status === 'rejected'
+                ? t('researchPanel.directionTitleRejected', { defaultValue: 'Title needs revision' })
+                : t('researchPanel.directionTitlePending', { defaultValue: 'Provisional / 待确认' })}
+            </span>
+          </div>
+          <p className="mt-2 border-l-2 border-amber-300 pl-2 text-[11px] leading-4 text-neutral-700 dark:border-amber-700 dark:text-neutral-300">
+            {candidate.provisionalTitle.text ?? t('researchPanel.directionNoTitle', { defaultValue: 'No title proposed' })}
+          </p>
+          {candidate.hypotheses.length > 0 ? (
+            <div className="mt-3">
+              <h3 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+                {t('researchPanel.directionHypotheses', { defaultValue: 'Hypotheses / 假设' })}
+              </h3>
+              <ul className="mt-1 space-y-1 text-[11px] leading-4 text-neutral-700 dark:text-neutral-300">
+                {candidate.hypotheses.map((item) => <li key={item.id}>- {item.statement}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          {candidate.contributions.length > 0 ? (
+            <div className="mt-3">
+              <h3 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+                {t('researchPanel.directionContributions', { defaultValue: 'Contribution drafts / 贡献草案' })}
+              </h3>
+              <ul className="mt-1 space-y-1 text-[11px] leading-4 text-neutral-700 dark:text-neutral-300">
+                {candidate.contributions.map((item) => <li key={item.id}>- {item.statement}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={insertCandidateDraft}
+            className="mt-3 inline-flex h-8 items-center gap-1.5 border border-neutral-300 px-2.5 text-[11px] font-medium text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-900"
+          >
+            <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
+            {t('researchPanel.directionJoinConversation', { defaultValue: 'Add to conversation / 加入对话' })}
+          </button>
+          <p className="mt-2 text-[10px] leading-4 text-neutral-500 dark:text-neutral-500">
+            {t('researchPanel.directionConfirmationNote', { defaultValue: 'Project name changes remain unavailable until you explicitly confirm a title. / 项目名变更必须在你明确确认标题后进行。' })}
+          </p>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 function formatLiteratureChatReference(paper: ResearchPaper): string {
   const identity = paper.identity && typeof paper.identity === 'object' ? paper.identity : {};
   const identifiers = [
@@ -2738,7 +2892,7 @@ function safeExternalUrl(value: string | undefined): string | undefined {
 }
 
 function resolvedCoverageSourceIds(
-  artifact: ResearchArtifact,
+  artifact: LiteratureResearchArtifact,
   field: 'requestedSourceIds' | 'successfulSourceIds' | 'failedSourceIds',
 ): string[] {
   const reported = artifact.coverage[field];
@@ -2753,7 +2907,7 @@ function resolvedCoverageSourceIds(
   return uniqueSourceIds(artifact.sources.filter((source) => source.status === 'error').map((source) => source.id));
 }
 
-function resolvedUnappliedSourceIds(artifact: ResearchArtifact): string[] {
+function resolvedUnappliedSourceIds(artifact: LiteratureResearchArtifact): string[] {
   return uniqueSourceIds(artifact.sources
     .filter((source) => source.status === 'disabled')
     .map((source) => source.id));

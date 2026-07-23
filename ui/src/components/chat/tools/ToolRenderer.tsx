@@ -1,6 +1,6 @@
 import React, { memo, useMemo, useCallback, useEffect } from 'react';
 import { useResearchPanel } from '../../../contexts/ResearchPanelContext';
-import { isResearchArtifact, type ResearchArtifact } from '../../../research/types';
+import { isResearchArtifact, type ResearchPanelArtifact } from '../../../research/types';
 import type { Project } from '../../../types/app';
 import type { SubagentChildTool } from '../types/types';
 import { getCanonicalToolName, getToolConfig } from './configs/toolConfigs';
@@ -148,9 +148,10 @@ const ToolRendererInner: React.FC<ToolRendererProps> = ({
     }
   }, [mode, toolInput, toolResult]);
 
-  const researchArtifact = useMemo<ResearchArtifact | null>(() => {
-    const isLiteratureTool = ['literature_search', 'literature_expand'].includes(canonicalToolName.toLowerCase());
-    if (mode !== 'result' || !isLiteratureTool) return null;
+  const researchArtifact = useMemo<ResearchPanelArtifact | null>(() => {
+    const isResearchArtifactTool = ['literature_search', 'literature_expand', 'research_direction_seed']
+      .includes(canonicalToolName.toLowerCase());
+    if (mode !== 'result' || !isResearchArtifactTool) return null;
     const candidate = toolResult?.toolUseResult ?? parsedData?.toolUseResult ?? parsedData;
     return isResearchArtifact(candidate) ? candidate : null;
   }, [canonicalToolName, mode, parsedData, toolResult]);
