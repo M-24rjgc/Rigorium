@@ -17,6 +17,14 @@ import {
   createLiteratureExpandTool,
   type CreateLiteratureExpandToolOptions,
 } from "../builtin/literatureExpand.js";
+import {
+  createLiteratureDeepSearchTool,
+  type CreateLiteratureDeepSearchToolOptions,
+} from "../builtin/literatureDeepSearch.js";
+import {
+  createDirectionAssessTool,
+  type CreateDirectionAssessToolOptions,
+} from "../builtin/directionAssess.js";
 import { createSendAttachmentTool } from "../builtin/sendAttachment.js";
 import { createEnterPlanModeTool, createExitPlanModeTool } from "../builtin/planMode.js";
 import { createStructuredOutputTool } from "../builtin/structuredOutput.js";
@@ -92,6 +100,10 @@ export type CreateBuiltinRegistryOptions = {
   literatureSearch?: CreateLiteratureSearchToolOptions | false;
   /** Rigorium OpenAlex citation expansion. Registered by default. */
   literatureExpansion?: CreateLiteratureExpandToolOptions | false;
+  /** Rigorium bounded, agent-planned literature search sessions. Registered by default. */
+  literatureDeepSearch?: CreateLiteratureDeepSearchToolOptions | false;
+  /** Rigorium side-effect-free research direction assessment. Registered by default. */
+  directionAssessment?: CreateDirectionAssessToolOptions | false;
   /**
    * `enter_plan_mode` / `exit_plan_mode` builtins. Registered by default —
    * these lightweight skeleton tools let the model request a permission-mode
@@ -123,6 +135,12 @@ export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): T
   }
   if (options?.literatureExpansion !== false) {
     registry.register(createLiteratureExpandTool(options?.literatureExpansion));
+  }
+  if (options?.literatureDeepSearch !== false) {
+    registry.register(createLiteratureDeepSearchTool(options?.literatureDeepSearch));
+  }
+  if (options?.directionAssessment !== false) {
+    registry.register(createDirectionAssessTool(options?.directionAssessment));
   }
   if (options?.agent !== false) {
     const agentOpts = options?.agent === true || options?.agent === undefined ? undefined : options.agent;

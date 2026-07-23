@@ -484,7 +484,7 @@ function finiteInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : undefined;
 }
 
-function buildSearchQueryVariants(
+export function buildSearchQueryVariants(
   primaryQuery: string,
   alternatives: LiteratureSearchInput["queryVariants"],
   totalLimit: number,
@@ -639,7 +639,7 @@ function sanitizeTaxonomyLevelRecord(
   return { ...rest, ...(providerUrl ? { providerUrl } : {}) };
 }
 
-function normalizeVenueSet(value: LiteratureSearchInput["venueSet"]): SearchVenueSet | undefined {
+export function normalizeVenueSet(value: LiteratureSearchInput["venueSet"]): SearchVenueSet | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error("venueSet must be an object.");
   const id = venueSetId(value.id, "venueSet.id");

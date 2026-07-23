@@ -11,14 +11,20 @@ const unrelatedToolsDisabled = {
   planMode: false,
 } as const;
 
-test("builtin registry registers literature_expand by default and permits explicit disablement", () => {
+test("builtin registry registers literature deep search by default and permits explicit disablement", () => {
   const defaultRegistry = createBuiltinRegistry(unrelatedToolsDisabled);
   assert.equal(defaultRegistry.has("literature_expand"), true);
+  assert.equal(defaultRegistry.has("literature_deep_search"), true);
+  assert.equal(defaultRegistry.has("direction_assess"), true);
 
   const disabledRegistry = createBuiltinRegistry({
     ...unrelatedToolsDisabled,
     literatureExpansion: false,
+    literatureDeepSearch: false,
+    directionAssessment: false,
   });
   assert.equal(disabledRegistry.has("literature_expand"), false);
+  assert.equal(disabledRegistry.has("literature_deep_search"), false);
+  assert.equal(disabledRegistry.has("direction_assess"), false);
   assert.equal(disabledRegistry.has("literature_search"), true);
 });
