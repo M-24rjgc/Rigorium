@@ -29,6 +29,10 @@ import {
   createResearchDirectionSeedTool,
   type CreateResearchDirectionSeedToolOptions,
 } from "../builtin/directionSeed.js";
+import {
+  createResearchTitleConfirmationTool,
+  type CreateResearchTitleConfirmationToolOptions,
+} from "../builtin/titleConfirm.js";
 import { createSendAttachmentTool } from "../builtin/sendAttachment.js";
 import { createEnterPlanModeTool, createExitPlanModeTool } from "../builtin/planMode.js";
 import { createStructuredOutputTool } from "../builtin/structuredOutput.js";
@@ -110,6 +114,8 @@ export type CreateBuiltinRegistryOptions = {
   directionAssessment?: CreateDirectionAssessToolOptions | false;
   /** Rigorium cue-to-candidate research direction artifact. Registered by default. */
   researchDirectionSeed?: CreateResearchDirectionSeedToolOptions | false;
+  /** Rigorium explicit, side-effect-free title confirmation. Registered by default. */
+  researchTitleConfirmation?: CreateResearchTitleConfirmationToolOptions | false;
   /**
    * `enter_plan_mode` / `exit_plan_mode` builtins. Registered by default —
    * these lightweight skeleton tools let the model request a permission-mode
@@ -150,6 +156,9 @@ export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): T
   }
   if (options?.researchDirectionSeed !== false) {
     registry.register(createResearchDirectionSeedTool(options?.researchDirectionSeed));
+  }
+  if (options?.researchTitleConfirmation !== false) {
+    registry.register(createResearchTitleConfirmationTool(options?.researchTitleConfirmation));
   }
   if (options?.agent !== false) {
     const agentOpts = options?.agent === true || options?.agent === undefined ? undefined : options.agent;
