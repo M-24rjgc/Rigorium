@@ -429,7 +429,7 @@ function requireNodeStateInput(value: unknown): ProjectLiteratureMapNodeStateInp
     throw repositoryError("invalid_input", "A literature-map node state update is required.", { operation: "validate_input" });
   }
   const status = value.status;
-  if (status !== undefined && !isOneOf(status, ["candidate", "relevant", "core", "excluded"] as const)) {
+  if (status !== undefined && !isOneOf(status, ["candidate", "relevant", "core", "irrelevant", "excluded"] as const)) {
     throw repositoryError("invalid_input", "The requested literature-map node status is invalid.", { operation: "validate_input" });
   }
   let position: ProjectLiteratureMapNodeStateInput["position"];
@@ -829,7 +829,7 @@ function validateNode(value: unknown, location: string, path: string): Literatur
   const paper = validatePaper(node.paper, `${location}.paper`, path);
   if (paper.id !== id) invalidSchema(path, `${location}.paper.id must equal ${location}.id.`);
   expectStringArray(node.aliases, `${location}.aliases`, path, MAX_METADATA_ITEMS);
-  if (!isOneOf(node.status, ["candidate", "relevant", "core", "excluded"] as const)) {
+  if (!isOneOf(node.status, ["candidate", "relevant", "core", "irrelevant", "excluded"] as const)) {
     invalidSchema(path, `${location}.status is invalid.`);
   }
   expectBoolean(node.tombstone, `${location}.tombstone`, path);

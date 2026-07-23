@@ -102,6 +102,7 @@ import userRoutes from './routes/user.js';
 import pluginsRoutes from './routes/plugins.js';
 import messagesRoutes from './routes/messages.js';
 import researchRoutes from './routes/research.js';
+import literatureMapRoutes from './routes/literatureMap.js';
 import { closeMemoryServices, startMemoryScheduler, stopMemoryScheduler } from './services/memoryService.js';
 import { createNormalizedMessage } from './pilotdeck-message.js';
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
@@ -526,6 +527,9 @@ app.use('/api/sessions', authenticateToken, messagesRoutes);
 
 // Research settings, literature-library bridges, and explicit Zotero writes.
 app.use('/api/research', authenticateToken, researchRoutes);
+
+// Project-scoped live literature maps and immutable reviewed snapshots.
+app.use('/api/research/literature-map', authenticateToken, literatureMapRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);

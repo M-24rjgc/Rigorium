@@ -9,7 +9,7 @@ import type {
 } from "../types.js";
 
 export type LiteratureMapOrigin = "search" | "zotero" | "monitor";
-export type LiteratureMapNodeStatus = "candidate" | "relevant" | "core" | "excluded";
+export type LiteratureMapNodeStatus = "candidate" | "relevant" | "core" | "irrelevant" | "excluded";
 
 export type LiteratureMapPosition = {
   x: number;

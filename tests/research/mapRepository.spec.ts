@@ -15,6 +15,7 @@ import {
   getProjectLiteratureMapSnapshotPath,
   loadProjectLiteratureMapSnapshot,
   loadProjectLiveLiteratureMap,
+  setProjectLiveLiteratureMapNodeState,
   updateProjectLiveLiteratureMap,
 } from "../../src/research/literature/mapRepository.js";
 import type { ResearchPaper, ResearchRelationEdge } from "../../src/research/types.js";
@@ -259,6 +260,41 @@ test("successful writes leave a complete JSON document and no temporary result f
   assert.equal(parsed.map.revision, second.map.revision);
   assert.equal(parsed.map.nodes.length, 2);
   assert.equal((await readdir(paths.researchDir)).some((entry) => entry.includes(".tmp")), false);
+});
+
+test("persists irrelevant node status and rejects stale revisions without overwriting", async () => {
+  const root = await projectRoot("node-state");
+  const created = await updateProjectLiveLiteratureMap({
+    projectRoot: root,
+    mapId: "map-node-state",
+    update: { origin: "search", papers: [paper("paper-1")] },
+    now: firstTime,
+  });
+  const changed = await setProjectLiveLiteratureMapNodeState({
+    projectRoot: root,
+    mapId: "map-node-state",
+    paperId: "paper-1",
+    expectedRevision: created.map.revision,
+    state: { status: "irrelevant" },
+    now: secondTime,
+  });
+  assert.equal(changed.map.nodes[0].status, "irrelevant");
+  assert.equal(changed.map.revision, created.map.revision + 1);
+  const paths = getProjectLiteratureMapPaths({ projectRoot: root });
+  const beforeStale = await readFile(paths.liveMapPath, "utf8");
+
+  await expectRepositoryError(setProjectLiveLiteratureMapNodeState({
+    projectRoot: root,
+    mapId: "map-node-state",
+    paperId: "paper-1",
+    expectedRevision: created.map.revision,
+    state: { status: "core" },
+    now: secondTime,
+  }), "revision_conflict");
+
+  assert.equal(await readFile(paths.liveMapPath, "utf8"), beforeStale);
+  const reloaded = await loadProjectLiveLiteratureMap({ projectRoot: root });
+  assert.equal(reloaded?.map.nodes[0].status, "irrelevant");
 });
 
 function overLimitDocument(kind: "nodes" | "edges"): unknown {
