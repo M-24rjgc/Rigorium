@@ -429,16 +429,13 @@ test("literature_search preserves agent-selected query categories and rejects pr
 test("literature_search preserves a structured failed-source artifact", async () => {
   const fetchImpl: typeof fetch = async () => jsonResponse({ error: "rate limited" }, 429);
   const tool = createLiteratureSearchTool({ fetchImpl, arxivEndpoint: ARXIV_TEST_ENDPOINT, arxivMinimumIntervalMs: 1 });
-  // networkFetch deliberately unrefs retry timers; keep the test process alive
-  // while the 429 retry policy is exercised.
-  const keepAlive = setInterval(() => undefined, 50);
   const result = await tool.execute(
     { query: "rate limited research" },
     {
       cwd: join(tmpdir(), "rigorium-literature-project-failed"),
       env: { PILOT_HOME: join(tmpdir(), "rigorium-literature-home-failed") },
     } as any,
-  ).finally(() => clearInterval(keepAlive));
+  );
 
   assert.equal(result.data?.coverage.status, "failed");
   assert.equal(result.data?.papers.length, 0);
