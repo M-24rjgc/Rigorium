@@ -12,6 +12,8 @@ export * from "./literature/bridgeDetection.js";
 export * from "./literature/mapMaintenance.js";
 export * from "./literature/mapRefresh.js";
 export * from "./literature/mapRepository.js";
+export * from "./literature/maintenanceRepository.js";
+export * from "./literature/maintenance.js";
 export * from "./literature/searchSession.js";
 export * from "./literature/searchSemantics.js";
 export * from "./literature/terminology.js";

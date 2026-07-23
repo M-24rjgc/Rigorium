@@ -39,6 +39,62 @@ export type ProjectLiteratureMapMutationResult = {
   created?: boolean;
 };
 
+export type LiteratureMapMaintenanceTrigger = 'search' | 'zotero_changed' | 'new_papers' | 'natural_language' | 'manual';
+
+export type LiteratureMapMaintenanceSource = {
+  id: string;
+  papers?: ResearchPaper[];
+  edges?: ResearchRelationEdge[];
+  coverage?: string;
+  cost?: number;
+  error?: string;
+};
+
+export type LiteratureMapMaintenanceResult = {
+  maintenanceId: string;
+  trigger: LiteratureMapMaintenanceTrigger;
+  candidateReview: {
+    reviewRequired: boolean;
+    newCandidatePaperIds: string[];
+    pendingCandidatePaperIds: string[];
+    updatedExistingPaperIds: string[];
+    zoteroWritePerformed: false;
+    snapshotCreated: false;
+    destructiveMapChangePerformed: false;
+  };
+  safety: {
+    zoteroWritePerformed: false;
+    snapshotCreated: false;
+    destructiveMapChangePerformed: false;
+    pendingReviewRequired: boolean;
+  };
+  sources: Array<{
+    sourceId: string;
+    state: 'succeeded' | 'failed' | 'cancelled' | 'skipped';
+    coverage: string;
+    error?: string;
+    reason?: string;
+    paperCount?: number;
+    edgeCount?: number;
+  }>;
+  map: ProjectLiteratureMap | null;
+  diff: unknown | null;
+  audit: { path: string; persisted: boolean };
+  persisted?: boolean;
+  created?: boolean;
+};
+
+export type LiteratureMapMaintenanceAudit = {
+  maintenanceId: string;
+  trigger: LiteratureMapMaintenanceTrigger;
+  startedAt: string;
+  completedAt: string;
+  cancelled: boolean;
+  sourceAudits: Array<Record<string, unknown>>;
+  candidateReview: Record<string, unknown>;
+  errors: string[];
+};
+
 export async function loadProjectLiteratureMap(projectPath: string): Promise<ProjectLiteratureMapReadResult> {
   const params = new URLSearchParams({ projectPath: requireProjectPath(projectPath) });
   return requestJson<ProjectLiteratureMapReadResult>(`${LITERATURE_MAP_API}?${params}`);
@@ -98,6 +154,48 @@ export async function setProjectLiteratureMapSeed(
       seedPaperId: seedPaperId === null ? null : requireIdentifier(seedPaperId, 'seedPaperId'),
     }),
   });
+}
+
+export async function runProjectLiteratureMapMaintenance(
+  projectPath: string,
+  mapId: string,
+  trigger: LiteratureMapMaintenanceTrigger,
+  options: {
+    intent?: string;
+    query?: string;
+    sources?: LiteratureMapMaintenanceSource[];
+    zoteroCollectionKey?: string;
+    expectedRevision?: number;
+    maxConcurrency?: number;
+    budget?: { maxProviderCalls?: number; maxCost?: number };
+  } = {},
+): Promise<LiteratureMapMaintenanceResult> {
+  return requestJson<LiteratureMapMaintenanceResult>('/api/research/literature-map/maintenance', {
+    method: 'POST',
+    body: JSON.stringify({
+      projectPath: requireProjectPath(projectPath),
+      mapId: requireIdentifier(mapId, 'mapId'),
+      trigger,
+      ...(options.intent === undefined ? {} : { intent: options.intent }),
+      ...(options.query === undefined ? {} : { query: options.query }),
+      ...(options.sources === undefined ? {} : { sources: options.sources }),
+      ...(options.zoteroCollectionKey === undefined ? {} : { zoteroCollectionKey: options.zoteroCollectionKey }),
+      ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }),
+      ...(options.maxConcurrency === undefined ? {} : { maxConcurrency: options.maxConcurrency }),
+      ...(options.budget === undefined ? {} : { budget: options.budget }),
+    }),
+  });
+}
+
+export async function loadProjectLiteratureMapMaintenanceAudits(
+  projectPath: string,
+  limit?: number,
+): Promise<{ path: string; audits: LiteratureMapMaintenanceAudit[] }> {
+  const params = new URLSearchParams({ projectPath: requireProjectPath(projectPath) });
+  if (limit !== undefined) params.set('limit', String(limit));
+  return requestJson<{ path: string; audits: LiteratureMapMaintenanceAudit[] }>(
+    `/api/research/literature-map/maintenance/audit?${params}`,
+  );
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {

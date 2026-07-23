@@ -51,7 +51,9 @@ import {
   setProjectLiteratureMapSeed,
   updateProjectLiteratureMap,
   type ProjectLiteratureMapNodeStatus,
+  type LiteratureMapMaintenanceResult,
 } from './literatureMapApi';
+import LiteratureMaintenancePanel from './LiteratureMaintenancePanel';
 import type {
   ResearchPanelArtifact,
   LiteratureResearchArtifact,
@@ -707,7 +709,29 @@ function LiteratureResearchPanel({ artifact, projectPath }: {
         ) : null}
 
         {view === 'map' ? (
-          <div className="p-3">
+          <div>
+            <LiteratureMaintenancePanel
+              projectPath={projectPath}
+              mapId={PROJECT_LITERATURE_MAP_ID}
+              onCompleted={async (maintenance: LiteratureMapMaintenanceResult) => {
+                if (!projectPath || !maintenance.map) return;
+                mapPersistenceRef.current = {
+                  projectPath,
+                  mapId: maintenance.map.mapId,
+                  revision: maintenance.map.revision,
+                };
+                const states: Record<string, LiteratureMapPaperState[]> = {};
+                const positions: Record<string, LiteratureMapPoint> = {};
+                for (const node of maintenance.map.nodes) {
+                  const state = mapStatusToPaperState(node.status);
+                  if (state) states[node.id] = [state];
+                  if (node.position.pinned) positions[node.id] = { x: node.position.x, y: node.position.y };
+                }
+                setMapPaperStates(states);
+                setMapPinnedPositions(positions);
+              }}
+            />
+            <div className="p-3">
             {mapPersistenceError ? (
               <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] leading-4 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200" role="alert">
                 {mapPersistenceError}
@@ -736,6 +760,7 @@ function LiteratureResearchPanel({ artifact, projectPath }: {
                 });
               }}
             />
+            </div>
           </div>
         ) : view === 'papers' ? (
           <PaperList

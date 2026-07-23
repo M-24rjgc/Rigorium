@@ -30,6 +30,8 @@ const literatureMapApiMocks = vi.hoisted(() => ({
   updateProjectLiteratureMap: vi.fn(),
   setProjectLiteratureMapNodeState: vi.fn(),
   setProjectLiteratureMapSeed: vi.fn(),
+  runProjectLiteratureMapMaintenance: vi.fn(),
+  loadProjectLiteratureMapMaintenanceAudits: vi.fn(),
 }));
 
 vi.mock('./literatureMapApi', () => literatureMapApiMocks);
@@ -681,6 +683,33 @@ function installLiteratureMapMocks() {
     mapId: string,
     seedPaperId: string | null,
   ) => mapMutation(mapId, 1, seedPaperId));
+  literatureMapApiMocks.runProjectLiteratureMapMaintenance.mockResolvedValue({
+    maintenanceId: 'maintenance-test',
+    trigger: 'natural_language',
+    candidateReview: {
+      reviewRequired: false,
+      newCandidatePaperIds: [],
+      pendingCandidatePaperIds: [],
+      updatedExistingPaperIds: [],
+      zoteroWritePerformed: false,
+      snapshotCreated: false,
+      destructiveMapChangePerformed: false,
+    },
+    safety: {
+      zoteroWritePerformed: false,
+      snapshotCreated: false,
+      destructiveMapChangePerformed: false,
+      pendingReviewRequired: false,
+    },
+    sources: [],
+    map: null,
+    diff: null,
+    audit: { path: 'maintenance-audit.json', persisted: true },
+  });
+  literatureMapApiMocks.loadProjectLiteratureMapMaintenanceAudits.mockResolvedValue({
+    path: 'maintenance-audit.json',
+    audits: [],
+  });
 }
 
 describe('ResearchPanel', () => {
@@ -692,6 +721,8 @@ describe('ResearchPanel', () => {
     literatureMapApiMocks.updateProjectLiteratureMap.mockReset();
     literatureMapApiMocks.setProjectLiteratureMapNodeState.mockReset();
     literatureMapApiMocks.setProjectLiteratureMapSeed.mockReset();
+    literatureMapApiMocks.runProjectLiteratureMapMaintenance.mockReset();
+    literatureMapApiMocks.loadProjectLiteratureMapMaintenanceAudits.mockReset();
     installFetchMock();
     installLiteratureMapMocks();
     cloudPreview = vi.fn().mockImplementation(async (intent: ZoteroCloudWriteIntent) => ({

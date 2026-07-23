@@ -407,6 +407,57 @@ describe('project literature map routes', () => {
     expect(reloaded.body.map.revision).toBe(created.body.map.revision);
     expect(reloaded.body.map.nodes.map((node) => node.id)).toEqual(['W1']);
   });
+
+  it('runs candidate-only maintenance, records failed sources, and exposes the audit', async () => {
+    const projectPath = await projectRoot();
+    const { request } = await createLiteratureMapApp();
+    const result = await request('/api/research/literature-map/maintenance', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectPath,
+        mapId: 'project-maintenance-map',
+        trigger: 'new_papers',
+        intent: 'new papers for the project',
+        sources: [
+          { id: 'search', coverage: 'search result', papers: [paper] },
+          { id: 'crossref', coverage: 'DOI metadata', error: 'temporarily unavailable' },
+        ],
+      }),
+    });
+    expect(result.status, JSON.stringify(result.body)).toBe(201);
+    expect(result.body.safety).toMatchObject({
+      zoteroWritePerformed: false,
+      snapshotCreated: false,
+      destructiveMapChangePerformed: false,
+    });
+    expect(result.body.candidateReview.pendingCandidatePaperIds).toEqual(['W1']);
+    expect(result.body.sources.map((source) => source.state)).toEqual(['succeeded', 'failed']);
+    expect(result.body.sources[1].error).toMatch(/temporarily unavailable/);
+    expect(result.body.map.nodes[0].status).toBe('candidate');
+
+    const audit = await request(`/api/research/literature-map/maintenance/audit?projectPath=${encodeURIComponent(projectPath)}`);
+    expect(audit.status, JSON.stringify(audit.body)).toBe(200);
+    expect(audit.body.audits).toHaveLength(1);
+    expect(audit.body.audits[0].trigger).toBe('new_papers');
+    expect(audit.body.audits[0].sourceAudits[1].state).toBe('failed');
+  });
+
+  it('accepts a natural-language maintenance request without any Zotero write path', async () => {
+    const projectPath = await projectRoot();
+    const { request } = await createLiteratureMapApp();
+    const response = await request('/api/research/literature-map/maintenance', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectPath,
+        mapId: 'project-maintenance-query-map',
+        trigger: 'natural_language',
+        intent: 'bounded agent workflow',
+        sources: [{ id: 'agent-search', papers: [paper] }],
+      }),
+    });
+    expect(response.status).toBe(201);
+    expect(response.body.candidateReview.zoteroWritePerformed).toBe(false);
+  });
 });
 
 async function projectRoot() {

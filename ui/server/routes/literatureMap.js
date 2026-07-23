@@ -15,6 +15,15 @@ import {
 } from '../../../src/research/literature/mapRepository.ts';
 import { analyzeLiteratureMapBridges } from '../../../src/research/literature/bridgeDetection.ts';
 import { refreshProjectLiteratureMap } from '../../../src/research/literature/mapRefresh.ts';
+import {
+  createMaintenanceProviderFromPayload,
+  createZoteroMaintenanceProvider,
+  readProjectLiteratureMaintenanceAudits,
+  runProjectLiteratureMaintenance,
+} from '../../../src/research/literature/maintenance.ts';
+import { createZoteroLibraryProvider } from '../../../src/research/library/zoteroProvider.ts';
+import { readResearchSettings } from '../../../src/research/settings.ts';
+import { createLiteratureSearchTool } from '../../../src/tool/builtin/literatureSearch.ts';
 
 const router = express.Router();
 const MAP_SEED_STATE_FILE = 'literature-map-ui-state.json';
@@ -125,6 +134,102 @@ router.post('/refresh', async (req, res) => {
     return respondError(res, error);
   } finally {
     requestAbort.dispose();
+  }
+});
+
+/**
+ * Run candidate-only automatic maintenance and retain a source/failure audit.
+ * The endpoint has no Zotero write or snapshot operation in its input shape.
+ */
+router.post('/maintenance', async (req, res) => {
+  const requestAbort = requestAbortSignal(req, res);
+  try {
+    const request = requestedMaintenanceRequest(req.body);
+    const projectRoot = await validatedProjectRoot(request.projectPath);
+    const providers = request.sources.map((source) => createMaintenanceProviderFromPayload({
+      id: source.id,
+      coverage: source.coverage,
+      cost: source.cost,
+      error: source.error,
+      payload: {
+        ...(source.papers === undefined ? {} : { papers: source.papers }),
+        ...(source.edges === undefined ? {} : { edges: source.edges }),
+        ...(source.coverage === undefined ? {} : { coverage: source.coverage }),
+      },
+    }));
+    if (request.query) {
+      const searchTool = createLiteratureSearchTool();
+      const searchOutput = await searchTool.execute({ query: request.query }, {
+        sessionId: `literature-maintenance-${Date.now()}`,
+        turnId: `literature-maintenance-${Date.now()}`,
+        cwd: projectRoot,
+        permissionMode: 'default',
+        permissionContext: { cwd: projectRoot, mode: 'default', canPrompt: false, bypassAvailable: false, additionalWorkingDirectories: [], rules: { allow: [], deny: [], ask: [] } },
+        abortSignal: requestAbort.signal,
+        now: () => new Date(),
+        env: process.env,
+      });
+      const artifact = searchOutput.data;
+      if (!artifact || typeof artifact !== 'object' || artifact.kind !== 'literature_search') {
+        throw new LiteratureMapHttpError('invalid_input', 'The literature search did not return a usable artifact.', 502);
+      }
+      providers.unshift(createMaintenanceProviderFromPayload({
+        id: `search:${artifact.artifactId || Date.now()}`,
+        coverage: `Natural-language literature search returned ${Array.isArray(artifact.papers) ? artifact.papers.length : 0} candidates.`,
+        payload: { papers: artifact.papers || [], edges: artifact.edges || [] },
+      }));
+    }
+    if (request.trigger === 'zotero_changed' && providers.length === 0) {
+      const settings = await readResearchSettings({ projectRoot });
+      if (!settings.effective.zotero.enabled) {
+        throw new LiteratureMapHttpError('setup_required', 'Zotero is disabled in Research Settings.', 409);
+      }
+      const provider = createZoteroLibraryProvider({
+        baseUrl: settings.effective.zotero.baseUrl,
+      });
+      providers.push(createZoteroMaintenanceProvider({
+        provider,
+        collectionKey: request.zoteroCollectionKey || settings.effective.zotero.collectionKey || undefined,
+      }));
+    }
+    const result = await runProjectLiteratureMaintenance({
+      projectRoot,
+      mapId: request.mapId,
+      trigger: request.trigger,
+      providers,
+      ...(request.intent === undefined ? {} : { intent: request.intent }),
+      ...(request.expectedRevision === undefined ? {} : { expectedRevision: request.expectedRevision }),
+      ...(request.maxConcurrency === undefined ? {} : { maxConcurrency: request.maxConcurrency }),
+      ...(request.budget === undefined ? {} : { budget: request.budget }),
+      signal: requestAbort.signal,
+    });
+    if (req.aborted) return undefined;
+    const mapResult = result.refresh.map;
+    return res.status(mapResult?.created ? 201 : 200).json({
+      ...result,
+      sources: result.refresh.sources,
+      budget: result.refresh.budget,
+      map: mapResult?.map ?? null,
+      diff: mapResult?.diff ?? null,
+      created: mapResult?.created ?? false,
+      persisted: mapResult?.persisted ?? false,
+      bridgeAnalysis: result.refresh.bridgeAnalysis ?? null,
+    });
+  } catch (error) {
+    return respondError(res, error);
+  } finally {
+    requestAbort.dispose();
+  }
+});
+
+/** Read the append-only automatic-maintenance audit for a project. */
+router.get('/maintenance/audit', async (req, res) => {
+  try {
+    const projectRoot = await validatedProjectRoot(req.query.projectPath);
+    const limit = req.query.limit === undefined ? undefined : requestedAuditLimit(req.query.limit);
+    return res.json(await readProjectLiteratureMaintenanceAudits({ projectRoot, ...(limit === undefined ? {} : { limit }) }));
+  } catch (error) {
+    return respondError(res, error);
   }
 });
 
@@ -259,6 +364,85 @@ function requestedRefreshRequest(value) {
   };
 }
 
+function requestedMaintenanceRequest(value) {
+  if (!isRecord(value)) {
+    throw new LiteratureMapHttpError('invalid_input', 'A literature map maintenance request is required.');
+  }
+  assertOnlyKeys(value, [
+    'projectPath',
+    'mapId',
+    'trigger',
+    'intent',
+    'query',
+    'sources',
+    'zoteroCollectionKey',
+    'maxConcurrency',
+    'budget',
+    'expectedRevision',
+  ], 'maintenance request');
+  const triggers = ['search', 'zotero_changed', 'new_papers', 'natural_language', 'manual'];
+  if (!triggers.includes(value.trigger)) {
+    throw new LiteratureMapHttpError('invalid_input', 'trigger must be search, zotero_changed, new_papers, natural_language, or manual.');
+  }
+  const sources = value.sources === undefined ? [] : requestedMaintenanceSources(value.sources);
+  const query = value.query === undefined ? undefined : requestedRefreshCoverage(value.query, 'query');
+  if (sources.length === 0 && !query && value.trigger !== 'zotero_changed') {
+    throw new LiteratureMapHttpError('invalid_input', 'sources are required unless trigger is zotero_changed.');
+  }
+  const intent = value.intent === undefined ? undefined : requestedRefreshCoverage(value.intent, 'intent');
+  const zoteroCollectionKey = value.zoteroCollectionKey === undefined
+    ? undefined
+    : requiredIdentifier(value.zoteroCollectionKey, 'zoteroCollectionKey');
+  return {
+    projectPath: value.projectPath,
+    mapId: requiredIdentifier(value.mapId, 'mapId'),
+    trigger: value.trigger,
+    ...(intent === undefined ? {} : { intent }),
+    ...(query === undefined ? {} : { query }),
+    sources,
+    ...(zoteroCollectionKey === undefined ? {} : { zoteroCollectionKey }),
+    ...(value.maxConcurrency === undefined ? {} : { maxConcurrency: requestedRefreshConcurrency(value.maxConcurrency) }),
+    ...(value.budget === undefined ? {} : { budget: requestedRefreshBudget(value.budget) }),
+    ...(value.expectedRevision === undefined ? {} : { expectedRevision: requestedRevision(value.expectedRevision) }),
+  };
+}
+
+function requestedMaintenanceSources(value) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_REFRESH_SOURCES) {
+    throw new LiteratureMapHttpError('invalid_input', `sources must contain between 1 and ${MAX_REFRESH_SOURCES} entries.`);
+  }
+  const sourceIds = new Set();
+  return value.map((source, index) => {
+    const location = `sources[${index}]`;
+    if (!isRecord(source)) throw new LiteratureMapHttpError('invalid_input', `${location} must be an object.`);
+    assertOnlyKeys(source, ['id', 'papers', 'edges', 'coverage', 'cost', 'error'], location);
+    const id = requiredIdentifier(source.id, `${location}.id`);
+    if (sourceIds.has(id)) throw new LiteratureMapHttpError('invalid_input', `sources must not repeat source ID ${id}.`);
+    sourceIds.add(id);
+    const papers = source.papers === undefined ? undefined : requestedRefreshPapers(source.papers, `${location}.papers`);
+    const edges = source.edges === undefined ? undefined : requestedRefreshEdges(source.edges, `${location}.edges`);
+    const coverage = source.coverage === undefined ? undefined : requestedRefreshCoverage(source.coverage, `${location}.coverage`);
+    const cost = source.cost === undefined ? undefined : requestedRefreshCost(source.cost, `${location}.cost`);
+    const error = source.error === undefined ? undefined : requestedRefreshCoverage(source.error, `${location}.error`);
+    return {
+      id,
+      ...(papers === undefined ? {} : { papers }),
+      ...(edges === undefined ? {} : { edges }),
+      ...(coverage === undefined ? {} : { coverage }),
+      ...(cost === undefined ? {} : { cost }),
+      ...(error === undefined ? {} : { error }),
+    };
+  });
+}
+
+function requestedAuditLimit(value) {
+  const parsed = typeof value === 'string' && /^\d+$/u.test(value) ? Number(value) : NaN;
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 200) {
+    throw new LiteratureMapHttpError('invalid_input', 'limit must be an integer between 1 and 200.');
+  }
+  return parsed;
+}
+
 function requestedRefreshSources(value) {
   if (!Array.isArray(value) || value.length === 0 || value.length > MAX_REFRESH_SOURCES) {
     throw new LiteratureMapHttpError(
@@ -320,11 +504,14 @@ function refreshProviderForSource(source) {
     id: source.id,
     ...(source.coverage === undefined ? {} : { coverage: source.coverage }),
     ...(source.cost === undefined ? {} : { cost: source.cost }),
-    refresh: async () => ({
+    refresh: async () => {
+      if (source.error) throw new Error(source.error);
+      return ({
       ...(source.papers === undefined ? {} : { papers: source.papers }),
       ...(source.edges === undefined ? {} : { edges: source.edges }),
       ...(source.coverage === undefined ? {} : { coverage: source.coverage }),
-    }),
+      });
+    },
   };
 }
 

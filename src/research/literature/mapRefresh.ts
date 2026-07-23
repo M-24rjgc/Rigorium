@@ -1,4 +1,5 @@
 import type { ResearchPaper, ResearchRelationEdge } from "../types.js";
+import type { LiteratureMapOrigin } from "./mapMaintenance.js";
 import { analyzeLiteratureMapBridges } from "./bridgeDetection.js";
 import type { LiteratureBridgeAnalysis } from "./bridgeDetection.js";
 import { updateProjectLiveLiteratureMap } from "./mapRepository.js";
@@ -92,6 +93,8 @@ export type RefreshProjectLiteratureMapInput = Readonly<{
   signal?: AbortSignal;
   maxConcurrency?: number;
   budget?: LiteratureMapRefreshBudget;
+  /** Origin applied to the incremental map merge. Defaults to monitor. */
+  origin?: LiteratureMapOrigin;
   /** Injectable clock keeps provider audit timestamps deterministic in tests. */
   now?: () => Date;
 }>;
@@ -175,7 +178,7 @@ export async function refreshProjectLiteratureMap(
       projectRoot,
       mapId,
       update: {
-        origin: "monitor",
+        origin: input.origin ?? "monitor",
         papers: actionablePayloads.flatMap((payload) => payload.papers ?? []),
         edges: actionablePayloads.flatMap((payload) => payload.edges ?? []),
       },
@@ -308,7 +311,9 @@ function hasMapRecords(payload: LiteratureMapRefreshPayload): boolean {
 function candidateReviewFor(map: ProjectLiveLiteratureMapResult | undefined): LiteratureMapCandidateReview {
   const pendingCandidatePaperIds = map
     ? map.map.nodes
-      .filter((node) => !node.tombstone && node.status === "candidate" && node.origins.includes("monitor"))
+      .filter((node) => !node.tombstone
+        && node.status === "candidate"
+        && (node.origins.includes("monitor") || map.diff.nodes.added.includes(node.id)))
       .map((node) => node.id)
       .sort(compareText)
     : [];

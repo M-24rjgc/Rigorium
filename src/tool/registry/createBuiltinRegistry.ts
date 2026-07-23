@@ -22,6 +22,10 @@ import {
   type CreateLiteratureDeepSearchToolOptions,
 } from "../builtin/literatureDeepSearch.js";
 import {
+  createLiteratureMapMaintenanceTool,
+  type CreateLiteratureMapMaintenanceToolOptions,
+} from "../builtin/literatureMaintenance.js";
+import {
   createDirectionAssessTool,
   type CreateDirectionAssessToolOptions,
 } from "../builtin/directionAssess.js";
@@ -114,6 +118,8 @@ export type CreateBuiltinRegistryOptions = {
   literatureExpansion?: CreateLiteratureExpandToolOptions | false;
   /** Rigorium bounded, agent-planned literature search sessions. Registered by default. */
   literatureDeepSearch?: CreateLiteratureDeepSearchToolOptions | false;
+  /** Rigorium auditable, candidate-only live literature-map maintenance. */
+  literatureMapMaintenance?: CreateLiteratureMapMaintenanceToolOptions | false;
   /** Rigorium side-effect-free research direction assessment. Registered by default. */
   directionAssessment?: CreateDirectionAssessToolOptions | false;
   /** Rigorium cue-to-candidate research direction artifact. Registered by default. */
@@ -156,6 +162,9 @@ export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): T
   }
   if (options?.literatureDeepSearch !== false) {
     registry.register(createLiteratureDeepSearchTool(options?.literatureDeepSearch));
+  }
+  if (options?.literatureMapMaintenance !== false) {
+    registry.register(createLiteratureMapMaintenanceTool(options?.literatureMapMaintenance));
   }
   if (options?.directionAssessment !== false) {
     registry.register(createDirectionAssessTool(options?.directionAssessment));
