@@ -255,7 +255,7 @@ try {
     return bridge ? { present: true, methods: Object.keys(bridge).sort() } : { present: false, methods: [] };
   });
   assert.equal(libraryBridge.present, true, 'Packaged preload did not expose guarded Zotero library writes.');
-  assert.deepEqual(libraryBridge.methods, ['importPapers']);
+  assert.deepEqual(libraryBridge.methods, ['importPapers', 'openAttachment']);
 
   const credentialBridge = await page.evaluate(async () => {
     const bridge = window.rigoriumZoteroCredentials;
@@ -525,7 +525,7 @@ try {
       } : {}),
     })));
     const paper = {
-      id: 'verification-paper',
+      id: 'https://openalex.org/W-TERM-1',
       identity: { doi: '10.1000/verification', arxiv: '2401.12345', arxivVersion: 2 },
       title: 'Packaged research verification paper',
       authors: ['Rigorium Verification'],
@@ -557,7 +557,7 @@ try {
     };
     const secondPaper = {
       ...paper,
-      id: 'verification-paper-2',
+      id: 'https://openalex.org/W-TERM-2',
       identity: { doi: '10.1000/verification-second' },
       title: 'Second packaged terminology support paper',
       citedByCount: 0,
@@ -739,6 +739,8 @@ try {
       'GET /users/4242/items?format=versions&limit=1',
       'GET /keys/current',
       'GET /users/4242/items?format=versions&limit=1',
+      'GET /keys/current',
+      'GET /users/4242/items?format=versions&limit=1',
       'GET /users/4242/items/VERIFYITEM',
       'PATCH /users/4242/items/VERIFYITEM',
     ],
@@ -775,13 +777,13 @@ try {
   await referenceDirection.getByText(/Truncated|已截断/u).waitFor({ timeout: 30_000 });
   await citationDirection.getByText(/Truncated|已截断/u).waitFor({ timeout: 30_000 });
   await page.getByRole('button', { name: /Map|地图/u }).click();
-  await page.getByRole('img', { name: 'Literature relationship map' }).waitFor({ timeout: 30_000 });
+  await page.getByTestId('literature-map').waitFor({ timeout: 30_000 });
   assert.equal(
-    await page.getByTestId('research-graph-node-https://openalex.org/W900000001').getAttribute('data-seed'),
+    await page.getByTestId('literature-map-node-https://openalex.org/W900000001').getAttribute('data-seed'),
     'true',
     'The packaged citation expansion did not mark the resolved seed node.',
   );
-  const renderedExpansionEdges = await page.locator('svg[aria-label="Literature relationship map"] line[data-source][data-target]').evaluateAll((lines) => (
+  const renderedExpansionEdges = await page.locator('svg[aria-label^="Literature network"] line[data-source][data-target]').evaluateAll((lines) => (
     lines.map((line) => [line.getAttribute('data-source'), line.getAttribute('data-target')])
   ));
   assert.deepEqual(
@@ -789,6 +791,7 @@ try {
     [
       ['https://openalex.org/W900000001', 'https://openalex.org/W900000002'],
       ['https://openalex.org/W900000004', 'https://openalex.org/W900000001'],
+      ['https://openalex.org/W900000002', 'https://openalex.org/W900000004'],
     ],
     'The packaged research panel did not render the compiled citation edge directions.',
   );
