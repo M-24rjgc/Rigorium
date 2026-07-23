@@ -1,6 +1,7 @@
 import path from "node:path";
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { toNativeFileSystemPath, toProtocolPath } from "../../../model/protocol/path.js";
 import type { PilotDeckToolRuntimeContext } from "../../protocol/types.js";
 import type { PilotDeckToolError } from "../../protocol/errors.js";
 import { toolError } from "../../protocol/errors.js";
@@ -23,17 +24,25 @@ export function resolvePilotDeckWorkspacePath(
     };
   }
 
-  const absolutePath = path.resolve(path.isAbsolute(inputPath) ? inputPath : path.join(context.cwd, inputPath));
+  const nativeInputPath = toNativeFileSystemPath(inputPath);
+  const absolutePath = path.resolve(
+    path.isAbsolute(nativeInputPath) ? nativeInputPath : path.join(context.cwd, nativeInputPath),
+  );
 
   if (context.permissionMode === "bypassPermissions") {
-    const relativePath = path.relative(context.cwd, absolutePath) || ".";
-    if (options?.forWrite && isWriteDenied(relativePath)) {
+    const nativeRelativePath = path.relative(context.cwd, absolutePath) || ".";
+    if (options?.forWrite && isWriteDenied(nativeRelativePath)) {
       return {
         ok: false,
-        error: toolError("path_not_allowed", `Writing to ${relativePath} is not allowed by default.`),
+        error: toolError("path_not_allowed", "Writing to " + toProtocolPath(nativeRelativePath) + " is not allowed by default."),
       };
     }
-    return { ok: true, absolutePath, relativePath, root: context.cwd };
+    return {
+      ok: true,
+      absolutePath,
+      relativePath: toProtocolPath(nativeRelativePath),
+      root: context.cwd,
+    };
   }
 
   const roots = [context.cwd, ...context.permissionContext.additionalWorkingDirectories].map((root) =>
@@ -55,20 +64,30 @@ export function resolvePilotDeckWorkspacePath(
         return real === allowedReal;
       });
       if (allowed || isManagedImAttachmentFile(real, context)) {
-        const relativePath = path.relative(context.cwd, absolutePath) || ".";
-        return { ok: true, absolutePath, relativePath, root: context.cwd };
+        const nativeRelativePath = path.relative(context.cwd, absolutePath) || ".";
+        return {
+          ok: true,
+          absolutePath,
+          relativePath: toProtocolPath(nativeRelativePath),
+          root: context.cwd,
+        };
       }
     }
 
     if (options?.allowOutsideWorkspace) {
-      const relativePath = path.relative(context.cwd, absolutePath) || ".";
-      if (options?.forWrite && isWriteDenied(relativePath)) {
+      const nativeRelativePath = path.relative(context.cwd, absolutePath) || ".";
+      if (options?.forWrite && isWriteDenied(nativeRelativePath)) {
         return {
           ok: false,
-          error: toolError("path_not_allowed", `Writing to ${relativePath} is not allowed by default.`),
+          error: toolError("path_not_allowed", "Writing to " + toProtocolPath(nativeRelativePath) + " is not allowed by default."),
         };
       }
-      return { ok: true, absolutePath, relativePath, root: context.cwd };
+      return {
+        ok: true,
+        absolutePath,
+        relativePath: toProtocolPath(nativeRelativePath),
+        root: context.cwd,
+      };
     }
 
     return {
@@ -77,11 +96,11 @@ export function resolvePilotDeckWorkspacePath(
     };
   }
 
-  const relativePath = path.relative(root, absolutePath) || ".";
-  if (options?.forWrite && isWriteDenied(relativePath)) {
+  const nativeRelativePath = path.relative(root, absolutePath) || ".";
+  if (options?.forWrite && isWriteDenied(nativeRelativePath)) {
     return {
       ok: false,
-      error: toolError("path_not_allowed", `Writing to ${relativePath} is not allowed by default.`),
+      error: toolError("path_not_allowed", "Writing to " + toProtocolPath(nativeRelativePath) + " is not allowed by default."),
     };
   }
 
@@ -103,11 +122,16 @@ export function resolvePilotDeckWorkspacePath(
     }
   }
 
-  return { ok: true, absolutePath, relativePath, root };
+  return {
+    ok: true,
+    absolutePath,
+    relativePath: toProtocolPath(nativeRelativePath),
+    root,
+  };
 }
 
 export function toWorkspaceRelativePath(absolutePath: string, root: string): string {
-  return path.relative(root, absolutePath) || ".";
+  return toProtocolPath(path.relative(root, absolutePath) || ".");
 }
 
 export function isPathWithinRoot(candidate: string, root: string): boolean {
@@ -116,7 +140,7 @@ export function isPathWithinRoot(candidate: string, root: string): boolean {
 }
 
 function isWriteDenied(relativePath: string): boolean {
-  const firstPart = relativePath.split(path.sep)[0];
+  const firstPart = relativePath.split(/[\\/]/u)[0];
   return firstPart !== undefined && DEFAULT_WRITE_DENY_DIRECTORIES.has(firstPart);
 }
 

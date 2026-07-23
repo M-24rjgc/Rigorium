@@ -1,21 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, relative, win32 } from "node:path";
 import { tmpdir } from "node:os";
 
 import { ToolResultBudget } from "../../src/context/budget/ToolResultBudget.js";
 import { createAgentProjectSessionStorage } from "../../src/session/storage/ProjectSessionStorage.js";
 import { createReadFileTool } from "../../src/tool/builtin/readFile.js";
+import { resolvePilotDeckWorkspacePath } from "../../src/tool/builtin/filesystem/pathSafety.js";
 
-function context(cwd: string) {
+function context(
+  cwd: string,
+  permissionMode: "default" | "bypassPermissions" = "bypassPermissions",
+) {
   return {
     sessionId: "s1",
     turnId: "t1",
     cwd,
-    permissionMode: "bypassPermissions" as const,
+    permissionMode,
     permissionContext: {
-      mode: "bypassPermissions" as const,
+      mode: permissionMode,
       cwd,
       additionalWorkingDirectories: [],
       canPrompt: true,
@@ -56,16 +60,56 @@ test("large tool results are persisted under workspace .pilotdeck and readable b
     const ref = message.content.find((block) => block.type === "tool_result_reference");
     assert.ok(ref, "expected a persisted tool_result_reference");
     assert.match(relative(projectRoot, ref.path), /^\.pilotdeck[\/\\]tool-results[\/\\]/);
+    assert.equal(ref.path.includes(String.fromCharCode(92)), false, "protocol paths use forward slashes");
     assert.equal(ref.readFilePath, ".pilotdeck/tool-results/refs/result-0001.txt");
+    assert.equal(ref.readFilePath.includes(String.fromCharCode(92)), false, "read_file aliases use forward slashes");
     assert.equal(await readFile(join(projectRoot, ref.readFilePath), "utf8"), `alpha\n${"x".repeat(200)}\nomega`);
 
     const read = await createReadFileTool().execute({ file_path: ref.readFilePath, offset: 1, limit: 2 }, context(projectRoot));
     const text = read.content[0]?.type === "text" ? read.content[0].text : "";
     assert.match(text, /alpha/);
     assert.match(text, /2\|x+/);
+
+    const backslashInput = ref.readFilePath.split("/").join(win32.sep);
+    const readWithBackslashes = await createReadFileTool().execute(
+      { file_path: backslashInput, offset: 1, limit: 2 },
+      context(projectRoot),
+    );
+    const backslashText = readWithBackslashes.content[0]?.type === "text" ? readWithBackslashes.content[0].text : "";
+    assert.match(backslashText, /alpha/);
+    assert.match(backslashText, /2\|x+/);
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
     await rm(pilotHome, { recursive: true, force: true });
+  }
+});
+
+test("workspace paths accept both separator styles, emit protocol paths, and reject escapes", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-path-boundary-"));
+  try {
+    const secureContext = context(projectRoot, "default");
+    const forward = resolvePilotDeckWorkspacePath("nested/file.txt", secureContext);
+    const backslash = resolvePilotDeckWorkspacePath(
+      ["nested", "file.txt"].join(win32.sep),
+      secureContext,
+    );
+    const escaped = resolvePilotDeckWorkspacePath(
+      ["..", "outside.txt"].join(win32.sep),
+      secureContext,
+    );
+
+    assert.ok(forward.ok);
+    assert.ok(backslash.ok);
+    assert.equal(forward.absolutePath, join(projectRoot, "nested", "file.txt"));
+    assert.equal(backslash.absolutePath, join(projectRoot, "nested", "file.txt"));
+    assert.equal(forward.relativePath, "nested/file.txt");
+    assert.equal(backslash.relativePath, "nested/file.txt");
+    assert.equal(escaped.ok, false);
+    if (!escaped.ok) {
+      assert.equal(escaped.error.code, "path_not_allowed");
+    }
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
   }
 });
 

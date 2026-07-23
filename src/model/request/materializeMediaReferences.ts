@@ -5,6 +5,7 @@ import type {
   CanonicalMessage,
 } from "../protocol/canonical.js";
 import { cloneMessages, messageContent } from "../protocol/clone.js";
+import { toNativeFileSystemPath } from "../protocol/path.js";
 
 export type MediaReferenceMaterializationDiagnostic = {
   code:
@@ -48,7 +49,7 @@ async function materializeBlock(
   }
 
   try {
-    const data = await readFile(block.path, "utf8");
+    const data = await readFile(toNativeFileSystemPath(block.path), "utf8");
     const materialized = toMediaBlock(block, data);
     if (!materialized) {
       diagnostics.push({

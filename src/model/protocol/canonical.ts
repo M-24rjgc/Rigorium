@@ -84,9 +84,12 @@ export type CanonicalToolResultReferenceBlock = {
   toolCallId: string;
   /** Mirrors CanonicalToolResultBlock.isError when a large error result is persisted. */
   isError?: boolean;
-  /** Absolute path to the persisted file. */
+  /**
+   * Absolute persisted-file path in protocol form. Separators are always `/`;
+   * convert it through the path API before filesystem access.
+   */
   path: string;
-  /** Workspace-relative path that can be read with read_file when available. */
+  /** Workspace-relative read_file path in protocol form (always `/`). */
   readFilePath?: string;
   /** Original size in bytes / characters of the full result. */
   originalBytes: number;
@@ -104,7 +107,10 @@ export type CanonicalMediaReferenceBlock = {
   type: "media_reference";
   /** Originating tool call when known. Older transcripts may omit this. */
   toolCallId?: string;
-  /** Absolute path to the persisted media body. */
+  /**
+   * Absolute persisted-media path in protocol form. Separators are always `/`;
+   * convert it through the path API before filesystem access.
+   */
   path: string;
   /** Original binary size when known, otherwise persisted payload bytes. */
   originalBytes: number;

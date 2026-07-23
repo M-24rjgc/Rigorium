@@ -1,6 +1,7 @@
 import { mkdir, writeFile, access, copyFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { basename, dirname, extname, relative, resolve } from "node:path";
+import { toProtocolPath } from "../../model/protocol/path.js";
 import type {
   CanonicalContentBlock,
   CanonicalMessage,
@@ -195,21 +196,21 @@ export class ToolResultBudget {
 
     const isJson = looksLikeJson(flat);
     const ext = isJson ? "json" : "txt";
-    const path = resolve(this.toolResultsDir, `${replacementKey}.${ext}`);
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    const fileSystemPath = resolve(this.toolResultsDir, `${replacementKey}.${ext}`);
+    await mkdir(dirname(fileSystemPath), { recursive: true, mode: 0o700 });
     try {
-      await access(path);
+      await access(fileSystemPath);
       // already exists — do not overwrite (legacy 'wx' flag); reuse existing record.
     } catch {
-      await writeFile(path, flat, { flag: "wx", mode: 0o600, encoding: "utf8" });
+      await writeFile(fileSystemPath, flat, { flag: "wx", mode: 0o600, encoding: "utf8" });
     }
-    const readFilePath = await this.createReadFileAlias(path, ext);
+    const readFilePath = await this.createReadFileAlias(fileSystemPath, ext);
 
     const preview = headTailPreview(flat, this.previewBytes);
     const record: ToolResultReplacementRecord = {
       toolCallId: block.toolCallId,
       isError: block.isError,
-      path,
+      path: toProtocolPath(fileSystemPath),
       readFilePath,
       originalBytes: byteLength,
       preview,
@@ -253,7 +254,7 @@ export class ToolResultBudget {
       const aliasPath = resolve(refsDir, `result-${String(index).padStart(4, "0")}.${normalizedExt || "txt"}`);
       try {
         await copyFile(sourcePath, aliasPath, fsConstants.COPYFILE_EXCL);
-        return relative(workspaceRoot, aliasPath);
+        return toProtocolPath(relative(workspaceRoot, aliasPath));
       } catch (error) {
         if (isFileExistsError(error)) {
           continue;
@@ -296,18 +297,18 @@ export class ToolResultBudget {
     const mimeType = block.mimeType;
     const ext = extensionForMedia(mediaType, mimeType);
     const id = `${scopedToolResultKey(toolCallId, options.turnId)}-${mediaType}-${index}-${hashString(block.data).slice(0, 12)}`;
-    const path = resolve(this.toolResultsDir, `${id}.${ext}`);
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    const fileSystemPath = resolve(this.toolResultsDir, `${id}.${ext}`);
+    await mkdir(dirname(fileSystemPath), { recursive: true, mode: 0o700 });
     try {
-      await access(path);
+      await access(fileSystemPath);
     } catch {
-      await writeFile(path, block.data, { flag: "wx", mode: 0o600, encoding: "utf8" });
+      await writeFile(fileSystemPath, block.data, { flag: "wx", mode: 0o600, encoding: "utf8" });
     }
 
     const record: MediaReplacementRecord = {
       id,
       toolCallId,
-      path,
+      path: toProtocolPath(fileSystemPath),
       originalBytes,
       preview: mediaPreview(mediaType, mimeType, originalBytes, block),
       mimeType,

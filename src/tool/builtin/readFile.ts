@@ -4,6 +4,7 @@ import type { PilotDeckToolDefinition } from "../protocol/types.js";
 import type { PermissionResult, PermissionRule } from "../../permission/index.js";
 import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
 import { applyResultSizeLimit } from "../protocol/result.js";
+import { toNativeFileSystemPath } from "../../model/protocol/path.js";
 import { resolvePilotDeckWorkspacePath } from "./filesystem/pathSafety.js";
 import { readFileInRange } from "./filesystem/readFileInRange.js";
 import {
@@ -132,8 +133,9 @@ export function createReadFileTool(): PilotDeckToolDefinition<ReadFileInput> {
         }
       }
 
+      const nativeInputPath = toNativeFileSystemPath(input.file_path);
       const absolutePath = path.resolve(
-        path.isAbsolute(input.file_path) ? input.file_path : path.join(context.cwd, input.file_path),
+        path.isAbsolute(nativeInputPath) ? nativeInputPath : path.join(context.cwd, nativeInputPath),
       );
       if (isBlockedDevicePath(absolutePath)) {
         return {
