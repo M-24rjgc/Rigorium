@@ -160,6 +160,65 @@ describe('research routes', () => {
     });
   });
 
+  it('passes a Zotero item page offset through the read-only provider', async () => {
+    const provider = localProvider({
+      listItems: vi.fn().mockResolvedValue({
+        items: [{ key: 'ITEM101', title: 'Paged evidence' }],
+        total: 151,
+        start: 100,
+        nextStart: 125,
+        truncated: true,
+      }),
+    });
+    mocks.createZoteroLibraryProvider.mockReturnValue(provider);
+    const { request } = await createResearchApp();
+
+    const response = await request('/api/research/zotero/items?collectionKey=COLL1&limit=25&start=100');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      provider: 'zotero',
+      available: true,
+      collectionKey: 'COLL1',
+      total: 151,
+      start: 100,
+      nextStart: 125,
+      truncated: true,
+    });
+    expect(provider.listItems).toHaveBeenCalledWith({
+      collectionKey: 'COLL1',
+      query: undefined,
+      limit: 25,
+      start: 100,
+    });
+  });
+
+  it('keeps a requested item page traceable when Zotero is unavailable and rejects invalid offsets', async () => {
+    const provider = localProvider({
+      listItems: vi.fn().mockRejectedValue(new Error('Zotero Local API is offline.')),
+    });
+    mocks.createZoteroLibraryProvider.mockReturnValue(provider);
+    const { request } = await createResearchApp();
+
+    const unavailable = await request('/api/research/zotero/items?collectionKey=COLL1&start=100');
+    expect(unavailable.status).toBe(200);
+    expect(unavailable.body).toEqual({
+      provider: 'zotero',
+      available: false,
+      error: 'Zotero Local API is offline.',
+      collectionKey: 'COLL1',
+      items: [],
+      total: 0,
+      start: 100,
+      truncated: false,
+    });
+
+    const invalid = await request('/api/research/zotero/items?start=-1');
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error).toBe('Zotero item pagination start must be a non-negative integer.');
+    expect(provider.listItems).toHaveBeenCalledTimes(1);
+  });
+
   it('previews cloud writes but rejects an unconfirmed cloud execution', async () => {
     const plan = { planId: 'plan-1', requiresConfirmation: true };
     const provider = cloudProvider({ createWritePlan: vi.fn().mockResolvedValue(plan) });

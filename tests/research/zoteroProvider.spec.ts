@@ -142,6 +142,67 @@ test("Zotero lists collections and top-level items through Web API v3", async ()
   assert.ok(calls.every((call) => call.headers.get("Zotero-API-Version") === "3"));
 });
 
+test("Zotero pages top-level item reads with a read-only continuation", async () => {
+  const calls: Array<{ url: string; method?: string }> = [];
+  const itemAt = (index: number) => ({
+    key: `ITEM${index}`,
+    data: {
+      key: `ITEM${index}`,
+      itemType: "journalArticle",
+      title: `Research item ${index}`,
+    },
+  });
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    calls.push({ url, method: init?.method });
+    if (url.includes("start=100")) {
+      return new Response(JSON.stringify(Array.from({ length: 25 }, (_, index) => itemAt(index + 100))), {
+        headers: { "Total-Results": "132", "Content-Type": "application/json" },
+      });
+    }
+    if (url.includes("start=125")) {
+      return new Response(JSON.stringify(Array.from({ length: 7 }, (_, index) => itemAt(index + 125))), {
+        headers: { "Total-Results": "132", "Content-Type": "application/json" },
+      });
+    }
+    return new Response("missing", { status: 404 });
+  };
+  const provider = createZoteroLibraryProvider({ fetchImpl });
+
+  const firstPage = await provider.listItems({ collectionKey: "COLL1234", limit: 25, start: 100 });
+  const lastPage = await provider.listItems({
+    collectionKey: "COLL1234",
+    limit: 25,
+    start: firstPage.nextStart,
+  });
+
+  assert.equal(firstPage.start, 100);
+  assert.equal(firstPage.nextStart, 125);
+  assert.equal(firstPage.truncated, true);
+  assert.equal(lastPage.start, 125);
+  assert.equal(lastPage.nextStart, undefined);
+  assert.equal(lastPage.truncated, false);
+  assert.equal(lastPage.items.length, 7);
+  assert.ok(calls.every((call) => call.method === undefined || call.method === "GET"));
+  assert.ok(calls.every((call) => call.url.includes("/items/top?")));
+});
+
+test("Zotero rejects invalid item pagination starts before calling the Local API", async () => {
+  let calls = 0;
+  const provider = createZoteroLibraryProvider({
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response("unexpected");
+    },
+  });
+
+  await assert.rejects(
+    provider.listItems({ start: -1 }),
+    /Zotero item pagination start must be a non-negative integer/,
+  );
+  assert.equal(calls, 0);
+});
+
 test("Zotero matches papers by identifiers and reports collection membership", async () => {
   const fetchImpl: typeof fetch = async (input) => {
     const url = String(input);

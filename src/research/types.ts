@@ -712,12 +712,18 @@ export type ZoteroListItemsInput = {
   collectionKey?: string;
   query?: string;
   limit?: number;
+  /** Zero-based position of the first matching top-level item to return. */
+  start?: number;
 };
 
 export type ZoteroItemsResult = {
   collection?: ZoteroCollectionTarget;
   items: ZoteroLibraryItem[];
   total: number;
+  /** The zero-based position used for this page. */
+  start: number;
+  /** The zero-based position for the next page, when another page may exist. */
+  nextStart?: number;
   truncated: boolean;
   query?: string;
 };

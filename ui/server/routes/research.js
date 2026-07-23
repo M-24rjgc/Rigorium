@@ -170,11 +170,12 @@ router.get('/zotero/items', async (req, res) => {
     const collectionKey = requestCollectionKey(req.query.collectionKey) || configuredCollectionKey(context.settings);
     const query = queryString(req.query.q);
     const limit = positiveInteger(req.query.limit, 50, 100);
+    const start = requestZoteroItemStart(req.query.start);
     if (!context.enabled) {
-      return res.json(disabledZoteroPayload({ collectionKey, items: [], total: 0, truncated: false }));
+      return res.json(disabledZoteroPayload({ collectionKey, items: [], total: 0, start, truncated: false }));
     }
     try {
-      const result = await context.provider.listItems({ collectionKey, query, limit });
+      const result = await context.provider.listItems({ collectionKey, query, limit, start });
       return res.json({
         provider: 'zotero',
         available: true,
@@ -185,7 +186,13 @@ router.get('/zotero/items', async (req, res) => {
         ...result,
       });
     } catch (error) {
-      return res.json(unavailableZoteroPayload(error, { collectionKey, items: [], total: 0, truncated: false }));
+      return res.json(unavailableZoteroPayload(error, {
+        collectionKey,
+        items: [],
+        total: 0,
+        start,
+        truncated: false,
+      }));
     }
   } catch (error) {
     respondError(res, error);
@@ -463,6 +470,17 @@ function requestCitationStyle(value, fallback) {
 function positiveInteger(value, fallback, max) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.min(max, Math.max(1, Math.round(parsed))) : fallback;
+}
+
+function requestZoteroItemStart(value) {
+  if (value === undefined || value === null || value === '') return 0;
+  const parsed = typeof value === 'string' || typeof value === 'number' ? Number(value) : Number.NaN;
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    const error = new Error('Zotero item pagination start must be a non-negative integer.');
+    error.statusCode = 400;
+    throw error;
+  }
+  return parsed;
 }
 
 function nonNegativeInteger(value) {

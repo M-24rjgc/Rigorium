@@ -172,7 +172,12 @@ export function createZoteroLibraryProvider(
       const collectionKey = normalizeCollectionKey(input.collectionKey);
       const queryText = normalizedQuery(input.query);
       const limit = normalizedLimit(input.limit);
-      const query = new URLSearchParams({ format: "json", limit: String(limit) });
+      const start = normalizedStart(input.start);
+      const query = new URLSearchParams({
+        format: "json",
+        limit: String(limit),
+        start: String(start),
+      });
       if (queryText) {
         query.set("q", queryText);
         query.set("qmode", "titleCreatorYear");
@@ -185,11 +190,16 @@ export function createZoteroLibraryProvider(
       const items = rawItems
         .map(normalizeZoteroItem)
         .filter((item): item is ZoteroLibraryItem => item !== undefined);
+      const nextStart = hasNextPage(page.total, start, rawItems.length, limit)
+        ? start + rawItems.length
+        : undefined;
       return {
         ...(collectionKey ? { collection: { key: collectionKey, name: collectionKey } } : {}),
         items,
         total: page.total ?? items.length,
-        truncated: page.total !== undefined ? page.total > rawItems.length : rawItems.length >= limit,
+        start,
+        ...(nextStart !== undefined ? { nextStart } : {}),
+        truncated: nextStart !== undefined,
         ...(queryText ? { query: queryText } : {}),
       };
     },
@@ -857,6 +867,24 @@ function normalizedLimit(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.min(MAX_ITEM_LIMIT, Math.max(1, Math.round(value)))
     : 50;
+}
+
+function normalizedStart(value: unknown): number {
+  if (value === undefined) return 0;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new ZoteroInputError("Zotero item pagination start must be a non-negative integer.");
+  }
+  return value;
+}
+
+function hasNextPage(
+  total: number | undefined,
+  start: number,
+  returned: number,
+  limit: number,
+): boolean {
+  if (returned === 0) return false;
+  return total !== undefined ? start + returned < total : returned >= limit;
 }
 
 function normalizeCollectionKey(value: unknown): string | undefined {
