@@ -491,7 +491,7 @@ const unmatchedMatches: ZoteroPaperMatch[] = artifact.papers.map((paper) => ({
 
 function installFetchMock(
   matches: ZoteroPaperMatch[] = unmatchedMatches,
-  options: { settings?: ResearchSettings; unavailableError?: string } = {},
+  options: { settings?: ResearchSettings; unavailableError?: string; collectionResponse?: unknown } = {},
 ) {
   const effectiveSettings = options.settings ?? researchSettings;
   vi.mocked(authenticatedFetch).mockImplementation(async (input) => {
@@ -518,6 +518,7 @@ function installFetchMock(
       if (options.unavailableError) {
         return jsonResponse({ provider: 'zotero', available: false, error: options.unavailableError, items: [], total: 0, truncated: false });
       }
+      if (options.collectionResponse !== undefined) return jsonResponse(options.collectionResponse);
       return jsonResponse({
         provider: 'zotero',
         available: true,
@@ -1192,6 +1193,113 @@ describe('ResearchPanel', () => {
     ))).toBe(true);
   });
 
+  it('incrementally merges loaded Zotero collection items into the project map without writing user map state', async () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={artifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    await waitFor(() => expect(literatureMapApiMocks.updateProjectLiteratureMap).toHaveBeenCalledWith(
+      'D:/project',
+      PROJECT_LITERATURE_MAP_ID,
+      { origin: 'search', papers: artifact.papers, edges: artifact.edges },
+      undefined,
+    ));
+
+    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    await screen.findByText('Saved collection paper');
+
+    await waitFor(() => expect(literatureMapApiMocks.updateProjectLiteratureMap).toHaveBeenCalledWith(
+      'D:/project',
+      PROJECT_LITERATURE_MAP_ID,
+      {
+        origin: 'zotero',
+        papers: [expect.objectContaining({
+          id: 'zotero:ZITEM1',
+          identity: expect.objectContaining({ zoteroKey: 'ZITEM1' }),
+          title: 'Saved collection paper',
+          authors: ['Katherine Johnson'],
+          year: 2023,
+          sourceId: 'zotero',
+          sourceIds: ['zotero'],
+          referencedWorkIds: [],
+        })],
+      },
+      { expectedRevision: 1 },
+    ));
+    const syncUpdate = literatureMapApiMocks.updateProjectLiteratureMap.mock.calls.find(([, , update]) => update.origin === 'zotero');
+    expect(syncUpdate?.[2]).not.toHaveProperty('edges');
+    expect(syncUpdate?.[2]).not.toHaveProperty('tombstonePaperIds');
+    expect(syncUpdate?.[2]).not.toHaveProperty('restorePaperIds');
+    expect(literatureMapApiMocks.setProjectLiteratureMapNodeState).not.toHaveBeenCalled();
+    expect(literatureMapApiMocks.setProjectLiteratureMapSeed).not.toHaveBeenCalled();
+    expect(screen.getByTestId('zotero-map-sync-notice').textContent).toContain('1 Zotero item merged into the project map.');
+  });
+
+  it('merges only normalizable Zotero collection items and traces partial collection results', async () => {
+    installFetchMock(unmatchedMatches, {
+      collectionResponse: {
+        provider: 'zotero',
+        available: true,
+        collection: { key: 'COLL1', name: 'Rigorium' },
+        items: [
+          {
+            key: 'ZMAP1',
+            itemType: 'journalArticle',
+            title: 'Map-ready Zotero paper',
+            creators: ['Mary Jackson'],
+            year: 2024,
+            doi: '10.1000/zmap',
+            url: 'https://example.test/zmap',
+            tags: ['Methods'],
+            collectionKeys: ['COLL1'],
+            identity: { zoteroKey: 'ZMAP1', doi: '10.1000/zmap' },
+          },
+          {
+            key: 'ZSKIP1',
+            itemType: 'journalArticle',
+            title: '   ',
+            creators: [],
+            tags: [],
+            collectionKeys: ['COLL1'],
+            identity: { zoteroKey: 'ZSKIP1' },
+          },
+        ],
+        total: 3,
+        truncated: true,
+      },
+    });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={artifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    await waitFor(() => expect(literatureMapApiMocks.updateProjectLiteratureMap).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    await screen.findByText('Map-ready Zotero paper');
+
+    await waitFor(() => {
+      const syncUpdate = literatureMapApiMocks.updateProjectLiteratureMap.mock.calls.find(([, , update]) => update.origin === 'zotero');
+      expect(syncUpdate?.[2].papers).toHaveLength(1);
+    });
+    const syncUpdate = literatureMapApiMocks.updateProjectLiteratureMap.mock.calls.find(([, , update]) => update.origin === 'zotero');
+    expect(syncUpdate?.[2].papers?.[0]).toMatchObject({
+      id: 'zotero:ZMAP1',
+      identity: { zoteroKey: 'ZMAP1', doi: '10.1000/zmap' },
+      provenance: [expect.objectContaining({ sourceId: 'zotero', sourceRecordId: 'ZMAP1', rank: 1 })],
+    });
+    const notice = screen.getByTestId('zotero-map-sync-notice');
+    expect(notice.textContent).toContain('1 Zotero item merged into the project map.');
+    expect(notice.textContent).toContain('1 collection item was skipped because it could not be normalized.');
+    expect(notice.textContent).toContain('Zotero returned a partial collection; only the loaded items were merged.');
+  });
+
   it('shows HTTP-200 Zotero availability failures instead of empty match and collection states', async () => {
     installFetchMock(unmatchedMatches, { unavailableError: 'Zotero Desktop is not running.' });
     render(
@@ -1206,6 +1314,8 @@ describe('ResearchPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
     expect((await screen.findAllByText('Zotero Desktop is not running.')).length).toBeGreaterThan(0);
     expect(screen.queryByText(/No items found|没有找到文献/i)).toBeNull();
+    expect(literatureMapApiMocks.updateProjectLiteratureMap.mock.calls.some(([, , update]) => update.origin === 'zotero')).toBe(false);
+    expect(screen.getByTestId('zotero-map-sync-notice').textContent).toContain('Zotero collection could not be loaded; the project map was not changed.');
   });
 
   it('ignores a stale fixed collection key while following the live Zotero selection', async () => {

@@ -94,6 +94,11 @@ type LiteratureMapPersistence = {
   revision: number;
 };
 
+type ZoteroMapSyncNotice = {
+  kind: 'success' | 'warning' | 'error';
+  text: string;
+};
+
 export default function ResearchPanel({ artifact, projectPath }: ResearchPanelProps) {
   const { t } = useTranslation();
   const { selectedPaperId, selectPaper } = useResearchPanel();
@@ -107,6 +112,7 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
   const [collectionItems, setCollectionItems] = useState<ZoteroItemsResult | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionError, setCollectionError] = useState<string | null>(null);
+  const [collectionMapSyncNotice, setCollectionMapSyncNotice] = useState<ZoteroMapSyncNotice | null>(null);
   const [collectionQuery, setCollectionQuery] = useState('');
   const [confirmingPaper, setConfirmingPaper] = useState<ResearchPaper | null>(null);
   const [importing, setImporting] = useState(false);
@@ -118,6 +124,7 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
   const mapPersistenceRef = useRef<LiteratureMapPersistence | null>(null);
   const mapPersistenceQueueRef = useRef<Promise<void>>(Promise.resolve());
   const mapLoadGenerationRef = useRef(0);
+  const collectionLoadGenerationRef = useRef(0);
   const artifactSeedPaperId = artifact.kind === 'literature_expansion' ? artifact.seedPaperId : null;
   const expansionSeedPaper = useMemo(
     () => artifact.kind === 'literature_expansion'
@@ -155,6 +162,7 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
     setMapPinnedPositions((current) => Object.fromEntries(
       Object.entries(current).filter(([paperId]) => paperIds.has(paperId)),
     ));
+    setCollectionMapSyncNotice(null);
   }, [artifact.artifactId, artifact.papers, artifactSeedPaperId, projectPath]);
 
   useEffect(() => {
@@ -236,6 +244,7 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
     void next.catch((error) => {
       setMapPersistenceError(error instanceof Error ? error.message : String(error));
     });
+    return next;
   }, []);
 
   const refreshProjectMapAfterConflict = useCallback(async (persistence: LiteratureMapPersistence) => {
@@ -262,6 +271,75 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
     setMapPinnedPositions(positions);
     setMapSeedPaperId(latest.seedPaperId && paperIds.has(latest.seedPaperId) ? latest.seedPaperId : null);
   }, [artifact.papers]);
+
+  const mergeZoteroCollectionItemsIntoProjectMap = useCallback(async (
+    items: ZoteroLibraryItem[],
+    truncated: boolean,
+  ) => {
+    if (!projectPath) return;
+    const normalized = normalizeZoteroCollectionItems(items, new Date().toISOString());
+    if (normalized.papers.length === 0) {
+      setCollectionMapSyncNotice({
+        kind: 'warning',
+        text: zoteroMapSyncNoMergeText(normalized.skipped, truncated),
+      });
+      return;
+    }
+
+    try {
+      await enqueueMapPersistence(async () => {
+        let persistence = mapPersistenceRef.current;
+        if (!persistence || persistence.projectPath !== projectPath) {
+          const loaded = await loadProjectLiteratureMap(projectPath);
+          persistence = {
+            projectPath,
+            mapId: loaded.map?.mapId ?? PROJECT_LITERATURE_MAP_ID,
+            revision: loaded.map?.revision ?? 0,
+          };
+          mapPersistenceRef.current = persistence;
+        }
+
+        const update = { origin: 'zotero' as const, papers: normalized.papers };
+        try {
+          const result = await updateProjectLiteratureMap(
+            projectPath,
+            persistence.mapId,
+            update,
+            { expectedRevision: persistence.revision },
+          );
+          mapPersistenceRef.current = {
+            projectPath,
+            mapId: result.map.mapId,
+            revision: result.map.revision,
+          };
+        } catch (error) {
+          if (!isLiteratureMapRevisionConflict(error)) throw error;
+          const latest = await loadProjectLiteratureMap(projectPath);
+          if (!latest.map) throw error;
+          const result = await updateProjectLiteratureMap(
+            projectPath,
+            latest.map.mapId,
+            update,
+            { expectedRevision: latest.map.revision },
+          );
+          mapPersistenceRef.current = {
+            projectPath,
+            mapId: result.map.mapId,
+            revision: result.map.revision,
+          };
+        }
+      });
+      setCollectionMapSyncNotice({
+        kind: normalized.skipped > 0 || truncated ? 'warning' : 'success',
+        text: zoteroMapSyncSuccessText(normalized.papers.length, normalized.skipped, truncated),
+      });
+    } catch (error) {
+      setCollectionMapSyncNotice({
+        kind: 'error',
+        text: `Zotero collection loaded, but its project-map merge failed; existing project map state was retained. ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }, [enqueueMapPersistence, projectPath]);
 
   useEffect(() => {
     if (selectedPaperId && artifact.papers.some((paper) => paper.id === selectedPaperId)) return;
@@ -363,13 +441,17 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
   }, [loadPaperMatches, zoteroBinding, zoteroStatus?.apiReady]);
 
   const loadCollectionItems = useCallback(async (queryText = '') => {
+    const generation = collectionLoadGenerationRef.current + 1;
+    collectionLoadGenerationRef.current = generation;
     if (!fixedCollectionKey) {
       setCollectionItems(null);
       setCollectionError(null);
+      setCollectionMapSyncNotice(null);
       return;
     }
     setCollectionLoading(true);
     setCollectionError(null);
+    setCollectionMapSyncNotice(null);
     try {
       const params = new URLSearchParams({
         collectionKey: fixedCollectionKey,
@@ -384,14 +466,21 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
       if (!response.ok) throw new Error(body.error || 'Failed to load the bound Zotero collection.');
       if (body.available === false) throw new Error(body.error || 'Zotero is unavailable.');
       if (!Array.isArray(body.items)) throw new Error('Zotero returned an invalid item list.');
-      setCollectionItems(body as ZoteroItemsResult);
+      if (collectionLoadGenerationRef.current !== generation) return;
+      const result = body as ZoteroItemsResult;
+      setCollectionItems(result);
+      await mergeZoteroCollectionItemsIntoProjectMap(result.items, result.truncated === true);
     } catch (error) {
-      setCollectionItems(null);
+      if (collectionLoadGenerationRef.current !== generation) return;
       setCollectionError(error instanceof Error ? error.message : String(error));
+      setCollectionMapSyncNotice({
+        kind: 'warning',
+        text: 'Zotero collection could not be loaded; the project map was not changed.',
+      });
     } finally {
-      setCollectionLoading(false);
+      if (collectionLoadGenerationRef.current === generation) setCollectionLoading(false);
     }
-  }, [fixedCollectionKey, projectPath]);
+  }, [fixedCollectionKey, mergeZoteroCollectionItemsIntoProjectMap, projectPath]);
 
   useEffect(() => {
     if (view !== 'collection') return;
@@ -639,6 +728,7 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
               result={collectionItems}
               loading={collectionLoading}
               error={collectionError}
+              mapSyncNotice={collectionMapSyncNotice}
               projectPath={projectPath}
               query={collectionQuery}
               onQueryChange={setCollectionQuery}
@@ -1470,6 +1560,7 @@ function CollectionLibrary({
   result,
   loading,
   error,
+  mapSyncNotice,
   projectPath,
   query,
   onQueryChange,
@@ -1480,6 +1571,7 @@ function CollectionLibrary({
   result: ZoteroItemsResult | null;
   loading: boolean;
   error: string | null;
+  mapSyncNotice: ZoteroMapSyncNotice | null;
   projectPath?: string;
   query: string;
   onQueryChange: (value: string) => void;
@@ -1558,6 +1650,22 @@ function CollectionLibrary({
             <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
           </button>
         </form>
+        {mapSyncNotice ? (
+          <div
+            data-testid="zotero-map-sync-notice"
+            role={mapSyncNotice.kind === 'error' ? 'alert' : 'status'}
+            className={cn(
+              'mt-2 rounded-md border px-2.5 py-2 text-[10px] leading-4',
+              mapSyncNotice.kind === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-200'
+                : mapSyncNotice.kind === 'error'
+                  ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-200'
+                  : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200',
+            )}
+          >
+            {mapSyncNotice.text}
+          </div>
+        ) : null}
       </div>
 
       {error ? (
@@ -2477,6 +2585,123 @@ function updateMapPaperState(
     return next;
   }
   return { ...current, [paperId]: nextStates };
+}
+
+function normalizeZoteroCollectionItems(
+  items: unknown[],
+  retrievedAt: string,
+): { papers: ResearchPaper[]; skipped: number } {
+  const papers: ResearchPaper[] = [];
+  const seenIds = new Set<string>();
+  let skipped = 0;
+  for (const [index, item] of items.entries()) {
+    const paper = normalizeZoteroCollectionItem(item, index + 1, retrievedAt);
+    if (!paper || seenIds.has(paper.id)) {
+      skipped += 1;
+      continue;
+    }
+    seenIds.add(paper.id);
+    papers.push(paper);
+  }
+  return { papers, skipped };
+}
+
+function normalizeZoteroCollectionItem(
+  item: unknown,
+  rank: number,
+  retrievedAt: string,
+): ResearchPaper | null {
+  if (!isZoteroMapRecord(item)) return null;
+  const key = normalizeZoteroMapText(item.key, 512);
+  const title = normalizeZoteroMapText(item.title, 4_096);
+  if (!key || !title) return null;
+
+  const identitySource = isZoteroMapRecord(item.identity) ? item.identity : {};
+  const doi = normalizeZoteroMapText(item.doi, 512) ?? normalizeZoteroMapText(identitySource.doi, 512);
+  const arxiv = normalizeZoteroMapText(item.arxiv, 512) ?? normalizeZoteroMapText(identitySource.arxiv, 512);
+  const pmid = normalizeZoteroMapText(item.pmid, 512) ?? normalizeZoteroMapText(identitySource.pmid, 512);
+  const url = safeExternalUrl(normalizeZoteroMapText(item.url, 4_096));
+  const authors = Array.isArray(item.creators)
+    ? uniqueZoteroMapText(item.creators, 512, 50)
+    : [];
+  const year = normalizeZoteroMapYear(item.year);
+
+  return {
+    id: `zotero:${key}`,
+    identity: {
+      zoteroKey: key,
+      ...(doi ? { doi } : {}),
+      ...(arxiv ? { arxiv } : {}),
+      ...(pmid ? { pmid } : {}),
+    },
+    title,
+    authors,
+    ...(year !== undefined ? { year } : {}),
+    ...(doi ? { doi } : {}),
+    ...(url ? { url } : {}),
+    citedByCount: 0,
+    topics: [],
+    referencedWorkIds: [],
+    sourceId: 'zotero',
+    sourceIds: ['zotero'],
+    provenance: [{
+      sourceId: 'zotero',
+      sourceRecordId: key,
+      rank,
+      retrievedAt,
+    }],
+  };
+}
+
+function isZoteroMapRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeZoteroMapText(value: unknown, maximumLength: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.replace(/\s+/gu, ' ').trim();
+  if (!normalized || normalized.includes('\u0000')) return undefined;
+  return normalized.slice(0, maximumLength);
+}
+
+function uniqueZoteroMapText(values: unknown[], maximumLength: number, maximumItems: number): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const text = normalizeZoteroMapText(value, maximumLength);
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    normalized.push(text);
+    if (normalized.length >= maximumItems) break;
+  }
+  return normalized;
+}
+
+function normalizeZoteroMapYear(value: unknown): number | undefined {
+  return typeof value === 'number'
+    && Number.isInteger(value)
+    && value >= 1
+    && value <= 9_999
+    ? value
+    : undefined;
+}
+
+function zoteroMapSyncSuccessText(merged: number, skipped: number, truncated: boolean): string {
+  const messages = [`${merged} Zotero item${merged === 1 ? '' : 's'} merged into the project map.`];
+  if (skipped > 0) {
+    messages.push(`${skipped} collection item${skipped === 1 ? ' was' : 's were'} skipped because ${skipped === 1 ? 'it could' : 'they could'} not be normalized.`);
+  }
+  if (truncated) messages.push('Zotero returned a partial collection; only the loaded items were merged.');
+  return messages.join(' ');
+}
+
+function zoteroMapSyncNoMergeText(skipped: number, truncated: boolean): string {
+  const messages = ['No Zotero collection items could be normalized; the project map was not changed.'];
+  if (skipped > 0) {
+    messages.push(`${skipped} collection item${skipped === 1 ? ' was' : 's were'} skipped because ${skipped === 1 ? 'it could' : 'they could'} not be normalized.`);
+  }
+  if (truncated) messages.push('Zotero returned a partial collection; only the loaded items were retained.');
+  return messages.join(' ');
 }
 
 function formatLiteratureChatReference(paper: ResearchPaper): string {
