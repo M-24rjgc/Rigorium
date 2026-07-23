@@ -1,5 +1,6 @@
 import type {
   ZoteroCloudStatus,
+  ZoteroCloudSyncResult,
   ZoteroCloudWriteIntent,
   ZoteroCloudWritePlan,
   ZoteroCloudWriteResult,
@@ -9,6 +10,16 @@ type ProjectOptions = { projectPath?: string };
 
 export async function getZoteroCloudStatus(options: ProjectOptions = {}): Promise<ZoteroCloudStatus> {
   return desktopBridge().status(options) as Promise<ZoteroCloudStatus>;
+}
+
+/**
+ * Probes the remote library version and changed-record indexes. This is a
+ * read-only operation; cloud writes continue to require preview and confirm.
+ */
+export async function probeZoteroCloudSync(
+  options: ProjectOptions & { sinceVersion?: number } = {},
+): Promise<ZoteroCloudSyncResult> {
+  return desktopBridge().sync(options) as Promise<ZoteroCloudSyncResult>;
 }
 
 export async function previewZoteroCloudWrite(

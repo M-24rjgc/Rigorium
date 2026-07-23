@@ -7,6 +7,10 @@ export type ResearchArxivSourceSettings = {
   enabled: boolean;
 };
 
+export type ResearchOpenReviewSourceSettings = {
+  enabled: boolean;
+};
+
 export type ResearchSettings = {
   schemaVersion: 1;
   literature: {
@@ -21,6 +25,10 @@ export type ResearchSettings = {
       // support remain readable. The settings UI normalizes it to enabled
       // before a save.
       arxiv?: ResearchArxivSourceSettings;
+      // Optional at the renderer boundary so settings saved before OpenReview
+      // support remain readable. The settings UI normalizes it to enabled
+      // before a save.
+      openreview?: ResearchOpenReviewSourceSettings;
     };
     search: {
       defaultLimit: number;
@@ -306,6 +314,7 @@ export type ZoteroStatus = {
   available: boolean;
   apiReady: boolean;
   connectorReady: boolean;
+  writeMode?: 'connector_import' | 'read_only';
   checkedAt: string;
   disabled?: boolean;
   selectedCollection?: {
@@ -428,6 +437,19 @@ export type ZoteroCloudStatus = {
   retryAfterSeconds?: number;
   backoffSeconds?: number;
   error?: string;
+};
+
+export type ZoteroCloudSyncResult = {
+  status: 'updated' | 'unchanged' | 'unavailable';
+  checkedAt: string;
+  provider: ZoteroCloudStatus;
+  sinceVersion?: number;
+  libraryVersion?: number;
+  itemVersions: Record<string, number>;
+  collectionVersions: Record<string, number>;
+  deleted: { items: string[]; collections: string[]; searches: string[] };
+  retryAfterSeconds?: number;
+  backoffSeconds?: number;
 };
 
 export type ZoteroCloudWriteIntent =

@@ -18,6 +18,15 @@ import {
 
 vi.mock('../utils/api', () => ({ authenticatedFetch: vi.fn() }));
 
+const literatureMapApiMocks = vi.hoisted(() => ({
+  loadProjectLiteratureMap: vi.fn(),
+  updateProjectLiteratureMap: vi.fn(),
+  setProjectLiteratureMapNodeState: vi.fn(),
+  setProjectLiteratureMapSeed: vi.fn(),
+}));
+
+vi.mock('./literatureMapApi', () => literatureMapApiMocks);
+
 let cloudPreview: ReturnType<typeof vi.fn>;
 let cloudConfirm: ReturnType<typeof vi.fn>;
 let libraryImport: ReturnType<typeof vi.fn>;
@@ -591,12 +600,68 @@ function installFetchMock(
   });
 }
 
+const PROJECT_LITERATURE_MAP_ID = 'project-literature-map';
+
+function mapNodesFor(papers: ResearchArtifact['papers'] = artifact.papers) {
+  return papers.map((paper, index) => ({
+    id: paper.id,
+    aliases: [paper.id],
+    status: 'candidate' as const,
+    position: { x: 120 + index * 100, y: 140, pinned: false },
+  }));
+}
+
+function mapMutation(
+  mapId = PROJECT_LITERATURE_MAP_ID,
+  revision = 1,
+  seedPaperId: string | null = null,
+  nodes = mapNodesFor(),
+) {
+  return { map: { mapId, revision, nodes }, seedPaperId };
+}
+
+function installLiteratureMapMocks() {
+  literatureMapApiMocks.loadProjectLiteratureMap.mockResolvedValue({
+    map: null,
+    lastDiff: null,
+    seedPaperId: null,
+  });
+  literatureMapApiMocks.updateProjectLiteratureMap.mockImplementation(async (
+    _projectPath: string,
+    mapId: string,
+    update: { papers?: ResearchArtifact['papers'] },
+    options?: { expectedRevision?: number },
+  ) => mapMutation(
+    mapId,
+    options?.expectedRevision === undefined ? 1 : options.expectedRevision,
+    null,
+    mapNodesFor(update.papers ?? []),
+  ));
+  literatureMapApiMocks.setProjectLiteratureMapNodeState.mockImplementation(async (
+    _projectPath: string,
+    mapId: string,
+    _paperId: string,
+    _state: unknown,
+    options?: { expectedRevision?: number },
+  ) => mapMutation(mapId, (options?.expectedRevision ?? 0) + 1));
+  literatureMapApiMocks.setProjectLiteratureMapSeed.mockImplementation(async (
+    _projectPath: string,
+    mapId: string,
+    seedPaperId: string | null,
+  ) => mapMutation(mapId, 1, seedPaperId));
+}
+
 describe('ResearchPanel', () => {
   afterEach(() => cleanup());
 
   beforeEach(() => {
     vi.mocked(authenticatedFetch).mockReset();
+    literatureMapApiMocks.loadProjectLiteratureMap.mockReset();
+    literatureMapApiMocks.updateProjectLiteratureMap.mockReset();
+    literatureMapApiMocks.setProjectLiteratureMapNodeState.mockReset();
+    literatureMapApiMocks.setProjectLiteratureMapSeed.mockReset();
     installFetchMock();
+    installLiteratureMapMocks();
     cloudPreview = vi.fn().mockImplementation(async (intent: ZoteroCloudWriteIntent) => ({
       plan: intent.kind === 'tags'
         ? {
@@ -693,6 +758,100 @@ describe('ResearchPanel', () => {
     } finally {
       window.removeEventListener(CHAT_DRAFT_INSERT_EVENT, draftInsert);
     }
+  });
+
+  it('auto-merges the artifact and persists classification, seed, and pinned position changes', async () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={artifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    await waitFor(() => expect(literatureMapApiMocks.updateProjectLiteratureMap).toHaveBeenCalledWith(
+      'D:/project',
+      PROJECT_LITERATURE_MAP_ID,
+      { origin: 'search', papers: artifact.papers, edges: artifact.edges },
+      undefined,
+    ));
+
+    fireEvent.click(screen.getByTestId('literature-map-node-W2'));
+    fireEvent.click(screen.getByRole('button', { name: /^Mark core/ }));
+    await waitFor(() => expect(literatureMapApiMocks.setProjectLiteratureMapNodeState).toHaveBeenCalledWith(
+      'D:/project',
+      PROJECT_LITERATURE_MAP_ID,
+      'W2',
+      { status: 'core' },
+      { expectedRevision: 1 },
+    ));
+
+    fireEvent.click(screen.getByRole('button', { name: /^Set seed/ }));
+    await waitFor(() => expect(literatureMapApiMocks.setProjectLiteratureMapSeed).toHaveBeenCalledWith(
+      'D:/project',
+      PROJECT_LITERATURE_MAP_ID,
+      'W2',
+    ));
+
+    const network = screen.getByTestId('literature-map-network');
+    Object.defineProperty(network, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, width: 640, height: 480 }),
+    });
+    const node = screen.getByTestId('literature-map-node-W2');
+    fireEvent.pointerDown(node, { button: 0, pointerId: 7 });
+    fireEvent.pointerMove(network, { clientX: 260, clientY: 160, pointerId: 7 });
+    fireEvent.pointerUp(network, { pointerId: 7 });
+
+    await waitFor(() => expect(literatureMapApiMocks.setProjectLiteratureMapNodeState.mock.calls.length).toBe(2));
+    const [, , , positionState, positionOptions] = literatureMapApiMocks.setProjectLiteratureMapNodeState.mock.calls[1] ?? [];
+    expect(positionState).toEqual({ position: { x: expect.any(Number), y: expect.any(Number), pinned: true } });
+    expect(positionOptions).toEqual({ expectedRevision: expect.any(Number) });
+  });
+
+  it('reloads the latest map after a revision conflict without replaying the local action', async () => {
+    const initialNodes = mapNodesFor().map((node) => node.id === 'W2'
+      ? { ...node, status: 'relevant' as const, position: { x: 44, y: 55, pinned: true } }
+      : node);
+    const latestNodes = mapNodesFor().map((node) => node.id === 'W2'
+      ? { ...node, status: 'irrelevant' as const, position: { x: 333, y: 222, pinned: true } }
+      : node);
+    literatureMapApiMocks.loadProjectLiteratureMap
+      .mockResolvedValueOnce({
+        map: { mapId: PROJECT_LITERATURE_MAP_ID, revision: 4, nodes: initialNodes },
+        lastDiff: null,
+        seedPaperId: 'W2',
+      })
+      .mockResolvedValueOnce({
+        map: { mapId: PROJECT_LITERATURE_MAP_ID, revision: 5, nodes: latestNodes },
+        lastDiff: null,
+        seedPaperId: 'W2',
+      });
+    literatureMapApiMocks.updateProjectLiteratureMap.mockResolvedValueOnce(
+      mapMutation(PROJECT_LITERATURE_MAP_ID, 4, 'W2', initialNodes),
+    );
+    literatureMapApiMocks.setProjectLiteratureMapNodeState.mockRejectedValueOnce(
+      new Error('The live literature map has changed since the requested revision.'),
+    );
+
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={artifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    await waitFor(() => expect(literatureMapApiMocks.updateProjectLiteratureMap).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('literature-map-node-W2').getAttribute('data-seed')).toBe('true'));
+    fireEvent.click(screen.getByTestId('literature-map-node-W2'));
+    fireEvent.click(screen.getByRole('button', { name: /^Mark core/ }));
+
+    await waitFor(() => expect(screen.getByTestId('literature-map-node-W2').getAttribute('data-paper-states')).toContain('irrelevant'));
+    expect(screen.getByTestId('literature-map-node-W2').getAttribute('transform')).toBe('translate(333, 222)');
+    expect(literatureMapApiMocks.setProjectLiteratureMapNodeState).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert').textContent).toContain('latest state was reloaded');
+    expect(literatureMapApiMocks.loadProjectLiteratureMap).toHaveBeenCalledTimes(2);
   });
 
   it('makes multi-source provenance and partial coverage explicit without relying on color', async () => {

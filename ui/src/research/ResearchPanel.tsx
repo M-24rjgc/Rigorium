@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -35,12 +35,21 @@ import {
   getZoteroItemExport,
 } from './zoteroItemApi';
 import { confirmZoteroCloudWrite, importPapersIntoZotero, previewZoteroCloudWrite } from './zoteroCloudApi';
+import ZoteroConnectionStatus from './ZoteroConnectionStatus';
 import {
   LiteratureMap,
+  stableNodePosition,
   type LiteratureMapActionRequest,
   type LiteratureMapPaperState,
   type LiteratureMapPoint,
 } from './literature-map';
+import {
+  loadProjectLiteratureMap,
+  setProjectLiteratureMapNodeState,
+  setProjectLiteratureMapSeed,
+  updateProjectLiteratureMap,
+  type ProjectLiteratureMapNodeStatus,
+} from './literatureMapApi';
 import type {
   ResearchArtifact,
   LiteratureSearchArtifact,
@@ -77,6 +86,14 @@ type ZoteroBinding = {
   error?: string;
 };
 
+const PROJECT_LITERATURE_MAP_ID = 'project-literature-map';
+
+type LiteratureMapPersistence = {
+  projectPath: string;
+  mapId: string;
+  revision: number;
+};
+
 export default function ResearchPanel({ artifact, projectPath }: ResearchPanelProps) {
   const { t } = useTranslation();
   const { selectedPaperId, selectPaper } = useResearchPanel();
@@ -97,6 +114,10 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
   const [mapSeedPaperId, setMapSeedPaperId] = useState<string | null>(null);
   const [mapPaperStates, setMapPaperStates] = useState<Record<string, LiteratureMapPaperState[]>>({});
   const [mapPinnedPositions, setMapPinnedPositions] = useState<Record<string, LiteratureMapPoint>>({});
+  const [mapPersistenceError, setMapPersistenceError] = useState<string | null>(null);
+  const mapPersistenceRef = useRef<LiteratureMapPersistence | null>(null);
+  const mapPersistenceQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const mapLoadGenerationRef = useRef(0);
   const artifactSeedPaperId = artifact.kind === 'literature_expansion' ? artifact.seedPaperId : null;
   const expansionSeedPaper = useMemo(
     () => artifact.kind === 'literature_expansion'
@@ -134,7 +155,113 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
     setMapPinnedPositions((current) => Object.fromEntries(
       Object.entries(current).filter(([paperId]) => paperIds.has(paperId)),
     ));
-  }, [artifact.artifactId, artifact.papers, artifactSeedPaperId]);
+  }, [artifact.artifactId, artifact.papers, artifactSeedPaperId, projectPath]);
+
+  useEffect(() => {
+    const generation = mapLoadGenerationRef.current + 1;
+    mapLoadGenerationRef.current = generation;
+    if (!projectPath) {
+      mapPersistenceRef.current = null;
+      setMapPersistenceError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const synchronizeProjectMap = async () => {
+      setMapPersistenceError(null);
+      mapPersistenceRef.current = {
+        projectPath,
+        mapId: PROJECT_LITERATURE_MAP_ID,
+        revision: 0,
+      };
+      try {
+        const loaded = await loadProjectLiteratureMap(projectPath);
+        if (cancelled || mapLoadGenerationRef.current !== generation) return;
+
+        const mapId = loaded.map?.mapId ?? PROJECT_LITERATURE_MAP_ID;
+        const merged = await updateProjectLiteratureMap(
+          projectPath,
+          mapId,
+          { origin: 'search', papers: artifact.papers, edges: artifact.edges },
+          loaded.map ? { expectedRevision: loaded.map.revision } : undefined,
+        );
+        if (cancelled || mapLoadGenerationRef.current !== generation) return;
+
+        const map = merged.map;
+        mapPersistenceRef.current = { projectPath, mapId: map.mapId, revision: map.revision };
+        const visibleIds = new Set(artifact.papers.map((paper) => paper.id));
+        const states: Record<string, LiteratureMapPaperState[]> = {};
+        const positions: Record<string, LiteratureMapPoint> = {};
+        for (const node of map.nodes) {
+          if (!visibleIds.has(node.id)) continue;
+          const state = mapStatusToPaperState(node.status);
+          if (state) states[node.id] = [state];
+          if (node.position.pinned) positions[node.id] = {
+            x: node.position.x,
+            y: node.position.y,
+          };
+        }
+        setMapPaperStates(states);
+        setMapPinnedPositions(positions);
+        const persistedSeed = merged.seedPaperId ?? loaded.seedPaperId;
+        const resolvedSeed = persistedSeed && visibleIds.has(persistedSeed)
+          ? persistedSeed
+          : artifactSeedPaperId && visibleIds.has(artifactSeedPaperId)
+            ? artifactSeedPaperId
+            : null;
+        setMapSeedPaperId(resolvedSeed);
+
+        if (!persistedSeed && resolvedSeed) {
+          const seeded = await setProjectLiteratureMapSeed(projectPath, map.mapId, resolvedSeed);
+          if (!cancelled && mapLoadGenerationRef.current === generation) {
+            setMapSeedPaperId(seeded.seedPaperId);
+          }
+        }
+      } catch (error) {
+        if (cancelled || mapLoadGenerationRef.current !== generation) return;
+        mapPersistenceRef.current = null;
+        setMapPersistenceError(error instanceof Error ? error.message : String(error));
+      }
+    };
+
+    void synchronizeProjectMap();
+    return () => {
+      cancelled = true;
+    };
+  }, [artifact.artifactId, artifact.edges, artifact.papers, artifactSeedPaperId, projectPath]);
+
+  const enqueueMapPersistence = useCallback((operation: () => Promise<void>) => {
+    const next = mapPersistenceQueueRef.current.then(operation, operation);
+    mapPersistenceQueueRef.current = next.catch(() => undefined);
+    void next.catch((error) => {
+      setMapPersistenceError(error instanceof Error ? error.message : String(error));
+    });
+  }, []);
+
+  const refreshProjectMapAfterConflict = useCallback(async (persistence: LiteratureMapPersistence) => {
+    const latest = await loadProjectLiteratureMap(persistence.projectPath);
+    if (!latest.map) {
+      mapPersistenceRef.current = null;
+      return;
+    }
+    mapPersistenceRef.current = {
+      projectPath: persistence.projectPath,
+      mapId: latest.map.mapId,
+      revision: latest.map.revision,
+    };
+    const paperIds = new Set(artifact.papers.map((paper) => paper.id));
+    const states: Record<string, LiteratureMapPaperState[]> = {};
+    const positions: Record<string, LiteratureMapPoint> = {};
+    for (const node of latest.map.nodes) {
+      if (!paperIds.has(node.id)) continue;
+      const state = mapStatusToPaperState(node.status);
+      if (state) states[node.id] = [state];
+      if (node.position.pinned) positions[node.id] = { x: node.position.x, y: node.position.y };
+    }
+    setMapPaperStates(states);
+    setMapPinnedPositions(positions);
+    setMapSeedPaperId(latest.seedPaperId && paperIds.has(latest.seedPaperId) ? latest.seedPaperId : null);
+  }, [artifact.papers]);
 
   useEffect(() => {
     if (selectedPaperId && artifact.papers.some((paper) => paper.id === selectedPaperId)) return;
@@ -296,11 +423,60 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
     }
   }, [collectionQuery, confirmingPaper, loadCollectionItems, loadPaperMatches, projectPath, t, view]);
 
+  const persistMapNodeState = useCallback((paperId: string, state: {
+    status?: ProjectLiteratureMapNodeStatus;
+    position?: { x: number; y: number; pinned: boolean };
+  }) => {
+    if (!projectPath || !mapPersistenceRef.current) return;
+    setMapPersistenceError(null);
+    enqueueMapPersistence(async () => {
+      const persistence = mapPersistenceRef.current;
+      if (!persistence || persistence.projectPath !== projectPath) return;
+      try {
+        const result = await setProjectLiteratureMapNodeState(
+          projectPath,
+          persistence.mapId,
+          paperId,
+          state,
+          { expectedRevision: persistence.revision },
+        );
+        mapPersistenceRef.current = {
+          projectPath,
+          mapId: result.map.mapId,
+          revision: result.map.revision,
+        };
+      } catch (error) {
+        if (isLiteratureMapRevisionConflict(error)) {
+          await refreshProjectMapAfterConflict(persistence);
+          throw new Error('The literature map changed elsewhere; the latest state was reloaded.');
+        }
+        throw error;
+      }
+    });
+  }, [enqueueMapPersistence, projectPath, refreshProjectMapAfterConflict]);
+
+  const persistMapSeed = useCallback((seedPaperId: string | null) => {
+    if (!projectPath || !mapPersistenceRef.current) return;
+    setMapPersistenceError(null);
+    enqueueMapPersistence(async () => {
+      const persistence = mapPersistenceRef.current;
+      if (!persistence || persistence.projectPath !== projectPath) return;
+      const result = await setProjectLiteratureMapSeed(projectPath, persistence.mapId, seedPaperId);
+      mapPersistenceRef.current = {
+        projectPath,
+        mapId: result.map.mapId,
+        revision: result.map.revision,
+      };
+    });
+  }, [enqueueMapPersistence, projectPath]);
+
   const handleMapPaperAction = useCallback((request: LiteratureMapActionRequest) => {
     const paper = artifact.papers.find((candidate) => candidate.id === request.paperId);
     if (!paper) return;
     if (request.action === 'set_seed') {
-      setMapSeedPaperId((current) => current === paper.id ? null : paper.id);
+      const nextSeed = mapSeedPaperId === paper.id ? null : paper.id;
+      setMapSeedPaperId(nextSeed);
+      persistMapSeed(nextSeed);
       return;
     }
     if (request.action === 'add_to_chat') {
@@ -329,8 +505,8 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
 
     const state = mapStateForAction(request.action);
     if (!state) return;
+    const active = mapPaperStates[paper.id]?.includes(state) ?? false;
     setMapPaperStates((current) => {
-      const active = current[paper.id]?.includes(state) ?? false;
       let next = current;
       if (state === 'core' || state === 'relevant' || state === 'irrelevant') {
         next = updateMapPaperState(next, paper.id, 'core', false);
@@ -339,7 +515,10 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
       }
       return updateMapPaperState(next, paper.id, state, !active);
     });
-  }, [artifact.papers, matchByPaperId, t, zoteroStatus]);
+    persistMapNodeState(paper.id, {
+      status: active ? 'candidate' : state as Exclude<LiteratureMapPaperState, 'favorite'>,
+    });
+  }, [artifact.papers, mapPaperStates, mapSeedPaperId, matchByPaperId, persistMapNodeState, persistMapSeed, t, zoteroStatus]);
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden bg-neutral-50/70 dark:bg-neutral-950">
@@ -412,6 +591,11 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
 
         {view === 'map' ? (
           <div className="p-3">
+            {mapPersistenceError ? (
+              <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] leading-4 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200" role="alert">
+                {mapPersistenceError}
+              </div>
+            ) : null}
             <LiteratureMap
               artifact={artifact}
               selectedPaperId={selectedPaper?.id ?? null}
@@ -420,13 +604,20 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
               pinnedPositions={mapPinnedPositions}
               onSelectPaper={selectPaper}
               onPaperAction={handleMapPaperAction}
-              onPinnedPositionChange={(paperId, position) => setMapPinnedPositions((current) => {
-                if (position) return { ...current, [paperId]: position };
-                if (!current[paperId]) return current;
-                const next = { ...current };
-                delete next[paperId];
-                return next;
-              })}
+              onPinnedPositionChange={(paperId, position) => {
+                setMapPinnedPositions((current) => {
+                  if (position) return { ...current, [paperId]: position };
+                  if (!current[paperId]) return current;
+                  const next = { ...current };
+                  delete next[paperId];
+                  return next;
+                });
+                persistMapNodeState(paperId, {
+                  position: position
+                    ? { x: position.x, y: position.y, pinned: true }
+                    : { ...stableNodePosition(paperId), pinned: false },
+                });
+              }}
             />
           </div>
         ) : view === 'papers' ? (
@@ -439,17 +630,22 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
             sourceNameById={sourceNameById}
           />
         ) : (
-          <CollectionLibrary
-            binding={zoteroBinding}
-            result={collectionItems}
-            loading={collectionLoading}
-            error={collectionError}
-            projectPath={projectPath}
-            query={collectionQuery}
-            onQueryChange={setCollectionQuery}
-            onSearch={() => void loadCollectionItems(collectionQuery)}
-            onRefresh={() => void loadCollectionItems(collectionQuery)}
-          />
+          <>
+            <div className="p-3 pb-0">
+              <ZoteroConnectionStatus projectPath={projectPath} />
+            </div>
+            <CollectionLibrary
+              binding={zoteroBinding}
+              result={collectionItems}
+              loading={collectionLoading}
+              error={collectionError}
+              projectPath={projectPath}
+              query={collectionQuery}
+              onQueryChange={setCollectionQuery}
+              onSearch={() => void loadCollectionItems(collectionQuery)}
+              onRefresh={() => void loadCollectionItems(collectionQuery)}
+            />
+          </>
         )}
 
         <SourceCoverageList sources={artifact.sources} sourceNameById={sourceNameById} />
@@ -2251,6 +2447,15 @@ function mapStateForAction(action: LiteratureMapActionRequest['action']): Litera
   if (action === 'mark_irrelevant') return 'irrelevant';
   if (action === 'exclude') return 'excluded';
   return null;
+}
+
+function mapStatusToPaperState(status: ProjectLiteratureMapNodeStatus): LiteratureMapPaperState | null {
+  if (status === 'core' || status === 'relevant' || status === 'irrelevant' || status === 'excluded') return status;
+  return null;
+}
+
+function isLiteratureMapRevisionConflict(error: unknown): boolean {
+  return error instanceof Error && /changed elsewhere|revision conflict|revision/iu.test(error.message);
 }
 
 function updateMapPaperState(
