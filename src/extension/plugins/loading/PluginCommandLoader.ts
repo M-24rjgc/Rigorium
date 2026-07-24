@@ -57,7 +57,7 @@ export function getPluginCommandName(pluginName: string, filePath: string, baseD
   return namespace ? `${pluginName}:${namespace}:${baseName}` : `${pluginName}:${baseName}`;
 }
 
-function isSkillFile(filePath: string): boolean {
+export function isSkillFile(filePath: string): boolean {
   return /^skill\.md$/iu.test(basename(filePath));
 }
 
@@ -102,7 +102,7 @@ async function collectMarkdownFiles(directory: string): Promise<string[]> {
   return output;
 }
 
-function parseMarkdownFrontmatter(raw: string): { frontmatter: Record<string, unknown>; content: string } {
+export function parseMarkdownFrontmatter(raw: string): { frontmatter: Record<string, unknown>; content: string } {
   if (!raw.startsWith("---\n")) {
     return { frontmatter: {}, content: raw };
   }
