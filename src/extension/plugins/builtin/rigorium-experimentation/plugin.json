@@ -1,0 +1,31 @@
+{
+  "name": "rigorium-experimentation",
+  "version": "0.1.0",
+  "description": "Rigorium project-local experimentation foundation: immutable artifact envelopes, explicit execution grants, idempotent jobs, local workers, metrics, baselines, and recovery.",
+  "settings": {
+    "interfaceVersion": 1,
+    "capabilities": [
+      "experimentation.spec.persisted",
+      "experimentation.grant.plan-only",
+      "experimentation.grant.confirm-each",
+      "experimentation.grant.budget-auto",
+      "experimentation.run.local",
+      "experimentation.job.idempotent",
+      "experimentation.recovery.restart-safe",
+      "experimentation.baseline.provenance",
+      "experimentation.metric.observation",
+      "experimentation.adapters.reserved"
+    ],
+    "implementedAdapters": [
+      "local"
+    ],
+    "reservedAdapters": [
+      "ssh",
+      "slurm",
+      "mlflow",
+      "optuna",
+      "dvc"
+    ],
+    "currentIncrement": "project-manifest-local-worker-and-recovery"
+  }
+}
