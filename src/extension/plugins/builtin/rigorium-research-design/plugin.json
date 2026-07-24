@@ -1,0 +1,19 @@
+{
+  "name": "rigorium-research-design",
+  "version": "0.1.0",
+  "description": "Artifact-driven research idea discovery, challenge, comparison, decision, and brief contracts.",
+  "settings": {
+    "interfaceVersion": 1,
+    "capabilities": [
+      "research.idea.discover",
+      "research.idea.complete",
+      "research.design.candidates.compare",
+      "research.design.challenge",
+      "research.design.decision.record",
+      "research.brief.version"
+    ],
+    "workflowModel": "dynamic-artifact-graph",
+    "agentLoopControl": "none",
+    "currentIncrement": "candidate-portfolio-to-versioned-research-brief"
+  }
+}
