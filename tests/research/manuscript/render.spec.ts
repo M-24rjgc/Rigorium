@@ -35,7 +35,7 @@ test("diagnostic parser is deterministic and separates undefined citations", () 
   assert.equal(diagnostics.some((entry) => entry.code === "undefined_citation"), true);
 });
 
-test("render commands omit ambient secrets and enforce each engine's verified unsafe-feature guard", async () => {
+test("render commands omit ambient secrets and enforce each engine's TeX file-access boundary", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-manuscript-security-project-"));
   const manuscript = createManuscriptVersion({
     title: "Synthetic Security Fixture",
@@ -84,16 +84,64 @@ test("render commands omit ambient secrets and enforce each engine's verified un
       assert.equal(command.args.some((arg) => ["-shell-escape", "--shell-escape", "-enable-write18", "--enable-write18"].includes(arg)), false);
       if (engine === "tectonic") assert.equal(command.args.includes("--untrusted"), true);
       else assert.equal(command.args.includes("-no-shell-escape"), true);
+      if (engine === "latexmk") assert.equal(command.args.includes("-norc"), true);
       assert.equal(command.env?.RIGORIUM_MANUSCRIPT_TEST_SECRET, undefined);
+      assert.equal(command.env?.openin_any, "p");
+      assert.equal(command.env?.openout_any, "p");
       const allowedEnvironmentKeys = new Set([
         "PATH", "PATHEXT", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE",
-        "LANG", "LC_ALL", "SOURCE_DATE_EPOCH", "FORCE_SOURCE_DATE", "TZ",
+        "LANG", "LC_ALL", "SOURCE_DATE_EPOCH", "FORCE_SOURCE_DATE", "TZ", "openin_any", "openout_any",
       ]);
       assert.equal(Object.keys(command.env ?? {}).every((key) => allowedEnvironmentKeys.has(key)), true);
     }
   } finally {
     if (originalSecret === undefined) delete process.env.RIGORIUM_MANUSCRIPT_TEST_SECRET;
     else process.env.RIGORIUM_MANUSCRIPT_TEST_SECRET = originalSecret;
+  }
+});
+
+test("TeX file boundary blocks direct and macro-expanded paths outside the render workspace", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-manuscript-file-boundary-project-"));
+  const externalInput = join(projectRoot, "outside-workspace.tex");
+  await writeFile(externalInput, "This content must remain outside the TeX render workspace.\n", "utf8");
+  const probes = await detectLatexEngines({ timeoutMs: 10_000 });
+  const latexmk = probes.find((probe) => probe.name === "latexmk" && probe.status === "available");
+  if (!latexmk) return;
+
+  const inputPath = externalInput.replace(/\\/gu, "/");
+  const cases = [
+    ["direct path", `\\input{${inputPath}}`],
+    ["macro-expanded path", `\\csname input\\endcsname{${inputPath}}`],
+  ] as const;
+  for (const [label, body] of cases) {
+    const manuscript = createManuscriptVersion({
+      title: `TeX boundary ${label}`,
+      latex: minimalLatex(body),
+      target: { venue: "generic", mode: "internal_draft" },
+      sections: [{
+        sectionId: "boundary",
+        kind: "custom",
+        title: "File boundary",
+        requestedOutput: "preserve",
+        minimumMaturity: "none",
+        statements: [],
+      }],
+      revisionNote: `Regression fixture for ${label}.`,
+      producer: { kind: "user" },
+      now: SYNTHETIC_NOW,
+    });
+    const result = await renderManuscript({
+      projectRoot,
+      manuscript,
+      engine: "latexmk",
+      timeoutMs: 30_000,
+      producer: { kind: "tool", toolName: "manuscript_latex" },
+      now: SYNTHETIC_NOW,
+    }, { engineProbes: probes });
+
+    assert.equal(result.payload.compileStatus, "failed", `${label} must not read an external TeX file.`);
+    assert.equal(result.payload.diagnostics.some((diagnostic) => diagnostic.message.includes("outside-workspace.tex")), true);
+    assert.equal(result.payload.outputs.some((output) => output.kind === "pdf"), false);
   }
 });
 
@@ -166,6 +214,7 @@ test("RenderRun performs a real tiny compile when an engine exists and keeps exp
   }, { engineProbes: probes });
 
   assert.equal(result.payload.compileStatus, "succeeded");
+  assert.equal(result.payload.command.includes("-norc"), true);
   assert.equal(result.payload.command.includes("-no-shell-escape"), true);
   assert.equal(result.payload.command.includes("-shell-escape"), false);
   assert.equal(result.payload.exportBoundary.performed, true);

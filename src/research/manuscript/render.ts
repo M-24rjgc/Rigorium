@@ -66,6 +66,10 @@ const LATEX_ENVIRONMENT_KEYS = [
   "LANG",
   "LC_ALL",
 ] as const;
+const TEX_FILE_ACCESS_BOUNDARY = Object.freeze({
+  openin_any: "p",
+  openout_any: "p",
+});
 
 export type CommandRunRequest = Readonly<{
   executable: string;
@@ -736,7 +740,7 @@ function probeCommand(name: EngineProbe["name"]): { executable: string; args: st
 
 function renderCommand(name: LatexEngineName, buildDirectory: string): string[] {
   if (name === "latexmk") {
-    return ["latexmk", "-pdf", "-no-shell-escape", "-interaction=nonstopmode", "-halt-on-error", "-file-line-error", `-outdir=${buildDirectory}`, "main.tex"];
+    return ["latexmk", "-norc", "-pdf", "-no-shell-escape", "-interaction=nonstopmode", "-halt-on-error", "-file-line-error", `-outdir=${buildDirectory}`, "main.tex"];
   }
   if (name === "tectonic") {
     return ["tectonic", "--untrusted", "--keep-logs", "--keep-intermediates", "--outdir", buildDirectory, "main.tex"];
@@ -769,7 +773,13 @@ function buildLatexEnvironment(sourceDateEpoch: number, inherited: NodeJS.Proces
   env.SOURCE_DATE_EPOCH = String(Math.max(0, Math.floor(sourceDateEpoch)));
   env.FORCE_SOURCE_DATE = "1";
   env.TZ = "UTC";
+  applyTexFileAccessBoundary(env);
   return env;
+}
+
+function applyTexFileAccessBoundary(environment: NodeJS.ProcessEnv): void {
+  // Kpathsea evaluates this after macro expansion, covering literal and indirect file access.
+  for (const [key, value] of Object.entries(TEX_FILE_ACCESS_BOUNDARY)) environment[key] = value;
 }
 
 function readAuxLabelPage(aux: string, label: string): number | undefined {
