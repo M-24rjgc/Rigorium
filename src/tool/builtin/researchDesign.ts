@@ -21,6 +21,10 @@ export type ResearchDesignToolInput = Readonly<{
   evidenceRequest?: CandidatePortfolioBuildInput["evidenceRequest"];
   citations?: CandidatePortfolioBuildInput["citations"];
   compatibility?: CandidatePortfolioBuildInput["compatibility"];
+  /** Explicit external parents for the generated CandidatePortfolio. */
+  parents?: CandidatePortfolioBuildInput["parents"];
+  /** Complete immutable closure for every external artifact parent. */
+  sourceArtifacts?: ResearchDesignPackageInput["sourceArtifacts"];
   independentCriticisms: NonNullable<ChallengeReportBuildInput["independentCriticisms"]>;
   similarWorkRescans: NonNullable<ChallengeReportBuildInput["similarWorkRescans"]>;
   evidenceRescans: NonNullable<ChallengeReportBuildInput["evidenceRescans"]>;
@@ -29,7 +33,7 @@ export type ResearchDesignToolInput = Readonly<{
   assessments: readonly CandidateObjectiveAssessment[];
   eliminations: readonly EliminationRecord[];
   decision: ResearchDesignPackageInput["decision"];
-  brief?: Readonly<{ question?: string; title?: ResearchBriefBuildInput["title"] }>;
+  brief?: ResearchDesignPackageInput["brief"];
 }>;
 
 export type CreateResearchDesignToolOptions = Readonly<{
@@ -44,7 +48,7 @@ export function createResearchDesignTool(
     title: "Develop and Challenge a Research Idea",
     description: `Materialize a research-design decision from a natural-language research discussion.
 
-Use entry=discover when the user provides a broad domain and entry=complete when the user already has an idea. Before calling, develop at least two mechanism-level alternatives rather than title variants, gather EvidencePack citations or an explicit pending evidence request, run a similar-work and evidence rescan, obtain an independent criticism, and score every candidate against multiple objectives. Each candidate must include a theory or algorithm claim, falsification conditions, failure stop rules, baselines, evaluation protocol, compute bounds, and ethics risks and mitigations. The result is an artifact-linked CandidatePortfolio, ChallengeReport, DecisionRecord, and versioned ResearchBrief. This tool does not search the network, run experiments, rename a Project, advance a fixed stage machine, or control AgentLoop. Titles are optional metadata and are never used in ranking; final title confirmation must be explicit in research_brief.`,
+Use entry=discover when the user provides a broad domain and entry=complete when the user already has an idea. Before calling, develop at least two mechanism-level alternatives rather than title variants, gather EvidencePack citations or an explicit pending evidence request, run a similar-work and evidence rescan, obtain an independent criticism, and score every candidate against multiple objectives. Each candidate must include a theory or algorithm claim, falsification conditions, failure stop rules, baselines, evaluation protocol, compute bounds, and ethics risks and mitigations. When parents link existing research artifacts, include their complete ancestor envelopes in sourceArtifacts so the returned DAG remains verifiable. The result is an artifact-linked CandidatePortfolio, ChallengeReport, DecisionRecord, and versioned ResearchBrief. This tool does not search the network, run experiments, rename a Project, advance a fixed stage machine, or control AgentLoop. Titles are optional metadata and are never used in ranking; final title confirmation must be explicit in research_brief.`,
     kind: "custom",
     inputSchema: researchDesignInputSchema(),
     maxResultBytes: positiveInteger(options.maxResultBytes) ?? 2_000_000,
@@ -91,6 +95,8 @@ function researchDesignInputSchema() {
       evidenceRequest: { type: "object", description: "Pending or fulfilled EvidencePack request." },
       citations: { type: "array", maxItems: 256, items: { type: "object" } },
       compatibility: { type: "object", description: "Optional dynamic compatibility view of legacy direction artifacts." },
+      parents: { type: "array", items: { type: "object" }, description: "External parents for the CandidatePortfolio." },
+      sourceArtifacts: { type: "array", items: { type: "object" }, description: "Complete immutable artifact closure for external parents." },
       independentCriticisms: { type: "array", minItems: 1, maxItems: 64, items: { type: "object" } },
       similarWorkRescans: { type: "array", minItems: 1, maxItems: 64, items: { type: "object" } },
       evidenceRescans: { type: "array", minItems: 1, maxItems: 64, items: { type: "object" } },
@@ -116,6 +122,7 @@ function normalizeInput(input: unknown): Omit<ResearchDesignPackageInput, "now">
       evidenceRequest: value.evidenceRequest,
       citations: value.citations,
       compatibility: value.compatibility,
+      parents: value.parents,
     },
     challenge: {
       independentCriticisms: value.independentCriticisms,
@@ -126,6 +133,7 @@ function normalizeInput(input: unknown): Omit<ResearchDesignPackageInput, "now">
     comparison: { objectives: value.objectives, assessments: value.assessments },
     decision: { ...value.decision, eliminations: value.eliminations },
     brief: value.brief,
+    sourceArtifacts: value.sourceArtifacts,
   };
 }
 
@@ -165,6 +173,7 @@ function formatOutput(result: ResearchDesignPackage): PilotDeckToolExecutionOutp
       decisionRecordArtifactId: result.decisionRecord.artifactId,
       researchBriefArtifactId: result.researchBrief.artifactId,
       selectedCandidateId: result.decisionRecord.payload.choice,
+      sourceArtifactCount: result.sourceArtifacts.length,
     },
   };
 }
