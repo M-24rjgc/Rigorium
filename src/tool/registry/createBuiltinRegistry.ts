@@ -26,6 +26,26 @@ import {
   type CreateLiteratureMapMaintenanceToolOptions,
 } from "../builtin/literatureMaintenance.js";
 import {
+  createLiteratureCloseoutTool,
+  type CreateLiteratureCloseoutToolOptions,
+} from "../builtin/literatureCloseout.js";
+import {
+  createResearchDesignTool,
+  type CreateResearchDesignToolOptions,
+} from "../builtin/researchDesign.js";
+import {
+  createResearchBriefTool,
+  type CreateResearchBriefToolOptions,
+} from "../builtin/researchDesignBrief.js";
+import {
+  createResearchMethodTool,
+  type CreateResearchMethodToolOptions,
+} from "../builtin/researchMethod.js";
+import {
+  createExperimentControlTool,
+  type CreateExperimentControlToolOptions,
+} from "../builtin/experimentControl.js";
+import {
   createDirectionAssessTool,
   type CreateDirectionAssessToolOptions,
 } from "../builtin/directionAssess.js";
@@ -126,6 +146,16 @@ export type CreateBuiltinRegistryOptions = {
   literatureDeepSearch?: CreateLiteratureDeepSearchToolOptions | false;
   /** Rigorium auditable, candidate-only live literature-map maintenance. */
   literatureMapMaintenance?: CreateLiteratureMapMaintenanceToolOptions | false;
+  /** Rigorium evidence capture, novelty rescan, and candidate-only monitoring. */
+  literatureCloseout?: CreateLiteratureCloseoutToolOptions | false;
+  /** Rigorium challenged, multi-objective research design. Registered by default. */
+  researchDesign?: CreateResearchDesignToolOptions | false;
+  /** Rigorium versioned research brief creation and revision. Registered by default. */
+  researchBrief?: CreateResearchBriefToolOptions | false;
+  /** Rigorium executable method specification, verification, and snapshot control. Registered by default. */
+  researchMethod?: CreateResearchMethodToolOptions | false;
+  /** Rigorium Project-local experiment specification and execution control. Registered by default. */
+  experimentControl?: CreateExperimentControlToolOptions | false;
   /** Rigorium side-effect-free research direction assessment. Registered by default. */
   directionAssessment?: CreateDirectionAssessToolOptions | false;
   /** Rigorium cue-to-candidate research direction artifact. Registered by default. */
@@ -174,6 +204,21 @@ export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): T
   }
   if (options?.literatureMapMaintenance !== false) {
     registry.register(createLiteratureMapMaintenanceTool(options?.literatureMapMaintenance));
+  }
+  if (options?.literatureCloseout !== false) {
+    registry.register(createLiteratureCloseoutTool(options?.literatureCloseout));
+  }
+  if (options?.researchDesign !== false) {
+    registry.register(createResearchDesignTool(options?.researchDesign));
+  }
+  if (options?.researchBrief !== false) {
+    registry.register(createResearchBriefTool(options?.researchBrief));
+  }
+  if (options?.researchMethod !== false) {
+    registry.register(createResearchMethodTool(options?.researchMethod));
+  }
+  if (options?.experimentControl !== false) {
+    registry.register(createExperimentControlTool(options?.experimentControl));
   }
   if (options?.directionAssessment !== false) {
     registry.register(createDirectionAssessTool(options?.directionAssessment));

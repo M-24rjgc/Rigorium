@@ -103,6 +103,7 @@ async function collectMarkdownFiles(directory: string): Promise<string[]> {
 }
 
 export function parseMarkdownFrontmatter(raw: string): { frontmatter: Record<string, unknown>; content: string } {
+  raw = raw.replace(/\r\n?/gu, "\n");
   if (!raw.startsWith("---\n")) {
     return { frontmatter: {}, content: raw };
   }

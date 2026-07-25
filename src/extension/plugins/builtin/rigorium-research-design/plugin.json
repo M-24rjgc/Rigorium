@@ -2,6 +2,7 @@
   "name": "rigorium-research-design",
   "version": "0.1.0",
   "description": "Artifact-driven research idea discovery, challenge, comparison, decision, and brief contracts.",
+  "skills": "skills",
   "settings": {
     "interfaceVersion": 1,
     "capabilities": [

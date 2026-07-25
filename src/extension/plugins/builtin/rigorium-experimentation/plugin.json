@@ -2,6 +2,7 @@
   "name": "rigorium-experimentation",
   "version": "0.1.0",
   "description": "Rigorium project-local experimentation foundation: immutable artifact envelopes, explicit execution grants, idempotent jobs, local workers, metrics, baselines, and recovery.",
+  "skills": "skills",
   "settings": {
     "interfaceVersion": 1,
     "capabilities": [
