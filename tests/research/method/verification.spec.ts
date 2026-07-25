@@ -145,3 +145,53 @@ test("pre-cancelled and timed-out checks preserve their distinct failure states"
   assert.equal(timedOut.status, "timeout");
   assert.match(timedOut.failureMessage ?? "", /25ms timeout/iu);
 });
+
+test("verification exposes only an allowlisted runtime environment", async () => {
+  const roots = await isolatedRoots("environment");
+  const secretName = "PILOTDECK_TEST_API_SECRET";
+  const previous = process.env[secretName];
+  process.env[secretName] = "must-not-reach-the-check";
+  try {
+    const script = [
+      "const sensitive=Object.keys(process.env).filter((key)=>/(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(key));",
+      "process.stdout.write(JSON.stringify({sensitive:sensitive.length,workspace:Number(process.env.RIGORIUM_METHOD_WORKSPACE===process.cwd()),check:Number(process.env.RIGORIUM_METHOD_CHECK_ID==='environment-check')}));",
+    ].join("");
+    const result = await runVerificationCheck({
+      ...roots,
+      check: check({
+        id: "environment-check",
+        kind: "numerical",
+        args: ["-e", script],
+        numericalExpectations: [
+          { key: "sensitive", expected: 0, absoluteTolerance: 0 },
+          { key: "workspace", expected: 1, absoluteTolerance: 0 },
+          { key: "check", expected: 1, absoluteTolerance: 0 },
+        ],
+      }),
+    });
+    assert.equal(result.status, "passed");
+    assert.deepEqual(result.numericalResults.map((entry) => entry.actual), [0, 1, 1]);
+  } finally {
+    if (previous === undefined) Reflect.deleteProperty(process.env, secretName);
+    else process.env[secretName] = previous;
+  }
+});
+
+test("a check that ignores graceful termination is force-killed after a bounded grace period", async () => {
+  const roots = await isolatedRoots("force-kill");
+  const result = await runVerificationCheck({
+    ...roots,
+    check: check({
+      id: "stubborn-timeout-check",
+      kind: "smoke",
+      args: ["-e", "process.on('SIGTERM',()=>{});process.stdout.write('ready');setInterval(()=>{},1000)"],
+      timeoutMs: 250,
+    }),
+  });
+  assert.equal(result.status, "timeout");
+  assert.equal(result.durationMs < 2_500, true);
+  if (process.platform !== "win32") {
+    assert.equal(result.signal, "SIGKILL");
+    assert.equal(result.durationMs >= 500, true);
+  }
+});
