@@ -50,6 +50,10 @@ import {
   type CreateManuscriptToolOptions,
 } from "../builtin/manuscript.js";
 import {
+  createResearchReviewTool,
+  type CreateResearchReviewToolOptions,
+} from "../builtin/researchReview.js";
+import {
   createDirectionAssessTool,
   type CreateDirectionAssessToolOptions,
 } from "../builtin/directionAssess.js";
@@ -162,6 +166,8 @@ export type CreateBuiltinRegistryOptions = {
   experimentControl?: CreateExperimentControlToolOptions | false;
   /** Rigorium evidence-aware LaTeX manuscript assembly and rendering. Registered by default. */
   manuscript?: CreateManuscriptToolOptions | false;
+  /** Rigorium deterministic preflight and anchored multi-review rounds. Registered by default. */
+  researchReview?: CreateResearchReviewToolOptions | false;
   /** Rigorium side-effect-free research direction assessment. Registered by default. */
   directionAssessment?: CreateDirectionAssessToolOptions | false;
   /** Rigorium cue-to-candidate research direction artifact. Registered by default. */
@@ -228,6 +234,9 @@ export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): T
   }
   if (options?.manuscript !== false) {
     registry.register(createManuscriptTool(options?.manuscript));
+  }
+  if (options?.researchReview !== false) {
+    registry.register(createResearchReviewTool(options?.researchReview));
   }
   if (options?.directionAssessment !== false) {
     registry.register(createDirectionAssessTool(options?.directionAssessment));
