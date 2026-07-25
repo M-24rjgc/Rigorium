@@ -1,0 +1,38 @@
+{
+  "name": "rigorium-review",
+  "version": "0.1.0",
+  "description": "Rigorium multi-review boundary: deterministic manuscript preflight, seven independent reviewer lanes, contradiction-preserving findings, and artifact-routed revision decisions.",
+  "skills": "skills",
+  "settings": {
+    "interfaceVersion": 1,
+    "reviewerLanes": [
+      "method",
+      "theory",
+      "statistics",
+      "evidence",
+      "novelty",
+      "writing",
+      "target_fit"
+    ],
+    "preflightChecks": [
+      "compile_render",
+      "citation_completeness",
+      "page_limit",
+      "anonymity",
+      "figure_table_provenance"
+    ],
+    "findingPolicy": {
+      "anchored": true,
+      "genericScores": false,
+      "preserveContradictions": true
+    },
+    "revisionPolicy": {
+      "explicitDecisionRequired": true,
+      "invalidateDescendantsOnly": true,
+      "reviewerResponseWorkflow": false,
+      "submissionWorkflow": false
+    },
+    "workflowController": "none",
+    "currentIncrement": "preflight-seven-lane-review-artifact-routed-revision"
+  }
+}

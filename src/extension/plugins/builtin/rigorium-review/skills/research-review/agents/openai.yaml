@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Review"
+  short_description: "Run independent, artifact-linked manuscript reviews"
+  default_prompt: "Use $research-review to run a complete anchored review round or record its revision decision."
