@@ -219,6 +219,27 @@ test("OpenAlex paratext and null terminology fields produce no usable terminolog
   });
 });
 
+test("OpenAlex strips natural-language wildcard punctuation from the provider query", async () => {
+  const requested: string[] = [];
+  const source = createOpenAlexSource({
+    endpoint: OPENALEX_ENDPOINT,
+    fetchImpl: async (input) => {
+      requested.push(String(input));
+      return jsonResponse({ meta: { count: 0 }, results: [] });
+    },
+  });
+
+  const result = await source.search({
+    query: "How do retrieval augmented generation systems reduce hallucination?",
+    limit: 3,
+    sort: "relevance",
+    sourceIds: ["openalex"],
+  });
+
+  assert.equal(new URL(requested[0] ?? "").searchParams.get("search"), "How do retrieval augmented generation systems reduce hallucination");
+  assert.equal(result.source.status, "ok");
+});
+
 test("OpenAlex 429 is not retried and retains readable quota state", async () => {
   let calls = 0;
   const source = createOpenAlexSource({

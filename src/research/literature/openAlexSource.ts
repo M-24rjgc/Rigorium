@@ -153,7 +153,7 @@ export function createOpenAlexSource(options: CreateOpenAlexSourceOptions = {}):
 
 function buildOpenAlexUrl(endpoint: string, plan: SearchPlan, mailto?: string): URL {
   const url = new URL(endpoint);
-  url.searchParams.set("search", plan.query);
+  url.searchParams.set("search", normalizeOpenAlexSearchQuery(plan.query));
   url.searchParams.set("per-page", String(plan.limit));
   url.searchParams.set("select", OPENALEX_SEARCH_FIELDS);
   if (mailto?.trim()) url.searchParams.set("mailto", mailto.trim());
@@ -165,6 +165,16 @@ function buildOpenAlexUrl(endpoint: string, plan: SearchPlan, mailto?: string): 
   if (plan.sort === "cited_by_count") url.searchParams.set("sort", "cited_by_count:desc");
   if (plan.sort === "publication_date") url.searchParams.set("sort", "publication_date:desc");
   return url;
+}
+
+/**
+ * OpenAlex interprets ? and * as wildcard syntax even when they originate
+ * from ordinary natural-language punctuation. Keep the user's original query
+ * in the search plan and normalize only the provider request.
+ */
+function normalizeOpenAlexSearchQuery(query: string): string {
+  const normalized = query.replace(/[?*]+/gu, " ").replace(/\s+/gu, " ").trim();
+  return normalized || "search";
 }
 
 export function normalizeOpenAlexWork(
