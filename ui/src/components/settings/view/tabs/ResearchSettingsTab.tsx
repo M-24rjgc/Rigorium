@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, Input } from '../../../../shared/view/ui';
 import { authenticatedFetch } from '../../../../utils/api';
 import { getZoteroCloudStatus } from '../../../../research/zoteroCloudApi';
+import { useResearchPanel } from '../../../../contexts/ResearchPanelContext';
 import type {
   ResearchArxivSourceSettings,
   ResearchLiteratureSourceSettings,
@@ -78,6 +79,7 @@ function normalizeResearchSettingsSnapshot(snapshot: ResearchSettingsSnapshot): 
 
 export default function ResearchSettingsTab({ projects }: ResearchSettingsTabProps) {
   const { t } = useTranslation('settings');
+  const { autoOpenOnIntent, setAutoOpenOnIntent } = useResearchPanel();
   const [scope, setScope] = useState<'global' | 'project'>('global');
   const projectOptions = useMemo(() => projects.filter((project) => project.fullPath || project.path), [projects]);
   const [projectPath, setProjectPath] = useState(() => projectOptions[0]?.fullPath || projectOptions[0]?.path || '');
@@ -639,6 +641,15 @@ export default function ResearchSettingsTab({ projects }: ResearchSettingsTabPro
         <SettingsCard divided>
           <SettingsRow label={t('research.map.autoOpen', { defaultValue: 'Open panel when results arrive' })}>
             <SettingsToggle checked={draft.literature.map.autoOpen} onChange={(autoOpen) => updateMap({ autoOpen })} ariaLabel="Auto open" />
+          </SettingsRow>
+          <SettingsRow
+            label={t('research.map.autoOpenOnIntent', { defaultValue: 'Open research panel for research requests' })}
+          >
+            <SettingsToggle
+              checked={autoOpenOnIntent}
+              onChange={setAutoOpenOnIntent}
+              ariaLabel={t('research.map.autoOpenOnIntent', { defaultValue: 'Open research panel for research requests' })}
+            />
           </SettingsRow>
           <SettingsRow label={t('research.map.autoUpdate', { defaultValue: 'Update map automatically' })}>
             <SettingsToggle checked={draft.literature.map.autoUpdate} onChange={(autoUpdate) => updateMap({ autoUpdate })} ariaLabel="Auto update" />

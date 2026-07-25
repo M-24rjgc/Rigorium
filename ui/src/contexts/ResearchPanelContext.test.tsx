@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { RESEARCH_PANEL_ACTIVATE_EVENT, type ResearchPanelActivation } from '../research/activation';
 import type { ResearchArtifact } from '../research/types';
 import { directionLifecycleArtifact } from '../research/directionArtifacts.fixtures';
 import { ResearchPanelProvider, useResearchPanel } from './ResearchPanelContext';
@@ -30,6 +31,7 @@ function Harness() {
   return (
     <div>
       <span data-testid="state">{panel.isOpen ? 'open' : 'closed'}:{panel.artifact?.artifactId || 'none'}:{panel.selectedPaperId || 'none'}</span>
+      <span data-testid="activation-state">{panel.isOpen ? 'open' : 'closed'}:{panel.activation?.query || 'none'}:{panel.activationProjectPath || 'none'}:{panel.activation?.confirmationBoundaries.join(',') || 'none'}</span>
       <button onClick={() => panel.ingestArtifact(artifact('one'), 'D:/project')}>ingest one</button>
       <button onClick={panel.closePanel}>close</button>
       <button onClick={() => panel.ingestArtifact(artifact('two'), 'D:/project')}>ingest two</button>
@@ -66,5 +68,21 @@ describe('ResearchPanelContext', () => {
     expect(screen.getByTestId('state').textContent).toBe('open:one:paper-one');
     fireEvent.click(screen.getByText('ingest lifecycle'));
     expect(screen.getByTestId('state').textContent).toBe('open:direction-lifecycle-fixture:none');
+  });
+
+  it('opens on a valid natural-language activation and retains its project boundary', () => {
+    const activation: ResearchPanelActivation = {
+      query: 'Capture an experiment snapshot.',
+      intents: ['experiment'],
+      confirmationBoundaries: ['snapshot'],
+      activatedAt: '2026-07-26T00:00:00.000Z',
+    };
+    render(<ResearchPanelProvider><Harness /></ResearchPanelProvider>);
+
+    fireEvent(window, new CustomEvent(RESEARCH_PANEL_ACTIVATE_EVENT, {
+      detail: { activation, projectPath: 'D:/project-one' },
+    }));
+
+    expect(screen.getByTestId('activation-state').textContent).toBe('open:Capture an experiment snapshot.:D:/project-one:snapshot');
   });
 });

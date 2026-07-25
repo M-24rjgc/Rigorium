@@ -541,6 +541,63 @@
     "reopen": "Open research panel",
     "map": "Map",
     "papers": "Papers",
+    "views": "Research views",
+    "activation": {
+      "title": "Research workspace",
+      "pending": "Research context is ready for the current request.",
+      "intentLabel": "Research intent",
+      "intents": {
+        "analysis": "Analysis",
+        "direction": "Direction",
+        "experiment": "Experiment",
+        "literature": "Literature",
+        "manuscript": "Manuscript"
+      }
+    },
+    "activity": {
+      "tools": {
+        "experiment_analysis": "Experiment analysis",
+        "experiment_control": "Experiment control",
+        "experiment_remote": "Remote experiment",
+        "manuscript_latex": "Manuscript",
+        "research_artifacts": "Research artifacts",
+        "research_brief": "Research brief",
+        "research_design": "Research design",
+        "research_director": "Research director",
+        "research_method": "Research method",
+        "research_review": "Research review"
+      },
+      "status": {
+        "complete": "Completed",
+        "attention": "Needs attention",
+        "requires_confirmation": "Awaiting confirmation"
+      },
+      "details": {
+        "action": "Action",
+        "analysis_id": "Analysis",
+        "artifact_id": "Artifact",
+        "count": "Count",
+        "decision": "Decision",
+        "job_id": "Job",
+        "job_status": "Job status",
+        "operation": "Operation",
+        "plan_id": "Plan",
+        "revision": "Revision",
+        "status": "Status"
+      }
+    },
+    "confirmation": {
+      "boundary": "Confirmation boundary",
+      "required": "Confirmation required",
+      "boundaries": {
+        "artifact_invalidation": "Artifact invalidation",
+        "export": "Export",
+        "final_title": "Final title",
+        "remote_execution": "Remote execution",
+        "snapshot": "Snapshot",
+        "zotero_write": "Zotero write"
+      }
+    },
     "resultSummary": "{{papers}} papers · {{edges}} relationships",
     "sources": "Sources and coverage",
     "openPaper": "Open",

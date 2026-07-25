@@ -809,9 +809,9 @@ describe('ResearchPanel', () => {
       expect(screen.getByTestId('literature-map-node-W2').getAttribute('data-paper-states')).toContain('core');
 
       fireEvent.click(screen.getByRole('button', { name: 'Set seed / 设为种子' }));
-      fireEvent.click(screen.getByRole('button', { name: /Papers|论文/i }));
+      fireEvent.click(screen.getByRole('tab', { name: /Papers|论文/i }));
       expect(screen.getByTestId('research-paper-seed-W2').textContent).toContain('Seed');
-      fireEvent.click(screen.getByRole('button', { name: /Map|地图/i }));
+      fireEvent.click(screen.getByRole('tab', { name: /Map|地图/i }));
 
       fireEvent.click(screen.getByRole('button', { name: 'Add to chat / 加入对话' }));
       expect(draftInsert).toHaveBeenCalledTimes(1);
@@ -946,7 +946,7 @@ describe('ResearchPanel', () => {
     expect(provenance.textContent).toContain('Record 10.1000/first');
     expect(provenance.textContent).toContain('Rank 4');
 
-    fireEvent.click(screen.getByRole('button', { name: /Papers|论文/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Papers|论文/i }));
     expect(screen.getAllByLabelText('Sources: OpenAlex, Crossref').length).toBeGreaterThan(0);
 
     const panelRoot = container.firstElementChild as HTMLElement;
@@ -1138,7 +1138,7 @@ describe('ResearchPanel', () => {
       'arXiv does not expose cited-by counts; requested ranking was downgraded to relevance.',
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Papers|论文/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Papers|论文/i }));
     expect(screen.getAllByLabelText('Sources: arXiv').length).toBeGreaterThan(0);
     expect(screen.getByTestId('paper-provenance-arxiv:2607.00001').textContent).toContain('arXiv');
   });
@@ -1185,7 +1185,7 @@ describe('ResearchPanel', () => {
     expect(citationEdge.getAttribute('data-target')).toBe('Wseed');
     expect(container.textContent).not.toContain('Shared topic (inferred)');
 
-    fireEvent.click(screen.getByRole('button', { name: /Papers|文献/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Papers|文献/i }));
     expect(screen.getByTestId('research-paper-seed-Wseed').textContent).toContain('Seed');
     expect(screen.getByText('Reference paper')).not.toBeNull();
     expect(screen.getByText('Citing paper')).not.toBeNull();
@@ -1238,7 +1238,7 @@ describe('ResearchPanel', () => {
       </I18nextProvider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Papers|论文/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Papers|论文/i }));
     expect((await screen.findAllByText(/In collection|已在 Collection/i)).length).toBeGreaterThan(0);
     expect(screen.getByText(/Possible Zotero match|可能的 Zotero 匹配/i)).not.toBeNull();
 
@@ -1249,7 +1249,7 @@ describe('ResearchPanel', () => {
     const matchCall = vi.mocked(authenticatedFetch).mock.calls.find(([url]) => url === '/api/research/zotero/match');
     expect(requestBody(matchCall)).toContain('"collectionKey":"COLL1"');
 
-    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^(Collection|收藏夹)$/i }));
     expect(await screen.findByText('Saved collection paper')).not.toBeNull();
     expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => (
       String(url).startsWith('/api/research/zotero/items?') && String(url).includes('collectionKey=COLL1')
@@ -1272,7 +1272,7 @@ describe('ResearchPanel', () => {
       undefined,
     ));
 
-    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^(Collection|收藏夹)$/i }));
     await screen.findByText('Saved collection paper');
 
     await waitFor(() => expect(literatureMapApiMocks.updateProjectLiteratureMap).toHaveBeenCalledWith(
@@ -1344,7 +1344,7 @@ describe('ResearchPanel', () => {
     );
 
     await waitFor(() => expect(literatureMapApiMocks.updateProjectLiteratureMap).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^(Collection|收藏夹)$/i }));
     await screen.findByText('Map-ready Zotero paper');
 
     await waitFor(() => {
@@ -1374,13 +1374,13 @@ describe('ResearchPanel', () => {
     );
 
     expect(await screen.findByText('Zotero Desktop is not running.')).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^(Collection|收藏夹)$/i }));
     expect((await screen.findAllByText('Zotero Desktop is not running.')).length).toBeGreaterThan(0);
     expect(screen.queryByText(/No items found|没有找到文献/i)).toBeNull();
     expect(literatureMapApiMocks.updateProjectLiteratureMap.mock.calls.some(([, , update]) => update.origin === 'zotero')).toBe(false);
     expect(screen.getByTestId('zotero-map-sync-notice').textContent).toContain('Zotero collection could not be loaded; the project map was not changed.');
 
-    fireEvent.click(screen.getByRole('button', { name: /^(Papers|文献)$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^(Papers|文献)$/i }));
     expect(screen.getAllByText('First research paper').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Second research paper').length).toBeGreaterThan(0);
   });
@@ -1408,7 +1408,7 @@ describe('ResearchPanel', () => {
     const matchCall = vi.mocked(authenticatedFetch).mock.calls.find(([url]) => url === '/api/research/zotero/match');
     expect(requestBody(matchCall)).not.toContain('collectionKey');
 
-    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^(Collection|收藏夹)$/i }));
     expect(await screen.findByText(/No Zotero collection is bound|尚未绑定 Zotero Collection/i)).not.toBeNull();
     expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).startsWith('/api/research/zotero/items?'))).toBe(false);
   });
@@ -1428,7 +1428,7 @@ describe('ResearchPanel', () => {
       </I18nextProvider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^(Collection|收藏夹)$/i }));
     await screen.findByText('Saved collection paper');
     expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/fulltext'))).toBe(false);
     expect(vi.mocked(authenticatedFetch).mock.calls.some(([url]) => String(url).includes('/export'))).toBe(false);
@@ -1475,7 +1475,7 @@ describe('ResearchPanel', () => {
       </I18nextProvider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^(Collection|收藏夹)$/i }));
     await screen.findByText('Saved collection paper');
     fireEvent.click(screen.getByRole('button', { name: /Show details for Saved collection paper/i }));
     await screen.findByText('scan.pdf');
@@ -1495,7 +1495,7 @@ describe('ResearchPanel', () => {
       </I18nextProvider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^(Collection|收藏夹)$/i }));
     await screen.findByText('Saved collection paper');
     fireEvent.click(screen.getByRole('button', { name: /Show details for Saved collection paper/i }));
     await screen.findByText('Metadata');
@@ -1530,7 +1530,7 @@ describe('ResearchPanel', () => {
       </I18nextProvider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^(Collection|收藏夹)$/i }));
     await screen.findByText('Saved collection paper');
     fireEvent.click(screen.getByRole('button', { name: /Show details for Saved collection paper/i }));
     await screen.findByText('Metadata');
@@ -1582,7 +1582,7 @@ describe('ResearchPanel', () => {
       </I18nextProvider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^(Collection|收藏夹)$/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^(Collection|收藏夹)$/i }));
     await screen.findByText('Saved collection paper');
     fireEvent.click(screen.getByRole('button', { name: /Show details for Saved collection paper/i }));
     await screen.findByText('Metadata');

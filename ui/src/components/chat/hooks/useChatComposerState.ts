@@ -11,6 +11,7 @@ import type {
 } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { authenticatedFetch } from '../../../utils/api';
+import { requestResearchPanelActivation } from '../../../research/activation';
 import {
   appendChatDraftText,
   CHAT_DRAFT_INSERT_EVENT,
@@ -908,6 +909,10 @@ export function useChatComposerState({
 
       const userVisibleInput = currentInput.trim()
         || (hasDocumentReferences ? referenceOnlyPrompt : 'Please review the attached file(s).');
+      requestResearchPanelActivation(
+        userVisibleInput,
+        selectedProject?.fullPath || selectedProject?.path || null,
+      );
       let messageContent = userVisibleInput;
 
       // Pin the target session before any await so attachment upload cannot

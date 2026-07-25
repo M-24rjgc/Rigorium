@@ -636,13 +636,18 @@ function SplitBody(props: SplitBodyProps) {
     : RESEARCH_PANEL_MAX_WIDTH;
   const currentProjectPath = normalizeComparablePath(selectedProject?.fullPath || selectedProject?.path);
   const artifactProjectPath = normalizeComparablePath(researchPanel.artifactProjectPath);
+  const activationProjectPath = normalizeComparablePath(researchPanel.activationProjectPath);
   const researchArtifactMatchesProject = Boolean(
     researchPanel.artifact
     && (!artifactProjectPath || !currentProjectPath || artifactProjectPath === currentProjectPath),
   );
+  const researchActivationMatchesProject = Boolean(
+    researchPanel.activation
+    && (!activationProjectPath || !currentProjectPath || activationProjectPath === currentProjectPath),
+  );
   const showResearchPanel = activeTab === 'chat'
     && researchPanel.isOpen
-    && researchArtifactMatchesProject
+    && (researchArtifactMatchesProject || researchActivationMatchesProject)
     && !dashboardPanelTab;
   const displayedResearchPanelWidth = researchPanel.isExpanded
     ? researchPanelMaxWidth
@@ -1088,7 +1093,7 @@ function SplitBody(props: SplitBodyProps) {
         </ToolSidePanel>
       ) : null}
 
-      {showResearchPanel && researchPanel.artifact ? (
+      {showResearchPanel && (researchPanel.artifact || researchPanel.activation) ? (
         <ToolSidePanel
           title={t('researchPanel.title', { defaultValue: 'Research' })}
           icon={Library}
@@ -1108,12 +1113,13 @@ function SplitBody(props: SplitBodyProps) {
         >
           <ResearchPanel
             artifact={researchPanel.artifact}
+            activation={researchPanel.activation}
             projectPath={selectedProject?.fullPath || selectedProject?.path}
           />
         </ToolSidePanel>
       ) : null}
 
-      {activeTab === 'chat' && researchArtifactMatchesProject && !showResearchPanel ? (
+      {activeTab === 'chat' && (researchArtifactMatchesProject || researchActivationMatchesProject) && !showResearchPanel ? (
         <button
           type="button"
           onClick={researchPanel.openPanel}

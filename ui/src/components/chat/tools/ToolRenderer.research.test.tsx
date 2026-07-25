@@ -102,6 +102,12 @@ function Probe() {
   return <span data-testid="research-state">{panel.isOpen ? 'open' : 'closed'}:{panel.artifact?.artifactId || 'none'}:{panel.artifactProjectPath || 'none'}:{panel.selectedPaperId || 'none'}</span>;
 }
 
+function ActivityProbe() {
+  const panel = useResearchPanel();
+  const activity = panel.artifact?.kind === 'research_tool_activity' ? panel.artifact : null;
+  return <span data-testid="research-activity-state">{panel.isOpen ? 'open' : 'closed'}:{activity?.kind || 'none'}:{panel.artifactProjectPath || 'none'}:{activity?.confirmationBoundaries.join(',') || 'none'}</span>;
+}
+
 describe('ToolRenderer literature integration', () => {
   afterEach(() => cleanup());
 
@@ -162,6 +168,26 @@ describe('ToolRenderer literature integration', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('research-state').textContent).toContain('open:tool-renderer-direction-artifact:D:/project:none');
+    });
+  });
+
+  it('publishes a snapshot activity with its explicit confirmation boundary', async () => {
+    render(
+      <ResearchPanelProvider>
+        <ToolRenderer
+          toolName="research_method"
+          toolInput={{ action: 'capture_snapshot' }}
+          toolResult={{ content: 'done', isError: false, toolUseResult: { data: { action: 'capture_snapshot', artifactId: 'snapshot-activity' } } }}
+          toolId="call-snapshot"
+          mode="result"
+          selectedProject={{ name: 'project', displayName: 'Project', fullPath: 'D:/project' }}
+        />
+        <ActivityProbe />
+      </ResearchPanelProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('research-activity-state').textContent).toBe('open:research_tool_activity:D:/project:snapshot');
     });
   });
 

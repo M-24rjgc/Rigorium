@@ -1434,6 +1434,7 @@
     "map": {
       "title": "Research panel and map",
       "autoOpen": "Open panel when results arrive",
+      "autoOpenOnIntent": "Open research panel for research requests",
       "autoUpdate": "Update map automatically",
       "topicEdges": "Show shared-topic links",
       "topicEdgesDescription": "These links are inferred and visually distinguished from real citations."

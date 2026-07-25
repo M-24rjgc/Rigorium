@@ -539,6 +539,63 @@
     "reopen": "打开科研面板",
     "map": "地图",
     "papers": "文献",
+    "views": "科研视图",
+    "activation": {
+      "title": "科研工作区",
+      "pending": "当前请求的科研上下文已就绪。",
+      "intentLabel": "科研意图",
+      "intents": {
+        "analysis": "分析",
+        "direction": "研究方向",
+        "experiment": "实验",
+        "literature": "文献",
+        "manuscript": "论文"
+      }
+    },
+    "activity": {
+      "tools": {
+        "experiment_analysis": "实验分析",
+        "experiment_control": "实验控制",
+        "experiment_remote": "远程实验",
+        "manuscript_latex": "论文稿件",
+        "research_artifacts": "科研工件",
+        "research_brief": "研究摘要",
+        "research_design": "研究设计",
+        "research_director": "研究总控",
+        "research_method": "研究方法",
+        "research_review": "科研评审"
+      },
+      "status": {
+        "complete": "已完成",
+        "attention": "需要关注",
+        "requires_confirmation": "等待确认"
+      },
+      "details": {
+        "action": "动作",
+        "analysis_id": "分析",
+        "artifact_id": "工件",
+        "count": "数量",
+        "decision": "决策",
+        "job_id": "任务",
+        "job_status": "任务状态",
+        "operation": "操作",
+        "plan_id": "计划",
+        "revision": "修订版",
+        "status": "状态"
+      }
+    },
+    "confirmation": {
+      "boundary": "确认边界",
+      "required": "需要确认",
+      "boundaries": {
+        "artifact_invalidation": "工件失效",
+        "export": "导出",
+        "final_title": "最终标题",
+        "remote_execution": "远程执行",
+        "snapshot": "快照",
+        "zotero_write": "写入 Zotero"
+      }
+    },
     "resultSummary": "{{papers}} 篇文献 · {{edges}} 条关系",
     "sources": "来源与覆盖状态",
     "openPaper": "打开原文",

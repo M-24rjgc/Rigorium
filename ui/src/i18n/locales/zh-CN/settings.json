@@ -1428,6 +1428,7 @@
     "map": {
       "title": "科研面板与地图",
       "autoOpen": "结果返回时自动打开面板",
+      "autoOpenOnIntent": "科研请求时打开科研面板",
       "autoUpdate": "自动更新文献地图",
       "topicEdges": "显示共享主题关系",
       "topicEdgesDescription": "此类关系属于推断关系，会与真实引用边明确区分。"

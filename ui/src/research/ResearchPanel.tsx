@@ -28,6 +28,7 @@ import { authenticatedFetch } from '../utils/api';
 import { CHAT_DRAFT_INSERT_EVENT } from '../utils/chatDraftInsertion';
 import { cn } from '../lib/utils';
 import { useResearchPanel } from '../contexts/ResearchPanelContext';
+import type { ResearchPanelActivation } from './activation';
 import {
   copyZoteroExportText,
   downloadZoteroExportText,
@@ -56,6 +57,9 @@ import {
 import LiteratureMaintenancePanel from './LiteratureMaintenancePanel';
 import type {
   ResearchPanelArtifact,
+  ResearchPanelEntry,
+  ResearchToolActivity,
+  ResearchConfirmationBoundary,
   LiteratureResearchArtifact,
   LiteratureSearchArtifact,
   LiteratureExpansionDirectionResult,
@@ -86,7 +90,8 @@ import type {
 } from './types';
 
 type ResearchPanelProps = {
-  artifact: ResearchPanelArtifact;
+  artifact?: ResearchPanelEntry | null;
+  activation?: ResearchPanelActivation | null;
   projectPath?: string;
 };
 
@@ -110,7 +115,13 @@ type ZoteroMapSyncNotice = {
   text: string;
 };
 
-export default function ResearchPanel({ artifact, projectPath }: ResearchPanelProps) {
+export default function ResearchPanel({ artifact, activation, projectPath }: ResearchPanelProps) {
+  if (!artifact) {
+    return <ResearchActivationPanel activation={activation ?? null} />;
+  }
+  if (artifact.kind === 'research_tool_activity') {
+    return <ResearchToolActivityPanel activity={artifact} />;
+  }
   if (artifact.kind === 'research_direction_seed') {
     return <ResearchDirectionPanel artifact={artifact} />;
   }
@@ -124,6 +135,194 @@ export default function ResearchPanel({ artifact, projectPath }: ResearchPanelPr
     return <ResearchDirectionLifecyclePanel artifact={artifact} />;
   }
   return <LiteratureResearchPanel artifact={artifact} projectPath={projectPath} />;
+}
+
+function ResearchActivationPanel({ activation }: { activation: ResearchPanelActivation | null }) {
+  const { t } = useTranslation();
+  const intents = activation?.intents ?? [];
+  const boundaries = activation?.confirmationBoundaries ?? [];
+  return (
+    <div data-testid="research-intent-activation" className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-neutral-50/70 dark:bg-neutral-950">
+      <section className="border-b border-neutral-200 bg-white px-4 py-4 dark:border-neutral-800 dark:bg-neutral-950">
+        <div className="flex items-start gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300">
+            <Search className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-[13px] font-semibold text-neutral-900 dark:text-neutral-100">
+              {t('researchPanel.activation.title', { defaultValue: 'Research workspace' })}
+            </h2>
+            <p className="mt-0.5 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+              {t('researchPanel.activation.pending', { defaultValue: 'Research context is ready for the current request.' })}
+            </p>
+          </div>
+        </div>
+      </section>
+      {intents.length > 0 ? (
+        <section className="border-b border-neutral-200 px-4 py-3 dark:border-neutral-800" aria-label={t('researchPanel.activation.intentLabel', { defaultValue: 'Research intent' })}>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+            {t('researchPanel.activation.intentLabel', { defaultValue: 'Research intent' })}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {intents.map((intent) => (
+              <span key={intent} className="rounded border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-medium text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-300">
+                {researchIntentLabel(intent, t)}
+              </span>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      <ConfirmationBoundaryNotice boundaries={boundaries} status="complete" />
+    </div>
+  );
+}
+
+function ResearchToolActivityPanel({ activity }: { activity: ResearchToolActivity }) {
+  const { t } = useTranslation();
+  const statusStyle = activity.status === 'complete'
+    ? 'text-emerald-700 dark:text-emerald-300'
+    : activity.status === 'requires_confirmation'
+      ? 'text-amber-700 dark:text-amber-300'
+      : 'text-rose-700 dark:text-rose-300';
+  return (
+    <div data-testid={`research-tool-activity-${activity.toolName}`} className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-neutral-50/70 dark:bg-neutral-950">
+      <section className="border-b border-neutral-200 bg-white px-4 py-4 dark:border-neutral-800 dark:bg-neutral-950">
+        <div className="flex items-start gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300">
+            <FileText className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[13px] font-semibold text-neutral-900 dark:text-neutral-100">
+              {researchToolLabel(activity.toolName, t)}
+            </h2>
+            <p className={cn('mt-0.5 text-[11px] font-medium', statusStyle)}>
+              {researchActivityStatusLabel(activity.status, t)}
+            </p>
+          </div>
+        </div>
+      </section>
+      {activity.details.length > 0 ? (
+        <dl className="divide-y divide-neutral-200 bg-white dark:divide-neutral-800 dark:bg-neutral-950">
+          {activity.details.map((detail) => (
+            <div key={`${detail.key}:${detail.value}`} className="flex min-w-0 items-center justify-between gap-3 px-4 py-2.5">
+              <dt className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-neutral-400">
+                {researchActivityDetailLabel(detail.key, t)}
+              </dt>
+              <dd className="min-w-0 break-all text-right text-[11px] text-neutral-700 dark:text-neutral-300">
+                {detail.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      <ConfirmationBoundaryNotice boundaries={activity.confirmationBoundaries} status={activity.status} />
+    </div>
+  );
+}
+
+function ConfirmationBoundaryNotice({
+  boundaries,
+  status,
+}: {
+  boundaries: ResearchConfirmationBoundary[];
+  status: ResearchToolActivity['status'];
+}) {
+  const { t } = useTranslation();
+  if (boundaries.length === 0) return null;
+  return (
+    <section
+      data-testid="research-confirmation-boundaries"
+      role={status === 'requires_confirmation' ? 'alert' : 'status'}
+      className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/25 dark:text-amber-100"
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold">
+            {status === 'requires_confirmation'
+              ? t('researchPanel.confirmation.required', { defaultValue: 'Confirmation required' })
+              : t('researchPanel.confirmation.boundary', { defaultValue: 'Confirmation boundary' })}
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {boundaries.map((boundary) => (
+              <span key={boundary} className="rounded border border-amber-300/70 bg-white/50 px-1.5 py-0.5 text-[10px] font-medium dark:border-amber-700/80 dark:bg-black/10">
+                {researchConfirmationBoundaryLabel(boundary, t)}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function researchIntentLabel(intent: ResearchPanelActivation['intents'][number], t: TFunction): string {
+  return t(`researchPanel.activation.intents.${intent}`, {
+    defaultValue: intent === 'analysis'
+      ? 'Analysis'
+      : intent === 'direction'
+        ? 'Direction'
+        : intent === 'experiment'
+          ? 'Experiment'
+          : intent === 'literature'
+            ? 'Literature'
+            : 'Manuscript',
+  });
+}
+
+function researchToolLabel(toolName: string, t: TFunction): string {
+  const defaults: Record<string, string> = {
+    experiment_analysis: 'Experiment analysis',
+    experiment_control: 'Experiment control',
+    experiment_remote: 'Remote experiment',
+    manuscript_latex: 'Manuscript',
+    research_artifacts: 'Research artifacts',
+    research_brief: 'Research brief',
+    research_design: 'Research design',
+    research_director: 'Research director',
+    research_method: 'Research method',
+    research_review: 'Research review',
+  };
+  return t(`researchPanel.activity.tools.${toolName}`, { defaultValue: defaults[toolName] ?? 'Research activity' });
+}
+
+function researchActivityStatusLabel(status: ResearchToolActivity['status'], t: TFunction): string {
+  return t(`researchPanel.activity.status.${status}`, {
+    defaultValue: status === 'complete'
+      ? 'Completed'
+      : status === 'requires_confirmation'
+        ? 'Awaiting confirmation'
+        : 'Needs attention',
+  });
+}
+
+function researchActivityDetailLabel(key: ResearchToolActivity['details'][number]['key'], t: TFunction): string {
+  const defaults: Record<ResearchToolActivity['details'][number]['key'], string> = {
+    action: 'Action',
+    analysis_id: 'Analysis',
+    artifact_id: 'Artifact',
+    count: 'Count',
+    decision: 'Decision',
+    job_id: 'Job',
+    job_status: 'Job status',
+    operation: 'Operation',
+    plan_id: 'Plan',
+    revision: 'Revision',
+    status: 'Status',
+  };
+  return t(`researchPanel.activity.details.${key}`, { defaultValue: defaults[key] });
+}
+
+function researchConfirmationBoundaryLabel(boundary: ResearchConfirmationBoundary, t: TFunction): string {
+  const defaults: Record<ResearchConfirmationBoundary, string> = {
+    artifact_invalidation: 'Artifact invalidation',
+    export: 'Export',
+    final_title: 'Final title',
+    remote_execution: 'Remote execution',
+    snapshot: 'Snapshot',
+    zotero_write: 'Zotero write',
+  };
+  return t(`researchPanel.confirmation.boundaries.${boundary}`, { defaultValue: defaults[boundary] });
 }
 
 function LiteratureResearchPanel({ artifact, projectPath }: {
@@ -673,11 +872,19 @@ function LiteratureResearchPanel({ artifact, projectPath }: {
             </p>
           </div>
         </div>
-        <div className="mt-3 grid grid-cols-3 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-900">
+        <div
+          className="mt-3 grid grid-cols-3 rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-900"
+          role="tablist"
+          aria-label={t('researchPanel.views', { defaultValue: 'Research views' })}
+        >
           {(['map', 'papers', 'collection'] as const).map((tab) => (
             <button
               key={tab}
               type="button"
+              role="tab"
+              id={`research-panel-${tab}-tab`}
+              aria-controls={`research-panel-${tab}-tabpanel`}
+              aria-selected={view === tab}
               onClick={() => setView(tab)}
               className={cn(
                 'rounded-md px-2 py-1.5 text-[12px] font-medium transition',
@@ -696,7 +903,12 @@ function LiteratureResearchPanel({ artifact, projectPath }: {
         </div>
       </div>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div
+        id={`research-panel-${view}-tabpanel`}
+        role="tabpanel"
+        aria-labelledby={`research-panel-${view}-tab`}
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
+      >
         <CoverageSummary artifact={artifact} sourceNameById={sourceNameById} />
         {artifact.kind === 'literature_search' ? (
           <>

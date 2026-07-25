@@ -633,6 +633,51 @@ export type ResearchPanelArtifact =
   | ResearchTitleConfirmationArtifact
   | ResearchDirectionLifecycleArtifact;
 
+/**
+ * UI-only summary of a completed research tool call. It deliberately keeps
+ * the tool's structured identifiers and counters, rather than mirroring a
+ * backend artifact contract or treating arbitrary output text as state.
+ */
+export const RESEARCH_CONFIRMATION_BOUNDARIES = [
+  'artifact_invalidation',
+  'export',
+  'final_title',
+  'remote_execution',
+  'snapshot',
+  'zotero_write',
+] as const;
+
+export type ResearchConfirmationBoundary = typeof RESEARCH_CONFIRMATION_BOUNDARIES[number];
+
+export type ResearchToolActivityDetailKey =
+  | 'action'
+  | 'analysis_id'
+  | 'artifact_id'
+  | 'count'
+  | 'decision'
+  | 'job_id'
+  | 'job_status'
+  | 'operation'
+  | 'plan_id'
+  | 'revision'
+  | 'status';
+
+export type ResearchToolActivity = {
+  schemaVersion: 1;
+  kind: 'research_tool_activity';
+  artifactId: string;
+  createdAt: string;
+  toolName: string;
+  status: 'complete' | 'attention' | 'requires_confirmation';
+  details: Array<{
+    key: ResearchToolActivityDetailKey;
+    value: string;
+  }>;
+  confirmationBoundaries: ResearchConfirmationBoundary[];
+};
+
+export type ResearchPanelEntry = ResearchPanelArtifact | ResearchToolActivity;
+
 export type ResearchSettingsSnapshot = {
   global: ResearchSettings;
   projectOverride: { enabled: boolean; path: string; settings: ResearchSettings } | null;
@@ -889,6 +934,52 @@ export function isResearchArtifact(value: unknown): value is ResearchPanelArtifa
     && reportedDirections.size === value.directions.length
     && plannedDirections.size === reportedDirections.size
     && [...plannedDirections].every((direction) => reportedDirections.has(direction));
+}
+
+export function isResearchPanelEntry(value: unknown): value is ResearchPanelEntry {
+  return isResearchArtifact(value) || isResearchToolActivity(value);
+}
+
+export function isResearchToolActivity(value: unknown): value is ResearchToolActivity {
+  if (!isRecord(value)
+    || value.schemaVersion !== 1
+    || value.kind !== 'research_tool_activity'
+    || !isNonEmptyString(value.artifactId)
+    || !isNonEmptyString(value.createdAt)
+    || !isNonEmptyString(value.toolName)
+    || (value.status !== 'complete' && value.status !== 'attention' && value.status !== 'requires_confirmation')
+    || !Array.isArray(value.details)
+    || !value.details.every(isResearchToolActivityDetail)
+    || !Array.isArray(value.confirmationBoundaries)
+    || !value.confirmationBoundaries.every(isResearchConfirmationBoundary)) {
+    return false;
+  }
+  return new Set(value.confirmationBoundaries).size === value.confirmationBoundaries.length;
+}
+
+function isResearchToolActivityDetail(value: unknown): value is ResearchToolActivity['details'][number] {
+  return isRecord(value)
+    && typeof value.key === 'string'
+    && [
+      'action',
+      'analysis_id',
+      'artifact_id',
+      'count',
+      'decision',
+      'job_id',
+      'job_status',
+      'operation',
+      'plan_id',
+      'revision',
+      'status',
+    ].includes(value.key)
+    && isNonEmptyString(value.value);
+}
+
+function isResearchConfirmationBoundary(value: unknown): value is ResearchConfirmationBoundary {
+  return typeof value === 'string' && RESEARCH_CONFIRMATION_BOUNDARIES.includes(
+    value as ResearchConfirmationBoundary,
+  );
 }
 
 export function isResearchDirectionSeedArtifact(value: unknown): value is ResearchDirectionSeedArtifact {

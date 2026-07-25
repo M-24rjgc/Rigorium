@@ -1,6 +1,7 @@
 import React, { memo, useMemo, useCallback, useEffect } from 'react';
 import { useResearchPanel } from '../../../contexts/ResearchPanelContext';
-import { isResearchArtifact, type ResearchPanelArtifact } from '../../../research/types';
+import { isResearchArtifact, type ResearchPanelEntry } from '../../../research/types';
+import { createResearchToolActivity } from '../../../research/toolActivity';
 import type { Project } from '../../../types/app';
 import type { SubagentChildTool } from '../types/types';
 import { getCanonicalToolName, getToolConfig } from './configs/toolConfigs';
@@ -148,25 +149,22 @@ const ToolRendererInner: React.FC<ToolRendererProps> = ({
     }
   }, [mode, toolInput, toolResult]);
 
-  const researchArtifact = useMemo<ResearchPanelArtifact | null>(() => {
-    const isResearchArtifactTool = [
-      'literature_search',
-      'literature_expand',
-      'research_direction_seed',
-      'direction_assess',
-      'research_title_confirm',
-      'research_direction_lifecycle',
-    ]
-      .includes(canonicalToolName.toLowerCase());
-    if (mode !== 'result' || !isResearchArtifactTool) return null;
+  const researchPanelEntry = useMemo<ResearchPanelEntry | null>(() => {
+    if (mode !== 'result') return null;
     const candidate = toolResult?.toolUseResult ?? parsedData?.toolUseResult ?? parsedData;
-    return isResearchArtifact(candidate) ? candidate : null;
-  }, [canonicalToolName, mode, parsedData, toolResult]);
+    if (isResearchArtifact(candidate)) return candidate;
+    return createResearchToolActivity({
+      toolName: canonicalToolName,
+      toolId,
+      input: toolInput,
+      result: candidate ?? toolResult ?? parsedData,
+    });
+  }, [canonicalToolName, mode, parsedData, toolId, toolInput, toolResult]);
 
   useEffect(() => {
-    if (!researchArtifact) return;
-    ingestArtifact(researchArtifact, selectedProject?.fullPath || selectedProject?.path || null);
-  }, [ingestArtifact, researchArtifact, selectedProject?.fullPath, selectedProject?.path]);
+    if (!researchPanelEntry) return;
+    ingestArtifact(researchPanelEntry, selectedProject?.fullPath || selectedProject?.path || null);
+  }, [ingestArtifact, researchPanelEntry, selectedProject?.fullPath, selectedProject?.path]);
 
   const handleAction = useCallback(() => {
     if (displayConfig?.action === 'open-file' && onFileOpen) {
