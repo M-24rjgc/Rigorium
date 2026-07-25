@@ -36,6 +36,7 @@ export * from "./literature/terminology.js";
 export * from "./design/index.js";
 export * from "./experimentation/index.js";
 export * from "./method/index.js";
+export * from "./manuscript/index.js";
 export * from "./direction/directionAssessment.js";
 export * from "./direction/directionSeed.js";
 export * from "./direction/directionLifecycle.js";

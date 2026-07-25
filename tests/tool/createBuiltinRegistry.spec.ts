@@ -21,6 +21,7 @@ test("builtin registry registers literature deep search by default and permits e
   assert.equal(defaultRegistry.has("research_brief"), true);
   assert.equal(defaultRegistry.has("research_method"), true);
   assert.equal(defaultRegistry.has("experiment_control"), true);
+  assert.equal(defaultRegistry.has("manuscript_latex"), true);
   assert.equal(defaultRegistry.has("direction_assess"), true);
   assert.equal(defaultRegistry.has("research_direction_seed"), true);
   assert.equal(defaultRegistry.has("research_direction_lifecycle"), true);
@@ -37,6 +38,7 @@ test("builtin registry registers literature deep search by default and permits e
     researchBrief: false,
     researchMethod: false,
     experimentControl: false,
+    manuscript: false,
     directionAssessment: false,
     researchDirectionSeed: false,
     researchDirectionLifecycle: false,
@@ -51,6 +53,7 @@ test("builtin registry registers literature deep search by default and permits e
   assert.equal(disabledRegistry.has("research_brief"), false);
   assert.equal(disabledRegistry.has("research_method"), false);
   assert.equal(disabledRegistry.has("experiment_control"), false);
+  assert.equal(disabledRegistry.has("manuscript_latex"), false);
   assert.equal(disabledRegistry.has("direction_assess"), false);
   assert.equal(disabledRegistry.has("research_direction_seed"), false);
   assert.equal(disabledRegistry.has("research_direction_lifecycle"), false);
