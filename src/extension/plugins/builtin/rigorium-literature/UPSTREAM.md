@@ -1,0 +1,15 @@
+# Upstream and service boundary
+
+Audited: 2026-07-25
+
+This plugin calls official metadata services through Rigorium's Node adapters. It does not copy provider server code or bundle provider SDKs.
+
+| Upstream | What is used | License or service boundary | Runtime choice |
+| --- | --- | --- | --- |
+| [OpenAlex API](https://developers.openalex.org/api-reference/introduction) | Works metadata and relationship identifiers over HTTPS JSON | The OpenAlex standard data dump carries [CC0 1.0](https://github.com/ourresearch/openalex-guts/blob/main/files-for-datadumps/standard-format/LICENSE.txt). API authentication, pricing, and quotas remain governed by the current [OpenAlex API policy](https://developers.openalex.org/guides/authentication). | Direct HTTP keeps the Electron/Node runtime small. The current adapter does not embed an API key. Anonymous access passed the 2026-07-25 smoke test, but scaled use should expose optional key configuration because the official API is now freemium. No `openalex-guts` code is copied. |
+| [Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) | DOI and bounded bibliographic metadata over HTTPS JSON | Crossref states that almost none of its deposited metadata is copyright-restricted, while some abstracts can remain copyrighted. Provider metadata does not grant rights to linked publications. | The adapter selects a bounded field set and excludes abstracts, references, and license payloads. It uses the public REST endpoint directly, supports the documented `mailto` polite-pool parameter, and serializes/backoffs requests without an SDK. |
+| [arXiv API](https://info.arxiv.org/help/api/user-manual.html) | Preprint metadata and abstracts from the Atom feed | The [arXiv API terms](https://info.arxiv.org/help/api/tou.html) require legacy API clients to use no more than one request every three seconds on one connection. API access does not grant redistribution rights to e-prints; each paper's license still controls its content. | The shared adapter enforces the three-second request gate, bounded responses, and caching-friendly polling. Atom XML is parsed with `@rgrove/parse-xml` 4.2.2, an [ISC-licensed](https://github.com/rgrove/parse-xml/blob/v4.2.2/LICENSE) package already declared in the root manifest. |
+| [OpenReview API 2](https://docs.openreview.net/reference/api-v2) | Public note metadata for explicit official venue IDs | Metadata is read from the official API. The optional `openreview-py` client is [MIT-licensed](https://github.com/openreview/openreview-py/blob/master/LICENSE), but is not used or copied here. | A small direct JSON adapter avoids adding a Python runtime and authentication surface. It remains opt-in and refuses to infer venue or acceptance status without an official venue identifier. |
+
+Evidence snapshots may contain source text whose rights differ from metadata rights. They remain project-local, bounded, hashed, and traceable; this integration does not imply permission to redistribute paper text.
+

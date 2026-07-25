@@ -1,14 +1,30 @@
 {
   "name": "rigorium-zotero",
   "version": "0.1.0",
-  "description": "Rigorium Zotero library boundary: local status, selected collection, and explicitly confirmed metadata import.",
+  "description": "Rigorium Zotero library boundary: official Local/Web API status, selected collection, candidate monitoring, export, and explicitly confirmed writes.",
+  "skills": "skills",
   "settings": {
-    "interfaceVersion": 1,
+    "interfaceVersion": 2,
     "capabilities": [
       "library.status",
       "library.collection.selected",
-      "library.import.confirmed"
+      "library.items.read",
+      "library.attachments.read",
+      "library.export.official",
+      "library.candidate_monitor",
+      "library.import.confirmed",
+      "library.cloud.write.confirmed"
     ],
-    "currentIncrement": "local-status-and-confirmed-import"
+    "currentIncrement": "official-api-read-candidate-monitor-confirmed-write",
+    "localApi": {
+      "baseUrl": "http://127.0.0.1:23119",
+      "readOnlyByDefault": true,
+      "connectorImportRequiresConfirmation": true
+    },
+    "cloudApi": {
+      "enabled": true,
+      "transport": "existing-authorized-zotero-web-api-provider",
+      "writePlansRequireConfirmation": true
+    }
   }
 }

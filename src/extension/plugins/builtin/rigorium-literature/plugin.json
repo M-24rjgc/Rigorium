@@ -1,15 +1,33 @@
 {
   "name": "rigorium-literature",
   "version": "0.1.0",
-  "description": "Rigorium literature discovery boundary: academic sources, normalized paper identity, research artifacts, relation data, and panel rendering contracts.",
+  "description": "Rigorium literature discovery boundary: official academic metadata, evidence snapshots, candidate monitoring, novelty rescans, map relations, and panel rendering contracts.",
+  "skills": "skills",
   "settings": {
-    "interfaceVersion": 1,
+    "interfaceVersion": 2,
     "capabilities": [
       "literature.search",
       "literature.identity.normalize",
       "literature.artifact.render",
-      "literature.relationships.basic"
+      "literature.relationships.basic",
+      "literature.evidence_pack",
+      "literature.candidate_monitor",
+      "literature.novelty_value_rescan",
+      "literature.map.bridge_snapshot_diff_tombstone"
     ],
-    "currentIncrement": "openalex-search-and-basic-relationships"
+    "currentIncrement": "evidence-candidate-monitor-map-closeout",
+    "sources": {
+      "openalex": { "enabled": true, "endpoint": "https://api.openalex.org/works" },
+      "crossref": { "enabled": true, "endpoint": "https://api.crossref.org/works" },
+      "arxiv": { "enabled": true, "endpoint": "https://export.arxiv.org/api/query" },
+      "openreview": { "enabled": true, "endpoint": "https://api2.openreview.net/notes", "officialVenueIdsOnly": true }
+    },
+    "candidateMonitor": {
+      "enabled": true,
+      "candidateOnly": true,
+      "zotero": { "enabled": true, "maxItems": 500 },
+      "preprint": { "enabled": true, "sourceId": "arxiv", "limit": 25 }
+    },
+    "rescan": { "enabled": true, "maxCandidates": 24, "maxResultsPerSource": 50 }
   }
 }
