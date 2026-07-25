@@ -12,6 +12,7 @@
       "literature.relationships.basic",
       "literature.evidence_pack",
       "literature.candidate_monitor",
+      "literature.candidate_monitor.scheduled",
       "literature.novelty_value_rescan",
       "literature.map.bridge_snapshot_diff_tombstone"
     ],

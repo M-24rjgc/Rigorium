@@ -15,6 +15,9 @@ test("literature and Zotero builtins expose real discoverable skill contribution
   assert.deepEqual(literature.skills?.map((skill) => skill.name), ["rigorium-literature:literature-closeout"]);
   assert.deepEqual(zotero.skills?.map((skill) => skill.name), ["rigorium-zotero:zotero-library"]);
   assert.equal((literature.manifest.settings?.capabilities as string[]).includes("literature.evidence_pack"), true);
+  assert.equal((literature.manifest.settings?.capabilities as string[]).includes("literature.candidate_monitor.scheduled"), true);
+  assert.match(literature.skills?.[0]?.content ?? "", /cron_create/u);
+  assert.match(literature.skills?.[0]?.content ?? "", /candidate_monitor_poll/u);
   assert.equal((zotero.manifest.settings?.capabilities as string[]).includes("library.cloud.write.confirmed"), true);
 
   const root = await mkdtemp(join(tmpdir(), "rigorium-plugin-runtime-"));
