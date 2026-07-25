@@ -1,0 +1,23 @@
+{
+  "name": "rigorium-method",
+  "version": "0.1.0",
+  "description": "Rigorium theory and method implementation boundary: executable method specifications, isolated verification, and read-only implementation snapshots.",
+  "settings": {
+    "interfaceVersion": 1,
+    "capabilities": [
+      "Turn a ready research brief into an executable, cross-referenced method specification.",
+      "Describe mathematical definitions, assumptions, procedures, complexity, counterexamples, and failure boundaries.",
+      "Run unit, numerical, and smoke checks in a workspace separate from the user project.",
+      "Capture source, test, and configuration hashes without writing to or committing the user worktree.",
+      "Keep expected conclusions separate from conclusions supported by verification records."
+    ],
+    "executionPolicy": {
+      "separateWorkspaceRequired": true,
+      "shellExecution": false,
+      "snapshotReadOnly": true,
+      "autoCommit": false
+    },
+    "workflowController": "none",
+    "currentIncrement": "method-spec-isolated-verification-read-only-snapshot"
+  }
+}
