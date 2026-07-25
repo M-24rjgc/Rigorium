@@ -688,7 +688,7 @@ try {
     true,
     'The packaged terminology panel exposed a private retrieval parameter.',
   );
-  await page.getByRole('button', { name: /Collection|文献库/u }).click();
+  await page.getByRole('tab', { name: /Collection|文献库/u }).click();
   await page.getByText('Packaged Zotero item', { exact: true }).waitFor({ timeout: 30_000 });
   await page.getByRole('button', { name: /Show details for Packaged Zotero item|展开.*Packaged Zotero item/u }).click();
   await page.getByText('10.1000/packaged-verification', { exact: true }).waitFor({ timeout: 30_000 });
@@ -776,7 +776,7 @@ try {
   await citationDirection.getByText(/Partial|部分完成/u).waitFor({ timeout: 30_000 });
   await referenceDirection.getByText(/Truncated|已截断/u).waitFor({ timeout: 30_000 });
   await citationDirection.getByText(/Truncated|已截断/u).waitFor({ timeout: 30_000 });
-  await page.getByRole('button', { name: /Map|地图/u }).click();
+  await page.getByRole('tab', { name: /Map|地图/u }).click();
   await page.getByTestId('literature-map').waitFor({ timeout: 30_000 });
   assert.equal(
     await page.getByTestId('literature-map-node-https://openalex.org/W900000001').getAttribute('data-seed'),
