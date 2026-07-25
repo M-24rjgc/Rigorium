@@ -1,8 +1,8 @@
 import { createWriteStream } from "node:fs";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { join } from "node:path";
-import { getExperimentRunWorkspacePath } from "./repository.js";
+import { dirname, join } from "node:path";
+import { createExperimentRunWorkspace } from "./repository.js";
 import type {
   ExperimentSpec,
   LocalMockWorker,
@@ -15,6 +15,7 @@ import type { RunAttempt } from "./contracts.js";
 
 const MAX_WORKER_OUTPUT_BYTES = 128 * 1024;
 const MAX_WORKER_RESULT_BYTES = 4 * 1024 * 1024;
+const TERMINATION_GRACE_MS = 500;
 
 export type LocalWorkerExecution = Readonly<{
   workspacePath: string;
@@ -32,6 +33,7 @@ export class LocalWorkerFailure extends Error {
       | "timeout"
       | "cancelled"
       | "artifact_missing"
+      | "storage_error"
       | "disconnected"
       | "preempted"
       | "out_of_memory"
@@ -56,19 +58,20 @@ export async function executeLocalWorker(input: {
   if (!worker) {
     throw new LocalWorkerFailure("invalid_worker_result", "The experiment spec has no local worker definition.");
   }
-  const workspacePath = getExperimentRunWorkspacePath({
-    projectRoot: input.projectRoot,
-    attemptId: input.attempt.payload.attemptId,
-  });
-  await mkdir(workspacePath, { recursive: true });
+  let workspacePath: string;
+  try {
+    workspacePath = await createExperimentRunWorkspace({
+      projectRoot: input.projectRoot,
+      attemptId: input.attempt.payload.attemptId,
+    });
+  } catch (error) {
+    throw new LocalWorkerFailure("storage_error", `Unable to create an isolated run workspace: ${messageOf(error)}.`);
+  }
   await writeFile(
     join(workspacePath, "input.json"),
     `${JSON.stringify({ spec: input.spec.payload, attempt: input.attempt.payload }, null, 2)}\n`,
     { encoding: "utf8", flag: "wx" },
-  ).catch((error: unknown) => {
-    if (isNodeError(error, "EEXIST")) return;
-    throw error;
-  });
+  );
   if (worker.kind === "mock") return executeMockWorker(worker, workspacePath, input.abortSignal);
   return executeProcessWorker(worker, workspacePath, input.abortSignal);
 }
@@ -91,7 +94,7 @@ async function executeMockWorker(
   for (const artifact of worker.result?.artifacts ?? []) {
     const relativePath = validateRelativeWorkerPath(artifact.path);
     const fullPath = join(workspacePath, relativePath);
-    await mkdir(join(fullPath, ".."), { recursive: true });
+    await mkdir(dirname(fullPath), { recursive: true });
     await writeFile(fullPath, artifact.content ?? "", "utf8");
     artifacts.push({
       path: relativePath,
@@ -134,18 +137,23 @@ async function executeProcessWorker(
   });
 
   let timeout: NodeJS.Timeout | undefined;
+  let forceKillTimeout: NodeJS.Timeout | undefined;
   let aborted = false;
   let timedOut = false;
+  const requestTermination = () => {
+    terminate(child, "SIGTERM");
+    forceKillTimeout ??= setTimeout(() => terminate(child, "SIGKILL"), TERMINATION_GRACE_MS);
+  };
   const onAbort = () => {
     aborted = true;
-    terminate(child);
+    requestTermination();
   };
   if (abortSignal?.aborted) onAbort();
   else abortSignal?.addEventListener("abort", onAbort, { once: true });
   const timeoutMs = Math.max(1, Math.min(worker.timeoutMs ?? 300_000, 300_000));
   timeout = setTimeout(() => {
     timedOut = true;
-    terminate(child);
+    requestTermination();
   }, timeoutMs);
   let exitCode: number | null = null;
   let signal: NodeJS.Signals | null = null;
@@ -155,6 +163,7 @@ async function executeProcessWorker(
     throw new LocalWorkerFailure("worker_spawn_failed", `Unable to start worker: ${messageOf(error)}.`);
   } finally {
     if (timeout) clearTimeout(timeout);
+    if (forceKillTimeout) clearTimeout(forceKillTimeout);
     abortSignal?.removeEventListener("abort", onAbort);
   }
   await writeWorkerLog(workspacePath, "stdout.log", stdout, stdoutBytes);
@@ -262,7 +271,7 @@ function validateRelativeWorkerPath(value: string): string {
     throw new LocalWorkerFailure("invalid_worker_result", `Worker artifact path must be relative: ${value}.`);
   }
   const normalized = value.replaceAll("\\", "/");
-  if (normalized === "." || normalized.split("/").some((part) => part === "" || part === "..")) {
+  if (normalized === "." || normalized.split("/").some((part) => part === "" || part === ".." || part.includes(":") || /[. ]$/u.test(part))) {
     throw new LocalWorkerFailure("invalid_worker_result", `Worker artifact path escapes the run directory: ${value}.`);
   }
   return normalized;
@@ -297,9 +306,9 @@ function waitForChild(child: ReturnType<typeof spawn>): Promise<[number | null, 
   });
 }
 
-function terminate(child: ReturnType<typeof spawn>): void {
-  if (child.killed) return;
-  try { child.kill("SIGTERM"); } catch { /* process may have exited */ }
+function terminate(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  try { child.kill(signal); } catch { /* process may have exited */ }
 }
 
 function classifyProcessExit(exitCode: number | null, detail: string): LocalWorkerFailure {
@@ -326,9 +335,14 @@ async function waitWithAbort(delayMs: number, signal?: AbortSignal): Promise<voi
   if (signal?.aborted) throw new LocalWorkerFailure("cancelled", "Mock worker was cancelled.");
   if (delayMs === 0) return;
   await new Promise<void>((resolvePromise, reject) => {
-    const timeout = setTimeout(resolvePromise, delayMs);
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolvePromise();
+    }, delayMs);
     const onAbort = () => {
       clearTimeout(timeout);
+      cleanup();
       reject(new LocalWorkerFailure("cancelled", "Mock worker was cancelled."));
     };
     signal?.addEventListener("abort", onAbort, { once: true });

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import test from "node:test";
+import { basename, isAbsolute, join, relative } from "node:path";
+import test, { after } from "node:test";
 import {
+  ExperimentRepositoryError,
   ExperimentServiceError,
   confirmExecutionJob,
+  getProjectExperimentPaths,
   issueExecutionGrant,
   listExperimentAdapters,
   loadExperimentManifest,
@@ -17,9 +19,18 @@ import {
   submitLocalExperimentRun,
 } from "../../../src/research/experimentation/index.js";
 
+const TEST_ROOT_PREFIX = "rigorium-experiment-";
+const testRoots = new Set<string>();
+
 async function projectRoot(label: string): Promise<string> {
-  return mkdtemp(join(tmpdir(), `rigorium-experiment-${label}-`));
+  const root = await mkdtemp(join(tmpdir(), `${TEST_ROOT_PREFIX}${label}-`));
+  testRoots.add(root);
+  return root;
 }
+
+after(async () => {
+  for (const root of [...testRoots].reverse()) await removeValidatedTestRoot(root);
+});
 
 async function createSpec(root: string, options: {
   experimentId?: string;
@@ -292,3 +303,122 @@ test("candidate descriptors expose one local implementation and keep external co
     assert.equal(adapters.find((adapter) => adapter.id === id)?.status, "reserved");
   }
 });
+
+test("rejects project storage symlinks instead of following them outside the project", async (t) => {
+  const root = await projectRoot("symlink-root");
+  const outside = await projectRoot("symlink-outside");
+  try {
+    await symlink(outside, join(root, ".pilotdeck"), process.platform === "win32" ? "junction" : "dir");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EPERM") {
+      t.skip("This host does not allow creating a test directory link.");
+      return;
+    }
+    throw error;
+  }
+  await assert.rejects(
+    createSpec(root),
+    (error: unknown) => error instanceof ExperimentRepositoryError && error.code === "path_violation",
+  );
+});
+
+test("reclaims only stale locks whose owner process is gone", async () => {
+  const root = await projectRoot("stale-lock");
+  await createSpec(root);
+  const paths = getProjectExperimentPaths({ projectRoot: root });
+  await writeFile(paths.lockPath, "999999999\n0\n", "utf8");
+  const stale = new Date(Date.now() - 120_000);
+  await utimes(paths.lockPath, stale, stale);
+
+  const updated = await saveExperimentSpec({
+    projectRoot: root,
+    spec: {
+      experimentId: "experiment-main",
+      title: "Updated after stale lock recovery",
+      localWorker: { kind: "mock" },
+    },
+  });
+  assert.equal(updated.value.revision, 2);
+});
+
+test("rejects a manifest whose artifact content no longer matches its hash", async () => {
+  const root = await projectRoot("tampered-hash");
+  const saved = await createSpec(root);
+  const document = JSON.parse(await readFile(saved.path, "utf8")) as {
+    specs: Array<{ payload: { title: string } }>;
+  };
+  document.specs[0]!.payload.title = "Tampered title";
+  await writeFile(saved.path, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+  await assert.rejects(
+    loadExperimentManifest({ projectRoot: root }),
+    (error: unknown) => error instanceof ExperimentRepositoryError && error.code === "invalid_schema",
+  );
+});
+
+test("execution grant identities are idempotent and cannot be rebound to broader terms", async () => {
+  const root = await projectRoot("grant-identity");
+  await createSpec(root);
+  const grant = {
+    grantId: "stable-grant",
+    experimentId: "experiment-main",
+    mode: "confirm_each" as const,
+    reason: "Stable authorization terms",
+    budget: { maxAttempts: 1 },
+  };
+  const first = await issueExecutionGrant({ projectRoot: root, grant, now: new Date("2026-07-25T00:00:00.000Z") });
+  const duplicate = await issueExecutionGrant({ projectRoot: root, grant, now: new Date("2026-07-25T01:00:00.000Z") });
+  assert.equal(duplicate.value.revision, first.value.revision);
+  assert.equal(duplicate.persisted, false);
+  await assert.rejects(
+    issueExecutionGrant({
+      projectRoot: root,
+      grant: { ...grant, mode: "budget_auto", budget: { maxAttempts: 10 } },
+    }),
+    (error: unknown) => error instanceof ExperimentServiceError && error.code === "duplicate_submission",
+  );
+});
+
+test("unrelated concurrent jobs can both finalize without stale manifest revision conflicts", async () => {
+  const root = await projectRoot("parallel-jobs");
+  await createSpec(root, {
+    worker: { kind: "mock", delayMs: 80, result: { metrics: [{ name: "accuracy", value: 0.95 }] } },
+  });
+  const grant = await createGrant(root, "budget_auto", 2);
+  const results = await Promise.all(["job-parallel-a", "job-parallel-b"].map((jobId) => submitLocalExperimentRun({
+    projectRoot: root,
+    experimentId: "experiment-main",
+    grantId: grant.value.payload.grantId,
+    jobId,
+  })));
+  assert.deepEqual(results.map((result) => result.value.payload.status), ["succeeded", "succeeded"]);
+  const manifest = await loadExperimentManifest({ projectRoot: root });
+  assert.equal(manifest?.metricObservations.length, 2);
+});
+
+test("rejects malformed local worker definitions before persisting a spec", async () => {
+  const root = await projectRoot("invalid-worker");
+  await assert.rejects(
+    saveExperimentSpec({
+      projectRoot: root,
+      spec: {
+        title: "Invalid worker",
+        localWorker: { kind: "process", command: process.execPath, timeoutMs: -1 } as never,
+      },
+    }),
+    (error: unknown) => error instanceof ExperimentServiceError && error.code === "invalid_input",
+  );
+});
+
+async function removeValidatedTestRoot(root: string): Promise<void> {
+  const temporaryRoot = await realpath(tmpdir());
+  const resolvedRoot = await realpath(root);
+  const relativePath = relative(temporaryRoot, resolvedRoot);
+  const stats = await lstat(resolvedRoot);
+  assert.equal(
+    relativePath !== "" && !relativePath.startsWith("..") && !isAbsolute(relativePath)
+      && basename(resolvedRoot).startsWith(TEST_ROOT_PREFIX) && stats.isDirectory() && !stats.isSymbolicLink(),
+    true,
+    `Refusing to clean an unvalidated test root: ${resolvedRoot}`,
+  );
+  await rm(resolvedRoot, { recursive: true, force: false });
+}

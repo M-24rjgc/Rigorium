@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { lstat } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import {
   createResearchArtifact,
@@ -26,6 +26,7 @@ import {
   type ExperimentSpecInput,
   type ExperimentSpecPayload,
   type ExperimentFailure,
+  type LocalWorkerDefinition,
   type MetricObservation,
   type MetricObservationPayload,
   type ObservedBaselineInput,
@@ -141,33 +142,40 @@ export async function issueExecutionGrant(input: {
       }
       const grantId = normalized.grantId ?? `grant-${randomUUID()}`;
       const previous = latestById(manifest.executionGrants, grantId);
-      const payload: ExecutionGrantPayload = {
-        grantId,
+      const terms = {
         experimentId: normalized.experimentId,
         mode: normalized.mode,
         allowedAdapterIds: allowed,
-        issuedAt: now.toISOString(),
         reason: normalized.reason,
         ...(normalized.expiresAt === undefined ? {} : { expiresAt: normalized.expiresAt }),
         budget: normalized.budget,
-        confirmedJobIds: previous?.payload.confirmedJobIds ?? [],
-        consumedJobIds: previous?.payload.consumedJobIds ?? [],
-        consumedAttemptIds: previous?.payload.consumedAttemptIds ?? [],
+      };
+      if (previous) {
+        if (sameGrantTerms(previous.payload, terms)) {
+          return { manifest: previousManifest(manifest), value: previous };
+        }
+        throw new ExperimentServiceError(
+          "duplicate_submission",
+          `Execution grant ${grantId} already exists with different authorization terms; issue a new grant ID.`,
+        );
+      }
+      const payload: ExecutionGrantPayload = {
+        grantId,
+        ...terms,
+        issuedAt: now.toISOString(),
+        confirmedJobIds: [],
+        consumedJobIds: [],
+        consumedAttemptIds: [],
         status: "active",
       };
-      if (previous && sameJson(previous.payload, payload)) return { manifest: previousManifest(manifest), value: previous };
       const grant = makeEnvelope<"execution_grant", ExecutionGrantPayload>({
         kind: "execution_grant",
         artifactId: grantId,
-        revision: (previous?.revision ?? 0) + 1,
+        revision: 1,
         payload,
-        parents: [
-          { relation: "uses" as const, artifact: toResearchArtifactRef(spec) },
-          ...(previous ? [{ relation: "supersedes" as const, artifact: toResearchArtifactRef(previous) }] : []),
-        ],
+        parents: [{ relation: "uses" as const, artifact: toResearchArtifactRef(spec) }],
         now,
         toolName: "experiment_grant",
-        createdAt: previous?.createdAt,
       }) as ExecutionGrant;
       return {
         manifest: nextManifest(manifest, now, { executionGrants: sortEnvelopes([...manifest.executionGrants, grant]) }),
@@ -197,6 +205,9 @@ export async function confirmExecutionJob(input: {
       const grant = requireLatestGrant(manifest, grantId);
       if (grant.payload.mode !== "confirm_each") {
         throw new ExperimentServiceError("invalid_state", "Only confirm_each grants accept per-job confirmation.");
+      }
+      if (grant.payload.status !== "active" || (grant.payload.expiresAt && Date.parse(grant.payload.expiresAt) <= now.valueOf())) {
+        throw new ExperimentServiceError("permission_denied", "Expired or inactive execution grants cannot confirm jobs.");
       }
       if (grant.payload.confirmedJobIds.includes(jobId)) return { manifest: previousManifest(manifest), value: grant };
       const confirmed = makeEnvelope<"execution_grant", ExecutionGrantPayload>({
@@ -452,7 +463,6 @@ export async function submitLocalExperimentRun(input: {
       projectRoot: input.projectRoot,
       attemptId: running.value.payload.attemptId,
       failure,
-      expectedManifestRevision: running.manifest.revision,
       now: input.now,
     });
     return { ...failed, duplicate: false };
@@ -470,7 +480,6 @@ export async function submitLocalExperimentRun(input: {
       projectRoot: input.projectRoot,
       attemptId: running.value.payload.attemptId,
       failure,
-      expectedManifestRevision: running.manifest.revision,
       now: input.now,
     });
     return { ...failed, duplicate: false };
@@ -481,7 +490,6 @@ export async function submitLocalExperimentRun(input: {
     metrics: execution.metrics,
     metricSource: spec.payload.localWorker?.kind === "mock" ? "local_mock" : "local_worker",
     artifacts: collected,
-    expectedManifestRevision: running.manifest.revision,
     now: input.now,
   });
   return { ...finished, duplicate: false };
@@ -655,12 +663,10 @@ async function finalizeAttemptSuccess(input: {
   metrics: readonly WorkerMetricInput[];
   metricSource: MetricObservationPayload["source"];
   artifacts: readonly CollectedArtifact[];
-  expectedManifestRevision: number;
   now?: Date;
 }): Promise<ExperimentOperationResult<RunAttempt>> {
   const result = await updateProjectExperimentManifest({
     projectRoot: input.projectRoot,
-    expectedRevision: input.expectedManifestRevision,
     now: input.now,
     update: (existing, now) => {
       const manifest = requireManifest(existing);
@@ -762,12 +768,10 @@ async function finalizeAttemptFailure(input: {
   projectRoot: string;
   attemptId: string;
   failure: ExperimentFailure;
-  expectedManifestRevision: number;
   now?: Date;
 }): Promise<ExperimentOperationResult<RunAttempt>> {
   const result = await updateProjectExperimentManifest({
     projectRoot: input.projectRoot,
-    expectedRevision: input.expectedManifestRevision,
     now: input.now,
     update: (existing, now) => {
       const manifest = requireManifest(existing);
@@ -824,6 +828,12 @@ async function collectArtifacts(input: {
   artifacts: readonly WorkerArtifactInput[];
 }): Promise<CollectedArtifact[]> {
   const workspace = getExperimentRunWorkspacePath({ projectRoot: input.projectRoot, attemptId: input.attempt.payload.attemptId });
+  let workspaceRealPath: string;
+  try {
+    workspaceRealPath = await realpath(workspace);
+  } catch (error) {
+    throw new LocalWorkerFailure("artifact_missing", `Run workspace is unavailable: ${messageOf(error)}.`);
+  }
   const seen = new Set<string>();
   const result: CollectedArtifact[] = [];
   for (const artifact of input.artifacts) {
@@ -840,7 +850,17 @@ async function collectArtifacts(input: {
       throw new LocalWorkerFailure("artifact_missing", `Artifact ${relativePath} is missing: ${messageOf(error)}.`);
     }
     if (!stats.isFile() || stats.isSymbolicLink()) throw new LocalWorkerFailure("artifact_missing", `Artifact ${relativePath} is not a regular file.`);
-    const hash = await hashFile(fullPath);
+    let realArtifactPath: string;
+    try {
+      realArtifactPath = await realpath(fullPath);
+    } catch (error) {
+      throw new LocalWorkerFailure("artifact_missing", `Artifact ${relativePath} cannot be resolved: ${messageOf(error)}.`);
+    }
+    const realRelativeCheck = relative(workspaceRealPath, realArtifactPath);
+    if (realRelativeCheck === "" || realRelativeCheck.startsWith("..") || resolve(workspaceRealPath, realRelativeCheck) !== realArtifactPath) {
+      throw new LocalWorkerFailure("artifact_missing", `Artifact path resolves outside the run directory: ${relativePath}.`);
+    }
+    const hash = await hashFile(realArtifactPath);
     result.push({
       relativePath,
       sha256: hash.sha256,
@@ -877,6 +897,7 @@ function classifyWorkerFailure(error: unknown, now: Date, override?: "artifact_m
       "timeout",
       "cancelled",
       "artifact_missing",
+      "storage_error",
       "host_interrupted",
       "disconnected",
       "preempted",
@@ -902,22 +923,20 @@ function normalizeSpecInput(input: ExperimentSpecInput): ExperimentSpecPayload {
   assertGrantMode(mode);
   const expectedMetrics = uniqueTextArray(input.expectedMetrics ?? [], "expectedMetrics");
   const tags = uniqueTextArray(input.tags ?? [], "tags");
+  const localWorker = input.localWorker === undefined ? undefined : normalizeLocalWorkerDefinition(input.localWorker);
   if (adapterId !== "local" && input.localWorker !== undefined) {
     throw new ExperimentServiceError("invalid_input", "Only the local adapter accepts a local worker definition.");
   }
-  if (input.localWorker?.kind === "process" && (!input.localWorker.command.trim() || input.localWorker.command.includes("\u0000"))) {
-    throw new ExperimentServiceError("invalid_input", "Process worker command must be non-empty and contain no NUL bytes.");
-  }
   return {
     experimentId,
-    title: input.title.trim(),
+    title: requireText(input.title.trim(), "title"),
     ...(input.description === undefined ? {} : { description: requireText(input.description, "description") }),
     ...(input.hypothesisId === undefined ? {} : { hypothesisId: requireInputIdentifier(input.hypothesisId, "hypothesisId") }),
     adapterId,
     defaultGrantMode: mode,
     expectedMetrics,
     tags,
-    ...(input.localWorker === undefined ? {} : { localWorker: input.localWorker }),
+    ...(localWorker === undefined ? {} : { localWorker }),
   };
 }
 
@@ -928,10 +947,13 @@ function normalizeGrantInput(input: ExecutionGrantInput): ExecutionGrantInput & 
     throw new ExperimentServiceError("invalid_input", "Execution grant requires experimentId and reason.");
   }
   requireInputIdentifier(input.experimentId, "experimentId");
+  const grantId = input.grantId === undefined ? undefined : requireInputIdentifier(input.grantId, "grantId");
   assertGrantMode(input.mode);
   const allowed = input.allowedAdapterIds ?? [];
   for (const adapter of allowed) assertAdapterId(adapter);
-  if (input.expiresAt !== undefined && Number.isNaN(Date.parse(input.expiresAt))) throw new ExperimentServiceError("invalid_input", "expiresAt must be an ISO date.");
+  if (input.expiresAt !== undefined && (typeof input.expiresAt !== "string" || Number.isNaN(Date.parse(input.expiresAt)))) {
+    throw new ExperimentServiceError("invalid_input", "expiresAt must be an ISO date.");
+  }
   const maxAttempts = input.budget?.maxAttempts ?? 1;
   if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 10_000) throw new ExperimentServiceError("invalid_input", "maxAttempts must be between 1 and 10000.");
   const maxWallTimeMs = input.budget?.maxWallTimeMs;
@@ -943,14 +965,108 @@ function normalizeGrantInput(input: ExecutionGrantInput): ExecutionGrantInput & 
     throw new ExperimentServiceError("invalid_input", "maxCostUsd must be a finite non-negative number.");
   }
   return {
-    ...input,
+    experimentId: input.experimentId,
+    mode: input.mode,
+    reason: requireText(input.reason, "reason"),
+    ...(grantId === undefined ? {} : { grantId }),
+    ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
     budget: {
       maxAttempts,
       ...(maxWallTimeMs === undefined ? {} : { maxWallTimeMs }),
       ...(maxCostUsd === undefined ? {} : { maxCostUsd }),
     },
-    allowedAdapterIds: allowed.length > 0 ? [...new Set(allowed)] : undefined,
+    allowedAdapterIds: allowed.length > 0
+      ? [...new Set(allowed)].sort((left, right) => left.localeCompare(right, "en"))
+      : undefined,
   };
+}
+
+function normalizeLocalWorkerDefinition(value: LocalWorkerDefinition): LocalWorkerDefinition {
+  if (!isRecord(value)) throw new ExperimentServiceError("invalid_input", "localWorker must be an object.");
+  if (value.kind === "process") {
+    const command = requireText(value.command, "localWorker.command");
+    const args = value.args ?? [];
+    if (!Array.isArray(args) || args.length > 256 || args.some((arg) => typeof arg !== "string" || arg.includes("\u0000") || arg.length > 4_096)) {
+      throw new ExperimentServiceError("invalid_input", "localWorker.args must contain at most 256 bounded strings without NUL bytes.");
+    }
+    const timeoutMs = value.timeoutMs;
+    if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000)) {
+      throw new ExperimentServiceError("invalid_input", "localWorker.timeoutMs must be between 1 and 300000.");
+    }
+    return {
+      kind: "process",
+      command,
+      ...(args.length === 0 ? {} : { args: [...args] }),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    };
+  }
+  if (value.kind !== "mock") throw new ExperimentServiceError("invalid_input", "localWorker.kind must be mock or process.");
+  if (value.outcome !== undefined && value.outcome !== "succeed" && value.outcome !== "fail") {
+    throw new ExperimentServiceError("invalid_input", "localWorker.outcome is invalid.");
+  }
+  if (value.delayMs !== undefined && (!Number.isSafeInteger(value.delayMs) || value.delayMs < 0 || value.delayMs > 300_000)) {
+    throw new ExperimentServiceError("invalid_input", "localWorker.delayMs must be between 0 and 300000.");
+  }
+  const failureCategories = [
+    "invalid_worker_result",
+    "worker_exit_nonzero",
+    "disconnected",
+    "preempted",
+    "out_of_memory",
+    "rate_limited",
+    "unknown",
+  ] as const;
+  if (value.failureCategory !== undefined && !(failureCategories as readonly string[]).includes(value.failureCategory)) {
+    throw new ExperimentServiceError("invalid_input", "localWorker.failureCategory is invalid.");
+  }
+  if (value.failureMessage !== undefined) requireText(value.failureMessage, "localWorker.failureMessage");
+  if (value.result !== undefined) validateMockWorkerResult(value.result);
+  return {
+    kind: "mock",
+    ...(value.outcome === undefined ? {} : { outcome: value.outcome }),
+    ...(value.delayMs === undefined ? {} : { delayMs: value.delayMs }),
+    ...(value.result === undefined ? {} : { result: value.result }),
+    ...(value.failureMessage === undefined ? {} : { failureMessage: value.failureMessage }),
+    ...(value.failureCategory === undefined ? {} : { failureCategory: value.failureCategory }),
+  };
+}
+
+function validateMockWorkerResult(value: NonNullable<Extract<LocalWorkerDefinition, { kind: "mock" }>["result"]>): void {
+  if (!isRecord(value)) throw new ExperimentServiceError("invalid_input", "localWorker.result must be an object.");
+  if (value.metrics !== undefined) {
+    if (!Array.isArray(value.metrics) || value.metrics.length > 1_024) {
+      throw new ExperimentServiceError("invalid_input", "localWorker.result.metrics must contain at most 1024 entries.");
+    }
+    for (const [index, metric] of value.metrics.entries()) {
+      if (!isRecord(metric) || typeof metric.name !== "string" || !metric.name.trim()
+        || typeof metric.value !== "number" || !Number.isFinite(metric.value)) {
+        throw new ExperimentServiceError("invalid_input", `localWorker.result.metrics[${index}] is invalid.`);
+      }
+      if (metric.direction !== undefined && !["minimize", "maximize", "neutral"].includes(String(metric.direction))) {
+        throw new ExperimentServiceError("invalid_input", `localWorker.result.metrics[${index}].direction is invalid.`);
+      }
+      if (metric.unit !== undefined) requireText(metric.unit, `localWorker.result.metrics[${index}].unit`);
+      if (metric.split !== undefined) requireText(metric.split, `localWorker.result.metrics[${index}].split`);
+    }
+  }
+  if (value.artifacts !== undefined) {
+    if (!Array.isArray(value.artifacts) || value.artifacts.length > 1_024) {
+      throw new ExperimentServiceError("invalid_input", "localWorker.result.artifacts must contain at most 1024 entries.");
+    }
+    for (const [index, artifact] of value.artifacts.entries()) {
+      if (!isRecord(artifact) || typeof artifact.path !== "string") {
+        throw new ExperimentServiceError("invalid_input", `localWorker.result.artifacts[${index}] is invalid.`);
+      }
+      normalizeWorkerSpecArtifactPath(artifact.path, `localWorker.result.artifacts[${index}].path`);
+      if (artifact.content !== undefined && (typeof artifact.content !== "string" || Buffer.byteLength(artifact.content, "utf8") > 1_048_576)) {
+        throw new ExperimentServiceError("invalid_input", `localWorker.result.artifacts[${index}].content exceeds 1 MiB.`);
+      }
+      if (artifact.mediaType !== undefined) requireText(artifact.mediaType, `localWorker.result.artifacts[${index}].mediaType`);
+      if (artifact.role !== undefined && !["output", "log", "checkpoint", "figure", "table"].includes(String(artifact.role))) {
+        throw new ExperimentServiceError("invalid_input", `localWorker.result.artifacts[${index}].role is invalid.`);
+      }
+    }
+  }
 }
 
 function normalizeBaselineInput(input: ReportedBaselineInput): Required<Pick<ReportedBaselineInput, "experimentId" | "metricName" | "reportedValue" | "citation">> & Omit<ReportedBaselineInput, "experimentId" | "metricName" | "reportedValue" | "citation"> & { direction: NonNullable<ReportedBaselineInput["direction"]> } {
@@ -1098,6 +1214,22 @@ function sameBaselineWithoutRecordedAt(left: BaselineObservationPayload, right: 
   return sameJson(leftRest, rightRest);
 }
 
+function sameGrantTerms(
+  grant: ExecutionGrantPayload,
+  terms: Pick<ExecutionGrantPayload, "experimentId" | "mode" | "allowedAdapterIds" | "reason" | "expiresAt" | "budget">,
+): boolean {
+  const {
+    grantId: _grantId,
+    issuedAt: _issuedAt,
+    confirmedJobIds: _confirmedJobIds,
+    consumedJobIds: _consumedJobIds,
+    consumedAttemptIds: _consumedAttemptIds,
+    status: _status,
+    ...storedTerms
+  } = grant;
+  return sameJson(storedTerms, terms);
+}
+
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -1143,10 +1275,26 @@ function normalizeRelativeArtifactPath(value: string): string {
     throw new LocalWorkerFailure("artifact_missing", `Artifact path must be relative: ${value}.`);
   }
   const normalized = value.replaceAll("\\", "/");
-  if (normalized === "." || normalized.split("/").some((part) => part === "" || part === "..")) {
+  if (normalized === "." || normalized.split("/").some((part) => part === "" || part === ".." || part.includes(":") || /[. ]$/u.test(part))) {
     throw new LocalWorkerFailure("artifact_missing", `Artifact path escapes the run directory: ${value}.`);
   }
   return normalized;
+}
+
+function normalizeWorkerSpecArtifactPath(value: string, label: string): string {
+  if (!value.trim() || value !== value.trim() || value.includes("\u0000") || /^[A-Za-z]:/u.test(value)
+    || value.startsWith("/") || value.startsWith("\\")) {
+    throw new ExperimentServiceError("invalid_input", `${label} must be a safe relative path.`);
+  }
+  const normalized = value.replaceAll("\\", "/");
+  if (normalized === "." || normalized.split("/").some((part) => part === "" || part === ".." || part.includes(":") || /[. ]$/u.test(part))) {
+    throw new ExperimentServiceError("invalid_input", `${label} must stay inside the run directory.`);
+  }
+  return normalized;
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function messageOf(error: unknown): string {

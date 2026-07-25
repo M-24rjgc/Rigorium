@@ -4,8 +4,11 @@ import type { Stats } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   buildResearchArtifactGraph,
+  createResearchArtifact,
+  RESEARCH_ARTIFACT_KINDS,
   toResearchArtifactRef,
   type ResearchArtifactEnvelope,
+  type ResearchArtifactKind,
   type ResearchArtifactRef,
 } from "../artifacts/index.js";
 import {
@@ -23,6 +26,7 @@ import {
 export const MAX_EXPERIMENT_MANIFEST_FILE_BYTES = 16 * 1024 * 1024;
 const LOCK_RETRIES = 80;
 const LOCK_RETRY_MS = 25;
+const LOCK_STALE_MS = 60_000;
 
 export type ProjectExperimentPaths = Readonly<{
   projectRoot: string;
@@ -117,13 +121,7 @@ export async function loadProjectExperimentManifest(input: {
   projectRoot: string;
 }): Promise<ExperimentManifest | undefined> {
   const paths = getProjectExperimentPaths({ projectRoot: input.projectRoot });
-  const root = await lstatIfExists(paths.projectRoot, "load_manifest");
-  if (!root || !root.isDirectory() || root.isSymbolicLink()) {
-    throw repositoryError("invalid_project_root", "projectRoot must be an existing regular directory.", {
-      path: paths.projectRoot,
-      operation: "load_manifest",
-    });
-  }
+  await assertExistingDirectoryChain(paths, "load_manifest");
   const value = await readBoundedJson(paths.manifestPath, "load_manifest");
   return value === undefined ? undefined : validateManifestDocument(value, paths.manifestPath);
 }
@@ -183,6 +181,34 @@ export function getExperimentRunWorkspacePath(input: { projectRoot: string; atte
   return workspace;
 }
 
+export async function createExperimentRunWorkspace(input: {
+  projectRoot: string;
+  attemptId: string;
+}): Promise<string> {
+  const paths = getProjectExperimentPaths({ projectRoot: input.projectRoot });
+  await ensureDirectories(paths);
+  const workspace = getExperimentRunWorkspacePath(input);
+  try {
+    await mkdir(workspace);
+  } catch (error) {
+    if (isNodeError(error, "EEXIST")) {
+      throw repositoryError("path_violation", "Experiment run workspace already exists and cannot be reused.", {
+        path: workspace,
+        operation: "create_run_workspace",
+      });
+    }
+    throw asIoError(error, workspace, "create_run_workspace");
+  }
+  const stats = await lstatIfExists(workspace, "create_run_workspace");
+  if (!stats || !stats.isDirectory() || stats.isSymbolicLink()) {
+    throw repositoryError("path_violation", "Experiment run workspace must be a regular project-local directory.", {
+      path: workspace,
+      operation: "create_run_workspace",
+    });
+  }
+  return workspace;
+}
+
 export function validateExperimentManifest(value: unknown, path = "manifest.json"): ExperimentManifest {
   return validateManifestDocument(value, path);
 }
@@ -217,8 +243,12 @@ function validateManifestDocument(value: unknown, path: string): ExperimentManif
     ...result.artifactEnvelopes,
   ];
   try {
-    buildResearchArtifactGraph(allArtifacts);
+    const graph = buildResearchArtifactGraph(allArtifacts);
+    if (graph.missingParents.length > 0) {
+      invalidSchema(path, `Artifact graph has ${graph.missingParents.length} missing parent reference(s).`);
+    }
   } catch (error) {
+    if (error instanceof ExperimentRepositoryError) throw error;
     invalidSchema(path, `Artifact graph is invalid: ${messageOf(error)}.`);
   }
   const envelopeByKey = new Map(allArtifacts.map((artifact) => [`${artifact.artifactId}@${artifact.revision}`, artifact]));
@@ -246,7 +276,15 @@ async function withManifestLock<T>(paths: ProjectExperimentPaths, operation: () 
       await handle.sync();
       break;
     } catch (error) {
-      if (!isNodeError(error, "EEXIST")) throw asIoError(error, paths.lockPath, "acquire_manifest_lock");
+      if (!isNodeError(error, "EEXIST")) {
+        if (handle) {
+          try { await handle.close(); } catch { /* preserve the acquisition failure */ }
+          handle = undefined;
+          try { await unlink(paths.lockPath); } catch { /* best-effort cleanup */ }
+        }
+        throw asIoError(error, paths.lockPath, "acquire_manifest_lock");
+      }
+      if (await reclaimStaleManifestLock(paths)) continue;
       if (attempt === LOCK_RETRIES - 1) {
         throw repositoryError("repository_busy", "Another process is updating the experiment manifest.", {
           path: paths.lockPath,
@@ -274,17 +312,90 @@ async function withManifestLock<T>(paths: ProjectExperimentPaths, operation: () 
   }
 }
 
-async function ensureDirectories(paths: ProjectExperimentPaths): Promise<void> {
+async function reclaimStaleManifestLock(paths: ProjectExperimentPaths): Promise<boolean> {
+  const stats = await lstatIfExists(paths.lockPath, "inspect_manifest_lock");
+  if (!stats) return true;
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw repositoryError("path_violation", "Experiment manifest lock must be a regular project-local file.", {
+      path: paths.lockPath,
+      operation: "inspect_manifest_lock",
+    });
+  }
+  if (Date.now() - stats.mtimeMs < LOCK_STALE_MS) return false;
+
+  let ownerPid: number | undefined;
+  if (stats.size <= 1_024) {
+    try {
+      const [pidLine] = (await readFile(paths.lockPath, "utf8")).split(/\r?\n/u);
+      const parsed = Number(pidLine);
+      if (Number.isSafeInteger(parsed) && parsed > 0) ownerPid = parsed;
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) return true;
+      throw asIoError(error, paths.lockPath, "inspect_manifest_lock");
+    }
+  }
+  if (ownerPid !== undefined && isProcessAlive(ownerPid)) return false;
+
+  const stalePath = join(paths.experimentationDir, `.manifest.lock.stale.${process.pid}.${randomUUID()}`);
   try {
-    const root = await lstat(paths.projectRoot);
-    if (!root.isDirectory() || root.isSymbolicLink()) {
-      throw repositoryError("invalid_project_root", "projectRoot must be an existing regular directory.", {
-        path: paths.projectRoot,
-        operation: "ensure_directories",
+    await rename(paths.lockPath, stalePath);
+  } catch (error) {
+    if (isNodeError(error, "ENOENT")) return true;
+    throw asIoError(error, paths.lockPath, "reclaim_manifest_lock");
+  }
+  try { await unlink(stalePath); } catch { /* a randomized stale lock never blocks future updates */ }
+  return true;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !isNodeError(error, "ESRCH");
+  }
+}
+
+async function assertProjectRoot(paths: ProjectExperimentPaths, operation: string): Promise<void> {
+  const root = await lstatIfExists(paths.projectRoot, operation);
+  if (!root || !root.isDirectory() || root.isSymbolicLink()) {
+    throw repositoryError("invalid_project_root", "projectRoot must be an existing regular directory.", {
+      path: paths.projectRoot,
+      operation,
+    });
+  }
+}
+
+async function assertExistingDirectoryChain(paths: ProjectExperimentPaths, operation: string): Promise<void> {
+  await assertProjectRoot(paths, operation);
+  for (const directory of [paths.pilotDeckDir, paths.researchDir, paths.experimentationDir, paths.runsDir]) {
+    const stats = await lstatIfExists(directory, operation);
+    if (stats && (!stats.isDirectory() || stats.isSymbolicLink())) {
+      throw repositoryError("path_violation", "Experiment storage directories must not be files or symbolic links.", {
+        path: directory,
+        operation,
       });
     }
-    await mkdir(paths.experimentationDir, { recursive: true });
-    await mkdir(paths.runsDir, { recursive: true });
+  }
+}
+
+async function ensureDirectories(paths: ProjectExperimentPaths): Promise<void> {
+  try {
+    await assertProjectRoot(paths, "ensure_directories");
+    for (const directory of [paths.pilotDeckDir, paths.researchDir, paths.experimentationDir, paths.runsDir]) {
+      try {
+        await mkdir(directory);
+      } catch (error) {
+        if (!isNodeError(error, "EEXIST")) throw error;
+      }
+      const stats = await lstat(directory);
+      if (!stats.isDirectory() || stats.isSymbolicLink()) {
+        throw repositoryError("path_violation", "Experiment storage directories must not be files or symbolic links.", {
+          path: directory,
+          operation: "ensure_directories",
+        });
+      }
+    }
   } catch (error) {
     if (error instanceof ExperimentRepositoryError) throw error;
     throw asIoError(error, paths.experimentationDir, "ensure_directories");
@@ -362,11 +473,44 @@ function parseEnvelopeArray(value: unknown, label: string, expectedKind: string 
       invalidSchema(itemPath, "Artifact envelope is incomplete.");
     }
     if (expectedKind && envelope.kind !== expectedKind) invalidSchema(itemPath, `Expected ${expectedKind} envelope.`);
+    validateEnvelopeIntegrity(envelope, itemPath);
     const key = `${envelope.artifactId}@${envelope.revision}`;
     if (seen.has(key)) invalidSchema(itemPath, `Duplicate artifact envelope ${key}.`);
     seen.add(key);
     return envelope;
   });
+}
+
+function validateEnvelopeIntegrity(envelope: ResearchArtifactEnvelope, path: string): void {
+  if (!(RESEARCH_ARTIFACT_KINDS as readonly string[]).includes(envelope.kind)) {
+    invalidSchema(path, `Artifact kind ${envelope.kind} is unsupported.`);
+  }
+  requireIdentifier(envelope.artifactId, "artifactId", path);
+  requirePositiveInteger(envelope.revision, "revision", path);
+  requireIsoDate(envelope.createdAt, "createdAt", path);
+  requireIsoDate(envelope.updatedAt, "updatedAt", path);
+  if (!/^sha256:[a-f0-9]{64}$/u.test(envelope.contentHash)) {
+    invalidSchema(path, "Artifact contentHash is invalid.");
+  }
+  let rebuilt: ResearchArtifactEnvelope;
+  try {
+    rebuilt = createResearchArtifact({
+      kind: envelope.kind as ResearchArtifactKind,
+      artifactId: envelope.artifactId,
+      revision: envelope.revision,
+      status: envelope.status,
+      producer: envelope.producer,
+      parents: envelope.parents,
+      sources: envelope.sources,
+      payload: envelope.payload,
+      now: new Date(envelope.createdAt),
+    });
+  } catch (error) {
+    invalidSchema(path, `Artifact envelope is invalid: ${messageOf(error)}.`);
+  }
+  if (rebuilt.contentHash !== envelope.contentHash) {
+    invalidSchema(path, `Artifact ${envelope.artifactId}@${envelope.revision} contentHash does not match its content.`);
+  }
 }
 
 function parseArtifactRefs(value: unknown, path: string): ArtifactRef[] {
@@ -500,4 +644,3 @@ function isNodeError(value: unknown, code: string): value is NodeJS.ErrnoExcepti
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
