@@ -1,0 +1,41 @@
+{
+  "name": "rigorium-research-director",
+  "version": "0.1.0",
+  "description": "Capability-driven research planning, Project-local immutable artifact persistence, and receipt reconciliation over Rigorium's existing AgentLoop, ToolRuntime, scheduler, and artifact DAG.",
+  "skills": "skills",
+  "settings": {
+    "interfaceVersion": 1,
+    "contract": "plan-execute-reconcile",
+    "executionOwner": "existing-agent-loop-tool-runtime",
+    "workflowController": "none",
+    "decisions": [
+      "branch",
+      "eliminate",
+      "rescan",
+      "revise",
+      "recover",
+      "stop"
+    ],
+    "confirmationBoundaries": [
+      "zotero_write",
+      "export",
+      "snapshot",
+      "final_title",
+      "budget_auto"
+    ],
+    "fixedStages": false,
+    "artifactPersistence": {
+      "tool": "research_artifacts",
+      "projectRoot": "runtime-cwd",
+      "operations": [
+        "append_batch",
+        "get",
+        "latest",
+        "history",
+        "list",
+        "invalidate_descendants"
+      ]
+    },
+    "currentIncrement": "project-artifact-persistence-and-capability-plan-reconciliation"
+  }
+}

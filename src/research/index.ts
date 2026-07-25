@@ -38,6 +38,7 @@ export * from "./experimentation/index.js";
 export * from "./method/index.js";
 export * from "./manuscript/index.js";
 export * from "./review/index.js";
+export * as ResearchDirector from "./director/index.js";
 export * from "./direction/directionAssessment.js";
 export * from "./direction/directionSeed.js";
 export * from "./direction/directionLifecycle.js";

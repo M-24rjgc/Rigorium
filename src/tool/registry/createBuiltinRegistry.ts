@@ -46,6 +46,14 @@ import {
   type CreateExperimentControlToolOptions,
 } from "../builtin/experimentControl.js";
 import {
+  createExperimentAnalysisTool,
+  type CreateExperimentAnalysisToolOptions,
+} from "../builtin/experimentAnalysis.js";
+import {
+  createExperimentRemoteTool,
+  type CreateExperimentRemoteToolOptions,
+} from "../builtin/experimentRemote.js";
+import {
   createManuscriptTool,
   type CreateManuscriptToolOptions,
 } from "../builtin/manuscript.js";
@@ -53,6 +61,14 @@ import {
   createResearchReviewTool,
   type CreateResearchReviewToolOptions,
 } from "../builtin/researchReview.js";
+import {
+  createResearchDirectorTool,
+  type CreateResearchDirectorToolOptions,
+} from "../builtin/researchDirector.js";
+import {
+  createResearchArtifactsTool,
+  type CreateResearchArtifactsToolOptions,
+} from "../builtin/researchArtifacts.js";
 import {
   createDirectionAssessTool,
   type CreateDirectionAssessToolOptions,
@@ -164,10 +180,18 @@ export type CreateBuiltinRegistryOptions = {
   researchMethod?: CreateResearchMethodToolOptions | false;
   /** Rigorium Project-local experiment specification and execution control. Registered by default. */
   experimentControl?: CreateExperimentControlToolOptions | false;
+  /** Rigorium evidence-linked statistics, optimization, and figure provenance. Registered by default. */
+  experimentAnalysis?: CreateExperimentAnalysisToolOptions | false;
+  /** Rigorium restart-safe SSH and Slurm experiment execution. Registered by default. */
+  experimentRemote?: CreateExperimentRemoteToolOptions | false;
   /** Rigorium evidence-aware LaTeX manuscript assembly and rendering. Registered by default. */
   manuscript?: CreateManuscriptToolOptions | false;
   /** Rigorium deterministic preflight and anchored multi-review rounds. Registered by default. */
   researchReview?: CreateResearchReviewToolOptions | false;
+  /** Rigorium Project-local immutable research artifact persistence and retrieval. Registered by default. */
+  researchArtifacts?: CreateResearchArtifactsToolOptions | false;
+  /** Rigorium capability-driven research planning and receipt reconciliation. Registered by default. */
+  researchDirector?: CreateResearchDirectorToolOptions | false;
   /** Rigorium side-effect-free research direction assessment. Registered by default. */
   directionAssessment?: CreateDirectionAssessToolOptions | false;
   /** Rigorium cue-to-candidate research direction artifact. Registered by default. */
@@ -232,11 +256,23 @@ export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): T
   if (options?.experimentControl !== false) {
     registry.register(createExperimentControlTool(options?.experimentControl));
   }
+  if (options?.experimentAnalysis !== false) {
+    registry.register(createExperimentAnalysisTool(options?.experimentAnalysis));
+  }
+  if (options?.experimentRemote !== false) {
+    registry.register(createExperimentRemoteTool(options?.experimentRemote));
+  }
   if (options?.manuscript !== false) {
     registry.register(createManuscriptTool(options?.manuscript));
   }
   if (options?.researchReview !== false) {
     registry.register(createResearchReviewTool(options?.researchReview));
+  }
+  if (options?.researchArtifacts !== false) {
+    registry.register(createResearchArtifactsTool(options?.researchArtifacts));
+  }
+  if (options?.researchDirector !== false) {
+    registry.register(createResearchDirectorTool(options?.researchDirector));
   }
   if (options?.directionAssessment !== false) {
     registry.register(createDirectionAssessTool(options?.directionAssessment));
