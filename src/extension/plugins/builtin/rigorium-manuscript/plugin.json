@@ -1,0 +1,36 @@
+{
+  "name": "rigorium-manuscript",
+  "version": "0.1.0",
+  "description": "Evidence-aware LaTeX manuscript assembly, provenance-preserving figures and tables, pinned venue templates, deterministic rendering diagnostics, and explicit export boundaries.",
+  "skills": "skills",
+  "settings": {
+    "interfaceVersion": 1,
+    "capabilities": [
+      "manuscript.citation_set.zotero_bibtex",
+      "manuscript.section.evidence_maturity",
+      "manuscript.related_work.evidence_map",
+      "manuscript.figure_table.provenance",
+      "manuscript.version.latex_single_source",
+      "manuscript.template.iclr2026_pin",
+      "manuscript.render.deterministic_diagnostics",
+      "manuscript.check.anonymity_page_citation_appendix",
+      "manuscript.export.explicit_confirmation"
+    ],
+    "workflowModel": "natural-language-artifact-operations",
+    "stageMachine": "none",
+    "canonicalSource": "latex",
+    "verifiedVenueTemplates": [
+      {
+        "venue": "iclr",
+        "year": 2026,
+        "commit": "a28d335b0d46a3c39b205704a65faf41c9748433",
+        "redistribution": false
+      }
+    ],
+    "unverifiedVenueYears": [
+      "iclr-2027"
+    ],
+    "currentIncrement": "citation-evidence-provenance-render-export"
+  }
+}
+
