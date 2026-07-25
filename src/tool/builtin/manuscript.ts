@@ -108,6 +108,7 @@ export type ManuscriptRenderInput = Readonly<{
   citationSet?: CitationSetArtifact;
   figureTables?: readonly FigureTableArtifact[];
   templateDirectory?: string;
+  templateArchive?: string;
   engine?: "auto" | "latexmk" | "tectonic" | "pdflatex" | "xelatex" | "lualatex";
   timeoutMs?: number;
   export?: ManuscriptExportRequest;
@@ -275,6 +276,7 @@ async function executeAction(
       ...(input.citationSet === undefined ? {} : { citationSet: input.citationSet }),
       ...(input.figureTables === undefined ? {} : { figureTables: input.figureTables }),
       ...(input.templateDirectory === undefined ? {} : { templateDirectory: resolveProjectPath(context.cwd, input.templateDirectory) }),
+      ...(input.templateArchive === undefined ? {} : { templateArchive: resolveProjectPath(context.cwd, input.templateArchive) }),
       ...(input.engine === undefined ? {} : { engine: input.engine }),
       ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
       ...(input.export === undefined ? {} : { export: input.export }),
@@ -392,6 +394,7 @@ function inputSchema(): PilotDeckToolDefinition["inputSchema"] {
       directoryPath: { type: "string", maxLength: 4_096 },
       manuscript: object,
       templateDirectory: { type: "string", maxLength: 4_096 },
+      templateArchive: { type: "string", maxLength: 4_096 },
       engine: { type: "string", enum: ["auto", "latexmk", "tectonic", "pdflatex", "xelatex", "lualatex"] },
       timeoutMs: { type: "integer", minimum: 1, maximum: 900_000 },
       export: object,
@@ -409,7 +412,7 @@ function allowedKeys(action: ManuscriptAction): readonly string[] {
     return [...common, "title", "latex", "target", "sections", "revisionNote", "citationSet", "figureTables", "evidencePacks", "relatedWork", "template", "supersedes", "artifactId", "revision"];
   }
   if (action === "template_probe") return [...common, "conferenceYear", "archivePath", "directoryPath"];
-  return [...common, "manuscript", "citationSet", "figureTables", "templateDirectory", "engine", "timeoutMs", "export", "artifactId"];
+  return [...common, "manuscript", "citationSet", "figureTables", "templateDirectory", "templateArchive", "engine", "timeoutMs", "export", "artifactId"];
 }
 
 function assertAllowedKeys(value: Record<string, unknown>, allowed: readonly string[]): void {

@@ -93,6 +93,12 @@ export type RenderManuscriptInput = Readonly<{
   citationSet?: CitationSetArtifact;
   figureTables?: readonly FigureTableArtifact[];
   templateDirectory?: string;
+  /**
+   * Optional official template archive used to verify the directory against its
+   * pinned digest. The archive is inspected only; source files are staged from
+   * templateDirectory.
+   */
+  templateArchive?: string;
   engine?: "auto" | LatexEngineName;
   timeoutMs?: number;
   export?: ManuscriptExportRequest;
@@ -277,6 +283,7 @@ export async function renderManuscript(
   if (input.manuscript.payload.target.venue === "iclr") {
     templateProbe = await probeIclrTemplate({
       conferenceYear: input.manuscript.payload.target.conferenceYear!,
+      ...(input.templateArchive === undefined ? {} : { archivePath: input.templateArchive }),
       ...(input.templateDirectory === undefined ? {} : { directoryPath: input.templateDirectory }),
     });
   }

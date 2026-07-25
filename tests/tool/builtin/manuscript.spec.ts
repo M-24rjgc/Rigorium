@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createDefaultPermissionContext } from "../../../src/permission/protocol/types.js";
-import { createManuscriptVersion } from "../../../src/research/manuscript/manuscript.js";
+import {
+  ICLR_2026_TEMPLATE_PIN,
+  createManuscriptVersion,
+} from "../../../src/research/manuscript/index.js";
 import type { ManuscriptCommandRunner } from "../../../src/research/manuscript/render.js";
 import {
   createManuscriptTool,
@@ -157,6 +160,60 @@ test("manuscript_latex marks render side effects and returns a synthetic compile
   if (output.data?.action !== "render") assert.fail("expected render result");
   assert.equal(output.data.artifact.payload.compileStatus, "succeeded");
   assert.equal(output.data.artifact.payload.exportBoundary.performed, false);
+});
+
+test("manuscript_latex can verify a rendered ICLR directory against its supplied archive", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-manuscript-tool-template-archive-"));
+  const templateDirectory = join(projectRoot, "templates");
+  await mkdir(templateDirectory, { recursive: true });
+  for (const file of ICLR_2026_TEMPLATE_PIN.requiredFiles) {
+    await writeFile(join(templateDirectory, file), `% synthetic ${file}\n`, "utf8");
+  }
+  await writeFile(join(templateDirectory, "iclr2026.zip"), "not the pinned archive", "utf8");
+
+  const manuscript = createManuscriptVersion({
+    title: "Synthetic ICLR Archive Fixture",
+    latex: minimalLatex(),
+    target: { venue: "iclr", conferenceYear: 2026, mode: "anonymous_submission" },
+    sections: [{
+      sectionId: "synthetic",
+      kind: "custom",
+      title: "Synthetic Fixture",
+      requestedOutput: "preserve",
+      minimumMaturity: "none",
+      statements: [],
+    }],
+    revisionNote: "Synthetic ICLR archive fixture only.",
+    producer: { kind: "user" },
+    template: ICLR_2026_TEMPLATE_PIN,
+    now: SYNTHETIC_NOW,
+  });
+  const runner: ManuscriptCommandRunner = async (request) => {
+    const buildDirectory = join(request.cwd!, "build");
+    await mkdir(buildDirectory, { recursive: true });
+    await writeFile(join(buildDirectory, "main.pdf"), "%PDF-1.4\n% synthetic archive fixture\n", "utf8");
+    await writeFile(join(buildDirectory, "main.log"), "Synthetic compiler log.\n", "utf8");
+    return { exitCode: 0, stdout: "synthetic latexmk", stderr: "", timedOut: false };
+  };
+  const tool = createManuscriptTool({
+    render: {
+      runner,
+      engineProbes: [{ name: "latexmk", status: "available", executable: "latexmk", version: "synthetic" }],
+    },
+  });
+  const output = await tool.execute({
+    action: "render",
+    manuscript,
+    templateDirectory: "templates",
+    templateArchive: "templates/iclr2026.zip",
+    engine: "latexmk",
+  }, context(projectRoot));
+
+  assert.equal(output.data?.action, "render");
+  if (output.data?.action !== "render") assert.fail("expected render result");
+  const templateCheck = output.data.artifact.payload.checks.find((check) => check.name === "template");
+  assert.equal(templateCheck?.status, "fail");
+  assert.match(templateCheck?.messages.join(" ") ?? "", /hash_mismatch/u);
 });
 
 test("manuscript_latex rejects action-specific fields and maps path validation to invalid_tool_input", async () => {
