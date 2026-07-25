@@ -12,6 +12,20 @@ import type {
 } from "./contracts.js";
 
 const MAX_CAPTURED_OUTPUT_BYTES = 4 * 1024 * 1024;
+const TERMINATION_GRACE_MS = 500;
+const ALLOWED_ENVIRONMENT_KEYS = new Set([
+  "PATH",
+  "PATHEXT",
+  "SYSTEMROOT",
+  "WINDIR",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "HOME",
+  "USERPROFILE",
+  "LANG",
+  "LC_ALL",
+]);
 
 export async function runVerificationCheck(input: {
   projectRoot: string;
@@ -22,7 +36,10 @@ export async function runVerificationCheck(input: {
   now?: Date;
 }): Promise<VerificationRecord> {
   const check = assertCheck(input.check);
-  const workspaceRoot = await assertIsolatedWorkspace(input.projectRoot, input.workspaceRoot);
+  const workspaceRoot = await assertIsolatedMethodWorkspace({
+    projectRoot: input.projectRoot,
+    workspaceRoot: input.workspaceRoot,
+  });
   const recordId = input.recordId === undefined
     ? `verification-${randomUUID()}`
     : identifier(input.recordId, "recordId");
@@ -52,7 +69,7 @@ export async function runVerificationCheck(input: {
   try {
     child = spawn(check.command, [...check.args], {
       cwd: workspaceRoot,
-      env: process.env,
+      env: buildVerificationEnvironment(workspaceRoot, check.id),
       shell: false,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -77,9 +94,24 @@ export async function runVerificationCheck(input: {
   let cancelled = false;
   let outputLimitExceeded = false;
   let spawnError: Error | undefined;
+  let closed = false;
+  let terminationRequested = false;
+  let forceKillTimer: NodeJS.Timeout | undefined;
+  const closePromise = new Promise<[number | null, NodeJS.Signals | null]>((resolvePromise) => {
+    child.once("close", (code, closeSignal) => {
+      closed = true;
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      resolvePromise([code, closeSignal]);
+    });
+  });
   const terminate = () => {
-    if (child.killed) return;
+    if (terminationRequested || closed) return;
+    terminationRequested = true;
     try { child.kill("SIGTERM"); } catch { /* process may already be closed */ }
+    forceKillTimer = setTimeout(() => {
+      if (closed) return;
+      try { child.kill("SIGKILL"); } catch { /* process may already be closed */ }
+    }, TERMINATION_GRACE_MS);
   };
   const captureStdout = (chunk: Buffer | string) => {
     stdout.add(chunk);
@@ -114,11 +146,10 @@ export async function runVerificationCheck(input: {
   let exitCode: number | null = null;
   let signal: NodeJS.Signals | null = null;
   try {
-    [exitCode, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((resolvePromise) => {
-      child.once("close", (code, closeSignal) => resolvePromise([code, closeSignal]));
-    });
+    [exitCode, signal] = await closePromise;
   } finally {
     clearTimeout(timeout);
+    if (forceKillTimer) clearTimeout(forceKillTimer);
     input.abortSignal?.removeEventListener("abort", onAbort);
     child.stdout.off("data", captureStdout);
     child.stderr.off("data", captureStderr);
@@ -233,9 +264,12 @@ function numberAtKey(value: Record<string, unknown>, key: string): number | unde
   return typeof current === "number" && Number.isFinite(current) ? current : undefined;
 }
 
-async function assertIsolatedWorkspace(projectRootInput: string, workspaceRootInput: string): Promise<string> {
-  const projectRoot = rootPath(projectRootInput, "projectRoot");
-  const workspaceRoot = rootPath(workspaceRootInput, "workspaceRoot");
+export async function assertIsolatedMethodWorkspace(input: {
+  projectRoot: string;
+  workspaceRoot: string;
+}): Promise<string> {
+  const projectRoot = rootPath(input.projectRoot, "projectRoot");
+  const workspaceRoot = rootPath(input.workspaceRoot, "workspaceRoot");
   const [projectStats, workspaceStats] = await Promise.all([lstat(projectRoot), lstat(workspaceRoot)]);
   if (!projectStats.isDirectory() || projectStats.isSymbolicLink()) {
     throw new TypeError("projectRoot must be a real directory.");
@@ -260,6 +294,18 @@ function rootPath(value: unknown, label: string): string {
     throw new TypeError(`${label} must be a non-empty path.`);
   }
   return resolve(value);
+}
+
+function buildVerificationEnvironment(workspaceRoot: string, checkId: string): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && ALLOWED_ENVIRONMENT_KEYS.has(key.toLocaleUpperCase("en-US"))) {
+      environment[key] = value;
+    }
+  }
+  environment.RIGORIUM_METHOD_WORKSPACE = workspaceRoot;
+  environment.RIGORIUM_METHOD_CHECK_ID = checkId;
+  return environment;
 }
 
 function assertCheck(value: VerificationCheckSpec): VerificationCheckSpec {

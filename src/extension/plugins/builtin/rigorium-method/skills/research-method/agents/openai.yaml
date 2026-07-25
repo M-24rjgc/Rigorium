@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Method"
+  short_description: "Specify and verify executable research methods"
+  default_prompt: "Use $research-method to turn a ready research brief into a verifiable method specification."
