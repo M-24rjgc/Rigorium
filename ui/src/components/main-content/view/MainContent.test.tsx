@@ -3,6 +3,8 @@ import type { ComponentProps, ReactNode } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppTab, Project } from '../../../types/app';
+import { RESEARCH_PANEL_ACTIVATE_EVENT, type ResearchPanelActivation } from '../../../research/activation';
+import { ResearchPanelProvider } from '../../../contexts/ResearchPanelContext';
 import MainContent from './MainContent';
 
 const mocks = vi.hoisted(() => ({
@@ -217,5 +219,29 @@ describe('MainContent file workspace routing', () => {
     expect(screen.getByRole('separator', {
       name: 'filesWorkbench.resizeAssistant',
     }).getAttribute('aria-valuenow')).toBe('396');
+  });
+
+  it('keeps research activations isolated to their originating project', async () => {
+    const activation: ResearchPanelActivation = {
+      query: 'Capture an experiment snapshot.',
+      intents: ['experiment'],
+      confirmationBoundaries: ['snapshot'],
+      activatedAt: '2026-07-26T00:00:00.000Z',
+    };
+    render(
+      <ResearchPanelProvider>
+        <MainContent {...propsFor('chat')} />
+      </ResearchPanelProvider>,
+    );
+
+    fireEvent(window, new CustomEvent(RESEARCH_PANEL_ACTIVATE_EVENT, {
+      detail: { activation, projectPath: '/workspace/another-project' },
+    }));
+    expect(screen.queryByTestId('research-intent-activation')).toBeNull();
+
+    fireEvent(window, new CustomEvent(RESEARCH_PANEL_ACTIVATE_EVENT, {
+      detail: { activation, projectPath: '/WORKSPACE\\PILOTDECK\\' },
+    }));
+    expect(await screen.findByTestId('research-intent-activation')).not.toBeNull();
   });
 });

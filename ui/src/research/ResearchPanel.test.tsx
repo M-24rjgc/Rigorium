@@ -759,6 +759,53 @@ describe('ResearchPanel', () => {
     });
   });
 
+  it('keeps literature views keyboard-accessible after assigning tab semantics', () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel artifact={artifact} projectPath="D:/project" />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    const mapTab = screen.getByRole('tab', { name: /Map|地图/i });
+    expect(mapTab.getAttribute('aria-selected')).toBe('true');
+    expect(mapTab.getAttribute('tabindex')).toBe('0');
+
+    fireEvent.keyDown(mapTab, { key: 'ArrowRight' });
+    const papersTab = screen.getByRole('tab', { name: /Papers|论文/i });
+    expect(papersTab.getAttribute('aria-selected')).toBe('true');
+    expect(papersTab.getAttribute('tabindex')).toBe('0');
+    expect(document.activeElement).toBe(papersTab);
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('research-panel-papers-tab');
+
+    fireEvent.keyDown(papersTab, { key: 'End' });
+    const collectionTab = screen.getByRole('tab', { name: /Collection|收藏夹/i });
+    expect(collectionTab.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(collectionTab);
+  });
+
+  it('renders each explicit confirmation boundary for a research intent', () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ResearchPanelProvider>
+          <ResearchPanel activation={{
+            query: 'Capture an experiment snapshot, export the PDF, write it to Zotero, and confirm the final title.',
+            intents: ['experiment', 'literature', 'manuscript'],
+            confirmationBoundaries: ['snapshot', 'export', 'zotero_write', 'final_title'],
+            activatedAt: '2026-07-26T00:00:00.000Z',
+          }} />
+        </ResearchPanelProvider>
+      </I18nextProvider>,
+    );
+
+    const boundary = screen.getByTestId('research-confirmation-boundaries');
+    expect(boundary.textContent).toContain('Snapshot');
+    expect(boundary.textContent).toContain('Export');
+    expect(boundary.textContent).toContain('Zotero write');
+    expect(boundary.textContent).toContain('Final title');
+  });
+
   it('renders real source data, a non-empty graph, and requires confirmation before Zotero import', async () => {
     const { container } = render(
       <I18nextProvider i18n={i18n}>

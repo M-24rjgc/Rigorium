@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -56,7 +56,6 @@ import {
 } from './literatureMapApi';
 import LiteratureMaintenancePanel from './LiteratureMaintenancePanel';
 import type {
-  ResearchPanelArtifact,
   ResearchPanelEntry,
   ResearchToolActivity,
   ResearchConfirmationBoundary,
@@ -103,6 +102,9 @@ type ZoteroBinding = {
 };
 
 const PROJECT_LITERATURE_MAP_ID = 'project-literature-map';
+const LITERATURE_RESEARCH_VIEWS = ['map', 'papers', 'collection'] as const;
+
+type LiteratureResearchView = typeof LITERATURE_RESEARCH_VIEWS[number];
 
 type LiteratureMapPersistence = {
   projectPath: string;
@@ -331,7 +333,7 @@ function LiteratureResearchPanel({ artifact, projectPath }: {
 }) {
   const { t } = useTranslation();
   const { selectedPaperId, selectPaper } = useResearchPanel();
-  const [view, setView] = useState<'map' | 'papers' | 'collection'>('map');
+  const [view, setView] = useState<LiteratureResearchView>('map');
   const [zoteroStatus, setZoteroStatus] = useState<ZoteroStatus | null>(null);
   const [zoteroLoading, setZoteroLoading] = useState(false);
   const [zoteroBinding, setZoteroBinding] = useState<ZoteroBinding | null>(null);
@@ -381,6 +383,21 @@ function LiteratureResearchPanel({ artifact, projectPath }: {
     : undefined;
   const selectedExactMatch = selectedMatch?.matched && selectedMatch.confidence === 'exact';
   const connectorTargetName = zoteroStatus?.selectedCollection?.name || 'My Library';
+
+  const handleViewKeyDown = (event: KeyboardEvent<HTMLButtonElement>, currentView: LiteratureResearchView) => {
+    const currentIndex = LITERATURE_RESEARCH_VIEWS.indexOf(currentView);
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % LITERATURE_RESEARCH_VIEWS.length;
+    if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + LITERATURE_RESEARCH_VIEWS.length) % LITERATURE_RESEARCH_VIEWS.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = LITERATURE_RESEARCH_VIEWS.length - 1;
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    const nextView = LITERATURE_RESEARCH_VIEWS[nextIndex];
+    setView(nextView);
+    document.getElementById(`research-panel-${nextView}-tab`)?.focus();
+  };
 
   useEffect(() => {
     const paperIds = new Set(artifact.papers.map((paper) => paper.id));
@@ -877,7 +894,7 @@ function LiteratureResearchPanel({ artifact, projectPath }: {
           role="tablist"
           aria-label={t('researchPanel.views', { defaultValue: 'Research views' })}
         >
-          {(['map', 'papers', 'collection'] as const).map((tab) => (
+          {LITERATURE_RESEARCH_VIEWS.map((tab) => (
             <button
               key={tab}
               type="button"
@@ -885,7 +902,9 @@ function LiteratureResearchPanel({ artifact, projectPath }: {
               id={`research-panel-${tab}-tab`}
               aria-controls={`research-panel-${tab}-tabpanel`}
               aria-selected={view === tab}
+              tabIndex={view === tab ? 0 : -1}
               onClick={() => setView(tab)}
+              onKeyDown={(event) => handleViewKeyDown(event, tab)}
               className={cn(
                 'rounded-md px-2 py-1.5 text-[12px] font-medium transition',
                 view === tab
