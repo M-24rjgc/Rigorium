@@ -77,7 +77,7 @@ export function createExperimentControlTool(
     title: "Control Project Experiments",
     description: `Persist and operate one Project's auditable experiment manifest.
 
-Use spec to save a versioned experiment definition, grant to create one immutable plan_only, confirm_each, or budget_auto authorization, baseline to distinguish reported paper values from observed reruns, prepare to allocate a stable job identity, confirm only after the user explicitly approves that exact job, submit to run the implemented local adapter, recover to mark interrupted work without resubmitting it, and list to inspect current state and adapter availability. All storage is fixed to the current Project cwd. Reserved SSH, Slurm, MLflow, Optuna, and DVC adapters are descriptive only and cannot execute.` ,
+Use spec to save a versioned experiment definition and, when it depends on upstream research work, provide explicit parent references together with their complete immutable sourceArtifacts closure. The current Project manifest verifies and retains that closure before it accepts the spec. Grant creates one immutable plan_only, confirm_each, or budget_auto authorization; baseline distinguishes reported paper values from observed reruns; prepare allocates a stable job identity; confirm follows user approval of that exact job; submit runs the implemented local adapter; recover records interruption without resubmitting it; and list inspects state and adapter availability. All storage is fixed to the current Project cwd. Reserved SSH, Slurm, MLflow, Optuna, and DVC adapters are descriptive only and cannot execute.` ,
     kind: "custom",
     inputSchema: experimentControlInputSchema(),
     maxResultBytes: positiveInteger(options.maxResultBytes) ?? 2_000_000,
@@ -238,7 +238,7 @@ function experimentControlInputSchema() {
     required: ["operation"],
     properties: {
       operation: { type: "string", enum: [...EXPERIMENT_CONTROL_OPERATIONS] },
-      spec: { type: "object", description: "ExperimentSpecInput for operation=spec." },
+      spec: { type: "object", description: "ExperimentSpecInput for operation=spec, including explicit parents plus a complete sourceArtifacts envelope closure when it depends on upstream research artifacts." },
       grant: { type: "object", description: "ExecutionGrantInput with plan_only, confirm_each, or budget_auto mode." },
       baseline: { type: "object", description: "Reported or observed baseline input with kind=reported|observed." },
       experimentId: { type: "string" },

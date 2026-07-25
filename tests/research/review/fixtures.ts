@@ -34,6 +34,9 @@ export function createSyntheticReviewArtifacts(options: Readonly<{
   includePdf?: boolean;
   anonymityStatus?: "pass" | "warning" | "fail";
   bindCitationEvidence?: boolean;
+  includeRunProvenance?: boolean;
+  additionalSucceededProvenanceRuns?: number;
+  runStatus?: "succeeded" | "failed";
 }> = {}) {
   const evidence = createEvidencePackArtifact({
     artifactId: "review-evidence",
@@ -57,6 +60,47 @@ export function createSyntheticReviewArtifacts(options: Readonly<{
     producer: { kind: "import" },
     now: REVIEW_NOW,
   });
+  const runStatus = options.runStatus ?? "succeeded";
+  const runPayload: RunAttemptPayload = {
+    attemptId: "review-run",
+    experimentId: "review-experiment",
+    specRevision: 1,
+    specDigest: syntheticHash("d"),
+    adapterId: "local",
+    jobId: "review-job",
+    status: runStatus,
+    grantMode: "confirm_each",
+    preparedAt: REVIEW_NOW.toISOString(),
+    startedAt: REVIEW_NOW.toISOString(),
+    finishedAt: REVIEW_NOW.toISOString(),
+    artifactIds: [],
+    metricObservationIds: [],
+  };
+  const run = createResearchArtifact({
+    kind: "run_attempt",
+    artifactId: "review-run",
+    payload: runPayload,
+    producer: { kind: "tool", toolName: "synthetic_fixture" },
+    now: REVIEW_NOW,
+  });
+  const additionalRuns = Array.from({ length: options.additionalSucceededProvenanceRuns ?? 0 }, (_, index) => {
+    const attemptId = `review-run-provenance-${index + 1}`;
+    const payload: RunAttemptPayload = {
+      ...runPayload,
+      attemptId,
+      jobId: `review-job-provenance-${index + 1}`,
+      status: "succeeded",
+      artifactIds: [],
+      metricObservationIds: [],
+    };
+    return createResearchArtifact({
+      kind: "run_attempt",
+      artifactId: attemptId,
+      payload,
+      producer: { kind: "tool", toolName: "synthetic_fixture" },
+      now: REVIEW_NOW,
+    });
+  });
   const figure = createFigureTableArtifact({
     artifactId: "review-figure",
     items: [{
@@ -74,28 +118,9 @@ export function createSyntheticReviewArtifacts(options: Readonly<{
       captionEvidenceRefs: [toResearchArtifactRef(evidence)],
       citationKeys: ["synthetic2026"],
     }],
-    producer: { kind: "tool", toolName: "synthetic_fixture" },
-    now: REVIEW_NOW,
-  });
-  const runPayload: RunAttemptPayload = {
-    attemptId: "review-run",
-    experimentId: "review-experiment",
-    specRevision: 1,
-    specDigest: syntheticHash("d"),
-    adapterId: "local",
-    jobId: "review-job",
-    status: "succeeded",
-    grantMode: "confirm_each",
-    preparedAt: REVIEW_NOW.toISOString(),
-    startedAt: REVIEW_NOW.toISOString(),
-    finishedAt: REVIEW_NOW.toISOString(),
-    artifactIds: [figure.artifactId],
-    metricObservationIds: [],
-  };
-  const run = createResearchArtifact({
-    kind: "run_attempt",
-    artifactId: "review-run",
-    payload: runPayload,
+    provenanceRefs: options.includeRunProvenance === false
+      ? []
+      : [toResearchArtifactRef(run), ...additionalRuns.map(toResearchArtifactRef)],
     producer: { kind: "tool", toolName: "synthetic_fixture" },
     now: REVIEW_NOW,
   });
@@ -200,7 +225,7 @@ Synthetic claim \\citep{synthetic2026}.
     ],
     now: REVIEW_NOW,
   });
-  return { evidence, citations, figure, run, manuscript, render };
+  return { evidence, citations, figure, run, runs: Object.freeze([run, ...additionalRuns]), manuscript, render };
 }
 
 export function createLaneReports(

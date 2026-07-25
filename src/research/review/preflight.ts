@@ -296,14 +296,12 @@ function checkFigureTableProvenance(
     const problems: string[] = [];
     const artifact = artifacts.get(fullRefKey(declaredRef));
     let role: "figure" | "table" = "figure";
-    let producingRuns = artifact
-      ? runs.filter((candidate) => candidate.payload.status === "succeeded"
-        && candidate.payload.artifactIds.includes(artifact.artifactId))
-      : [];
-    let run = producingRuns.length === 1 ? producingRuns[0] : undefined;
+    let legacyFigureTable = false;
+    const provenanceRunRefs: ResearchArtifactRef[] = [];
     if (!artifact) problems.push("the referenced figure_table artifact or envelope hash is unavailable");
     if (artifact) {
       if (isExperimentFigureTable(artifact)) {
+        legacyFigureTable = true;
         identifier(artifact.payload.experimentId, `figure_table ${artifact.artifactId} experimentId`);
         identifier(artifact.payload.runAttemptId, `figure_table ${artifact.artifactId} runAttemptId`);
         if (artifact.payload.role !== "figure" && artifact.payload.role !== "table") {
@@ -314,10 +312,11 @@ function checkFigureTableProvenance(
         if (!Number.isSafeInteger(artifact.payload.bytes) || artifact.payload.bytes <= 0) {
           problems.push("the produced file has no positive byte count");
         }
-        producingRuns = runs.filter((candidate) => candidate.payload.attemptId === artifact.payload.runAttemptId
+        const producingRuns = runs.filter((candidate) => candidate.payload.attemptId === artifact.payload.runAttemptId
           && candidate.payload.status === "succeeded"
           && candidate.payload.artifactIds.includes(artifact.artifactId));
-        run = producingRuns.length === 1 ? producingRuns[0] : undefined;
+        const run = producingRuns.length === 1 ? producingRuns[0] : undefined;
+        if (run) provenanceRunRefs.push(toResearchArtifactRef(run));
         if (producingRuns.length === 0) problems.push("no succeeded producing run matches runAttemptId and artifactIds");
         if (producingRuns.length > 1) problems.push("multiple succeeded runs claim the same produced artifact");
       } else {
@@ -336,12 +335,34 @@ function checkFigureTableProvenance(
             }
           }
         }
-        if (producingRuns.length === 0) problems.push("no succeeded producing run lists the structured figure_table artifact");
-        if (producingRuns.length > 1) problems.push("multiple succeeded runs claim the same structured figure_table artifact");
+        const parentRunRefs = artifact.parents
+          .filter((parent) => parent.relation === "uses" && parent.artifact.kind === "run_attempt")
+          .map((parent) => parent.artifact);
+        if (parentRunRefs.length === 0) {
+          problems.push("no run_attempt provenance parent is attached to the structured figure_table artifact");
+        }
+        for (const parentRef of parentRunRefs) {
+          provenanceRunRefs.push(parentRef);
+          const exactRun = runs.find((candidate) => sameRef(toResearchArtifactRef(candidate), parentRef));
+          if (!exactRun) {
+            const conflictingRuns = runs.filter((candidate) => {
+              const candidateRef = toResearchArtifactRef(candidate);
+              return candidateRef.kind === parentRef.kind
+                && candidateRef.artifactId === parentRef.artifactId;
+            });
+            provenanceRunRefs.push(...conflictingRuns.map(toResearchArtifactRef));
+            problems.push(conflictingRuns.length === 0
+              ? `run_attempt provenance parent ${parentRef.artifactId}@${parentRef.revision} is not supplied`
+              : `run_attempt provenance parent ${parentRef.artifactId}@${parentRef.revision} does not exactly match its supplied run artifact`);
+            continue;
+          }
+          if (exactRun.payload.status !== "succeeded") {
+            problems.push(`run_attempt provenance parent ${parentRef.artifactId}@${parentRef.revision} has status ${exactRun.payload.status}`);
+          }
+        }
       }
     }
     if (problems.length === 0) continue;
-    const runRef = run ? toResearchArtifactRef(run) : undefined;
     const binding = findFigureTableBinding(input, declaredRef);
     findings.push(preflightFinding({
       checkId: "figure_table_provenance",
@@ -353,13 +374,15 @@ function checkFigureTableProvenance(
       rationale: problems.join("; "),
       location: binding ?? documentLocation(input, declaredRef.artifactId),
       actionKind: "fix_provenance",
-      action: `Link ${declaredRef.artifactId} to recorded file hashes and one succeeded producing run.`,
+      action: legacyFigureTable
+        ? `Link ${declaredRef.artifactId} to recorded file hashes and one succeeded producing run.`
+        : `Link ${declaredRef.artifactId} to recorded file hashes and succeeded run_attempt parent provenance.`,
       evidenceRefs: artifact ? [toResearchArtifactRef(artifact)] : [],
-      runRefs: runRef ? [runRef] : [],
+      runRefs: provenanceRunRefs,
       affectedArtifactRefs: mergeRefs([
         [manuscriptRef],
         [declaredRef],
-        runRef ? [runRef] : [],
+        provenanceRunRefs,
       ]),
     }));
   }

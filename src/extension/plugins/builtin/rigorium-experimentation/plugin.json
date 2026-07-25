@@ -1,7 +1,7 @@
 {
   "name": "rigorium-experimentation",
   "version": "0.1.0",
-  "description": "Rigorium project-local experimentation foundation: immutable artifact envelopes, explicit execution grants, idempotent jobs, local workers, metrics, baselines, and recovery.",
+  "description": "Rigorium project-local experimentation: immutable artifacts, explicit grants, idempotent local and authorized SSH/Slurm jobs, analysis, baselines, and recovery. Rigorium 项目内实验：不可变工件、显式授权、幂等的本地与已授权 SSH/Slurm 任务、分析、基线和恢复。",
   "skills": "skills",
   "settings": {
     "interfaceVersion": 1,
@@ -11,22 +11,44 @@
       "experimentation.grant.confirm-each",
       "experimentation.grant.budget-auto",
       "experimentation.run.local",
+      "experimentation.remote.connection.register",
+      "experimentation.remote.connection.list",
+      "experimentation.remote.stage.preflight",
+      "experimentation.remote.submit.authorized",
+      "experimentation.remote.query",
+      "experimentation.remote.recover",
+      "experimentation.remote.cancel",
       "experimentation.job.idempotent",
       "experimentation.recovery.restart-safe",
       "experimentation.baseline.provenance",
       "experimentation.metric.observation",
+      "experimentation.analysis.read-only",
       "experimentation.adapters.reserved"
     ],
     "implementedAdapters": [
-      "local"
+      "local",
+      "ssh",
+      "slurm"
     ],
     "reservedAdapters": [
-      "ssh",
-      "slurm",
       "mlflow",
       "optuna",
       "dvc"
     ],
-    "currentIncrement": "project-manifest-local-worker-and-recovery"
+    "currentIncrement": "project-manifest-local-and-authorized-remote-execution",
+    "capabilityDescriptions": {
+      "en": [
+        "Register and inspect immutable SSH connection terms in the current Project.",
+        "Preview Project-local stage files with hashes; remote writes occur only during an authorized submit.",
+        "Submit, query, recover, or cancel stable SSH and Slurm jobs without rebinding an uncertain job identity.",
+        "Analyze completed experiment evidence without launching work or writing files."
+      ],
+      "zh-CN": [
+        "在当前项目中登记和查看不可变的 SSH 连接条款。",
+        "仅在本地预检待上传文件及其哈希；远端写入只会发生在已授权的提交过程中。",
+        "提交、查询、恢复或取消稳定的 SSH 和 Slurm 任务；不为不确定提交重新绑定任务身份。",
+        "仅分析已完成的实验依据，不启动工作，也不写入文件。"
+      ]
+    }
   }
 }

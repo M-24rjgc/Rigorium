@@ -3,10 +3,15 @@ import { createReadStream } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import {
+  buildResearchArtifactGraph,
+  canonicalJson,
   createResearchArtifact,
+  researchArtifactKey,
   toResearchArtifactRef,
   type ResearchArtifactEnvelope,
+  type ResearchArtifactInvalidation,
   type ResearchArtifactParent,
+  type ResearchArtifactRef,
 } from "../artifacts/index.js";
 import {
   EXECUTION_PERMISSION_BOUNDARIES,
@@ -69,6 +74,12 @@ export type ExperimentOperationResult<T> = Readonly<{
   duplicate?: boolean;
 }>;
 
+type NormalizedExperimentSpecInput = Readonly<{
+  payload: ExperimentSpecPayload;
+  parents: readonly ResearchArtifactParent[];
+  sourceArtifacts: readonly ResearchArtifactEnvelope[];
+}>;
+
 export async function loadExperimentManifest(input: {
   projectRoot: string;
   recoverActive?: boolean;
@@ -96,22 +107,34 @@ export async function saveExperimentSpec(input: {
     now: input.now,
     update: (existing, now) => {
       const base = existing;
-      const previous = base ? latestById(base.specs, normalized.experimentId) : undefined;
-      if (previous && sameJson(previous.payload, normalized)) {
+      const projectedArtifacts = projectSpecSourceArtifacts(base, normalized.sourceArtifacts);
+      assertSpecSourceDependencies({
+        manifest: base,
+        projectedArtifacts,
+        parents: normalized.parents,
+        sourceArtifacts: normalized.sourceArtifacts,
+      });
+      const previous = base ? latestById(base.specs, normalized.payload.experimentId) : undefined;
+      if (previous && sameSpecTerms(previous, normalized)) {
         return { manifest: previousManifest(base!), value: previous };
       }
+      const parents = mergeArtifactParents([
+        ...normalized.parents,
+        ...(previous ? [{ relation: "supersedes" as const, artifact: toResearchArtifactRef(previous) }] : []),
+      ]);
       const spec = makeEnvelope<"experiment_spec", ExperimentSpecPayload>({
         kind: "experiment_spec",
-        artifactId: normalized.experimentId,
+        artifactId: normalized.payload.experimentId,
         revision: (previous?.revision ?? 0) + 1,
-        payload: normalized,
-        parents: previous ? [{ relation: "supersedes", artifact: toResearchArtifactRef(previous) }] : [],
+        payload: normalized.payload,
+        parents,
         now,
         toolName: "experiment_spec",
         createdAt: previous?.createdAt,
       }) as ExperimentSpec;
       const manifest = nextManifest(base, now, {
         specs: sortEnvelopes([...(base?.specs ?? []), spec]),
+        artifactEnvelopes: projectedArtifacts,
       });
       return { manifest, value: spec };
     },
@@ -911,9 +934,16 @@ function classifyWorkerFailure(error: unknown, now: Date, override?: "artifact_m
   return failure;
 }
 
-function normalizeSpecInput(input: ExperimentSpecInput): ExperimentSpecPayload {
-  if (!input || typeof input !== "object" || typeof input.title !== "string" || !input.title.trim()) {
+function normalizeSpecInput(input: ExperimentSpecInput): NormalizedExperimentSpecInput {
+  if (!isRecord(input) || typeof input.title !== "string" || !input.title.trim()) {
     throw new ExperimentServiceError("invalid_input", "Experiment spec title must be non-empty text.");
+  }
+  const allowedKeys = new Set([
+    "experimentId", "title", "description", "hypothesisId", "adapterId", "defaultGrantMode",
+    "expectedMetrics", "tags", "localWorker", "parents", "sourceArtifacts",
+  ]);
+  for (const key of Object.keys(input)) {
+    if (!allowedKeys.has(key)) throw new ExperimentServiceError("invalid_input", `Experiment spec does not accept ${key}.`);
   }
   const experimentId = input.experimentId ?? `experiment-${randomUUID()}`;
   requireInputIdentifier(experimentId, "experimentId");
@@ -927,17 +957,276 @@ function normalizeSpecInput(input: ExperimentSpecInput): ExperimentSpecPayload {
   if (adapterId !== "local" && input.localWorker !== undefined) {
     throw new ExperimentServiceError("invalid_input", "Only the local adapter accepts a local worker definition.");
   }
-  return {
-    experimentId,
-    title: requireText(input.title.trim(), "title"),
-    ...(input.description === undefined ? {} : { description: requireText(input.description, "description") }),
-    ...(input.hypothesisId === undefined ? {} : { hypothesisId: requireInputIdentifier(input.hypothesisId, "hypothesisId") }),
-    adapterId,
-    defaultGrantMode: mode,
-    expectedMetrics,
-    tags,
-    ...(localWorker === undefined ? {} : { localWorker }),
-  };
+  const parents = normalizeSpecSourceParents(input.parents);
+  const sourceArtifacts = normalizeSpecSourceArtifacts(input.sourceArtifacts);
+  if (sourceArtifacts.length > 0 && parents.length === 0) {
+    throw new ExperimentServiceError("invalid_input", "sourceArtifacts require at least one explicit ExperimentSpec parent.");
+  }
+  return Object.freeze({
+    payload: {
+      experimentId,
+      title: requireText(input.title.trim(), "title"),
+      ...(input.description === undefined ? {} : { description: requireText(input.description, "description") }),
+      ...(input.hypothesisId === undefined ? {} : { hypothesisId: requireInputIdentifier(input.hypothesisId, "hypothesisId") }),
+      adapterId,
+      defaultGrantMode: mode,
+      expectedMetrics,
+      tags,
+      ...(localWorker === undefined ? {} : { localWorker }),
+    },
+    parents,
+    sourceArtifacts,
+  });
+}
+
+function normalizeSpecSourceParents(value: unknown): readonly ResearchArtifactParent[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value)) throw new ExperimentServiceError("invalid_input", "Experiment spec parents must be an array.");
+  const parents = mergeArtifactParents(value.map((parent, index) => normalizeArtifactParent(parent, `parents[${index}]`)));
+  if (parents.some((parent) => parent.relation === "supersedes")) {
+    throw new ExperimentServiceError("invalid_input", "Experiment spec source parents cannot use supersedes; revisions add it automatically.");
+  }
+  return parents;
+}
+
+function normalizeSpecSourceArtifacts(value: unknown): readonly ResearchArtifactEnvelope[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value)) throw new ExperimentServiceError("invalid_input", "sourceArtifacts must be an array of complete artifact envelopes.");
+  const artifacts = new Map<string, ResearchArtifactEnvelope>();
+  for (const [index, entry] of value.entries()) {
+    const artifact = normalizeSourceArtifactEnvelope(entry, `sourceArtifacts[${index}]`);
+    const key = researchArtifactKey(artifact);
+    const previous = artifacts.get(key);
+    if (previous && !sameCanonicalJson(previous, artifact)) {
+      throw new ExperimentServiceError("invalid_input", `sourceArtifacts contains conflicting envelopes for ${key}.`);
+    }
+    artifacts.set(key, artifact);
+  }
+  return Object.freeze(sortEnvelopes([...artifacts.values()]));
+}
+
+function normalizeArtifactParent(value: unknown, label: string): ResearchArtifactParent {
+  try {
+    const probe = createResearchArtifact({
+      kind: "experiment_spec",
+      artifactId: "experiment-spec-parent-validation",
+      revision: 1,
+      payload: { label },
+      producer: { kind: "tool", id: "experimentation", toolName: "experiment_spec" },
+      parents: [value as ResearchArtifactParent],
+      now: new Date(0),
+    });
+    return probe.parents[0]!;
+  } catch (error) {
+    throw new ExperimentServiceError("invalid_input", `${label} must contain a valid research artifact relation and reference: ${messageOf(error)}`);
+  }
+}
+
+function mergeArtifactParents(values: readonly ResearchArtifactParent[]): readonly ResearchArtifactParent[] {
+  const parents = new Map<string, ResearchArtifactParent>();
+  const refs = new Map<string, ResearchArtifactRef>();
+  for (const value of values) {
+    const parent = normalizeArtifactParent(value, "artifact parent");
+    const refKey = researchArtifactKey(parent.artifact);
+    const knownRef = refs.get(refKey);
+    if (knownRef && (knownRef.kind !== parent.artifact.kind || knownRef.contentHash !== parent.artifact.contentHash)) {
+      throw new ExperimentServiceError("invalid_input", `Artifact parent ${refKey} has conflicting kind or content hash.`);
+    }
+    refs.set(refKey, parent.artifact);
+    parents.set(artifactParentKey(parent), parent);
+  }
+  return Object.freeze([...parents.values()].sort(compareArtifactParents));
+}
+
+function normalizeSourceArtifactEnvelope(value: unknown, label: string): ResearchArtifactEnvelope {
+  if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.kind !== "string"
+    || typeof value.artifactId !== "string" || !Number.isSafeInteger(value.revision)
+    || typeof value.status !== "string" || typeof value.contentHash !== "string"
+    || !Array.isArray(value.parents) || !Array.isArray(value.sources) || !isRecord(value.producer)
+    || !("payload" in value)) {
+    throw new ExperimentServiceError("invalid_input", `${label} must be a complete research artifact envelope.`);
+  }
+  const createdAt = requireArtifactTimestamp(value.createdAt, `${label}.createdAt`);
+  const updatedAt = requireArtifactTimestamp(value.updatedAt, `${label}.updatedAt`);
+  if (Date.parse(updatedAt) < Date.parse(createdAt)) {
+    throw new ExperimentServiceError("invalid_input", `${label}.updatedAt cannot precede createdAt.`);
+  }
+  let rebuilt: ResearchArtifactEnvelope;
+  try {
+    rebuilt = createResearchArtifact({
+      kind: value.kind as ResearchArtifactEnvelope["kind"],
+      artifactId: value.artifactId,
+      revision: value.revision,
+      status: value.status as ResearchArtifactEnvelope["status"],
+      payload: value.payload,
+      producer: value.producer as ResearchArtifactEnvelope["producer"],
+      parents: value.parents as ResearchArtifactParent[],
+      sources: value.sources,
+      now: new Date(createdAt),
+    });
+  } catch (error) {
+    throw new ExperimentServiceError("invalid_input", `${label} is not a valid research artifact envelope: ${messageOf(error)}`);
+  }
+  if (rebuilt.contentHash !== value.contentHash) {
+    throw new ExperimentServiceError("invalid_input", `${label}.contentHash does not match its immutable content.`);
+  }
+  const invalidation = value.invalidation === undefined
+    ? undefined
+    : normalizeArtifactInvalidation(value.invalidation, `${label}.invalidation`);
+  return Object.freeze({
+    ...rebuilt,
+    createdAt,
+    updatedAt,
+    ...(invalidation === undefined ? {} : { invalidation }),
+  });
+}
+
+function normalizeArtifactInvalidation(value: unknown, label: string): ResearchArtifactInvalidation {
+  if (!isRecord(value) || !Array.isArray(value.roots) || value.roots.length === 0) {
+    throw new ExperimentServiceError("invalid_input", `${label} must contain one or more root references.`);
+  }
+  if (![
+    "upstream_changed", "evidence_withdrawn", "run_failed", "review_finding", "manual",
+  ].includes(value.reason)) {
+    throw new ExperimentServiceError("invalid_input", `${label}.reason is invalid.`);
+  }
+  const roots = new Map<string, ResearchArtifactRef>();
+  for (const [index, root] of value.roots.entries()) {
+    const reference = normalizeArtifactParent({ relation: "uses", artifact: root }, `${label}.roots[${index}]`).artifact;
+    roots.set(artifactReferenceKey(reference), reference);
+  }
+  return Object.freeze({
+    invalidatedAt: requireArtifactTimestamp(value.invalidatedAt, `${label}.invalidatedAt`),
+    reason: value.reason as ResearchArtifactInvalidation["reason"],
+    roots: [...roots.values()].sort(compareArtifactRefs),
+  });
+}
+
+function projectSpecSourceArtifacts(
+  manifest: ExperimentManifest | undefined,
+  sourceArtifacts: readonly ResearchArtifactEnvelope[],
+): readonly ResearchArtifactEnvelope[] {
+  const projected = [...(manifest?.artifactEnvelopes ?? [])];
+  const occupied = new Map<string, ResearchArtifactEnvelope>();
+  for (const artifact of allManifestArtifacts(manifest, projected)) occupied.set(researchArtifactKey(artifact), artifact);
+  for (const artifact of sourceArtifacts) {
+    const key = researchArtifactKey(artifact);
+    const previous = occupied.get(key);
+    if (previous) {
+      if (!sameCanonicalJson(previous, artifact)) {
+        throw new ExperimentServiceError("invalid_input", `Source artifact ${key} conflicts with an existing Project artifact.`);
+      }
+      continue;
+    }
+    projected.push(artifact);
+    occupied.set(key, artifact);
+  }
+  return sortEnvelopes(projected);
+}
+
+function assertSpecSourceDependencies(input: {
+  manifest: ExperimentManifest | undefined;
+  projectedArtifacts: readonly ResearchArtifactEnvelope[];
+  parents: readonly ResearchArtifactParent[];
+  sourceArtifacts: readonly ResearchArtifactEnvelope[];
+}): void {
+  const artifacts = allManifestArtifacts(input.manifest, input.projectedArtifacts);
+  let byKey: Map<string, ResearchArtifactEnvelope>;
+  try {
+    const graph = buildResearchArtifactGraph(artifacts);
+    if (graph.missingParents.length > 0) {
+      throw new TypeError(`Artifact graph has ${graph.missingParents.length} missing parent reference(s).`);
+    }
+    byKey = new Map(artifacts.map((artifact) => [researchArtifactKey(artifact), artifact]));
+  } catch (error) {
+    throw new ExperimentServiceError("invalid_input", `sourceArtifacts must form a complete, valid Artifact DAG closure: ${messageOf(error)}`);
+  }
+  const roots: string[] = [];
+  for (const parent of input.parents) {
+    const key = researchArtifactKey(parent.artifact);
+    const target = byKey.get(key);
+    if (!target || target.kind !== parent.artifact.kind || target.contentHash !== parent.artifact.contentHash) {
+      throw new ExperimentServiceError("invalid_input", `Experiment spec parent ${artifactReferenceKey(parent.artifact)} is not resolved by sourceArtifacts or this Project manifest.`);
+    }
+    roots.push(key);
+  }
+  const reachable = ancestorArtifactKeys(roots, byKey);
+  for (const artifact of input.sourceArtifacts) {
+    const key = researchArtifactKey(artifact);
+    if (!reachable.has(key)) {
+      throw new ExperimentServiceError("invalid_input", `sourceArtifact ${key} is not a declared ExperimentSpec parent or its ancestor.`);
+    }
+    for (const root of artifact.invalidation?.roots ?? []) {
+      const target = byKey.get(researchArtifactKey(root));
+      if (!target || target.kind !== root.kind || target.contentHash !== root.contentHash) {
+        throw new ExperimentServiceError("invalid_input", `sourceArtifact invalidation root ${artifactReferenceKey(root)} is not resolved by the supplied closure.`);
+      }
+    }
+  }
+}
+
+function allManifestArtifacts(
+  manifest: ExperimentManifest | undefined,
+  artifactEnvelopes: readonly ResearchArtifactEnvelope[],
+): readonly ResearchArtifactEnvelope[] {
+  return [
+    ...(manifest?.specs ?? []),
+    ...(manifest?.executionGrants ?? []),
+    ...(manifest?.runAttempts ?? []),
+    ...(manifest?.metricObservations ?? []),
+    ...(manifest?.baselineObservations ?? []),
+    ...artifactEnvelopes,
+  ];
+}
+
+function ancestorArtifactKeys(
+  roots: readonly string[],
+  artifacts: ReadonlyMap<string, ResearchArtifactEnvelope>,
+): ReadonlySet<string> {
+  const reachable = new Set<string>();
+  const queue = [...roots];
+  for (let index = 0; index < queue.length; index += 1) {
+    const key = queue[index];
+    if (!key || reachable.has(key)) continue;
+    const artifact = artifacts.get(key);
+    if (!artifact) continue;
+    reachable.add(key);
+    for (const parent of artifact.parents) queue.push(researchArtifactKey(parent.artifact));
+  }
+  return reachable;
+}
+
+function sameSpecTerms(previous: ExperimentSpec, next: NormalizedExperimentSpecInput): boolean {
+  const sourceParents = previous.parents.filter((parent) => parent.relation !== "supersedes");
+  return sameCanonicalJson(previous.payload, next.payload)
+    && sameCanonicalJson(mergeArtifactParents(sourceParents), next.parents);
+}
+
+function sameCanonicalJson(left: unknown, right: unknown): boolean {
+  return canonicalJson(left) === canonicalJson(right);
+}
+
+function artifactReferenceKey(ref: ResearchArtifactRef): string {
+  return `${ref.kind}:${researchArtifactKey(ref)}:${ref.contentHash}`;
+}
+
+function artifactParentKey(parent: ResearchArtifactParent): string {
+  return `${parent.relation}:${artifactReferenceKey(parent.artifact)}`;
+}
+
+function compareArtifactParents(left: ResearchArtifactParent, right: ResearchArtifactParent): number {
+  return artifactParentKey(left).localeCompare(artifactParentKey(right), "en");
+}
+
+function compareArtifactRefs(left: ResearchArtifactRef, right: ResearchArtifactRef): number {
+  return artifactReferenceKey(left).localeCompare(artifactReferenceKey(right), "en");
+}
+
+function requireArtifactTimestamp(value: unknown, label: string): string {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+    throw new ExperimentServiceError("invalid_input", `${label} must be an ISO date.`);
+  }
+  return value;
 }
 
 function normalizeGrantInput(input: ExecutionGrantInput): ExecutionGrantInput & {

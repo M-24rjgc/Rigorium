@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import test, { after } from "node:test";
 import { createDefaultPermissionContext } from "../../../src/permission/protocol/types.js";
+import {
+  createResearchArtifact,
+  toResearchArtifactRef,
+} from "../../../src/research/artifacts/index.js";
 import { getProjectExperimentPaths, loadExperimentManifest } from "../../../src/research/experimentation/index.js";
 import { createExperimentControlTool } from "../../../src/tool/builtin/experimentControl.js";
 import { PilotDeckToolRuntimeError } from "../../../src/tool/protocol/errors.js";
@@ -45,6 +49,68 @@ test("experiment_control fixes storage to cwd and lists the current project mani
   assert.equal(listed.data?.adapters?.find((adapter) => adapter.id === "local")?.status, "implemented");
   assert.equal(tool.isReadOnly({ operation: "list" }), true);
   assert.equal(tool.isReadOnly({ operation: "spec", spec: { title: "x" } }), false);
+});
+
+test("experiment_control preserves explicit upstream source closures on specs", async () => {
+  const root = await projectRoot("source-closure");
+  const tool = createExperimentControlTool();
+  const runtime = context(root);
+  const now = new Date("2026-07-25T00:00:00.000Z");
+  const brief = createResearchArtifact({
+    kind: "research_brief",
+    artifactId: "brief-control-source",
+    revision: 1,
+    payload: { title: "Control tool provenance" },
+    producer: { kind: "tool", id: "research-design", toolName: "research_design" },
+    now,
+  });
+  const method = createResearchArtifact({
+    kind: "method_spec",
+    artifactId: "method-control-source",
+    revision: 1,
+    payload: { title: "Control tool method" },
+    producer: { kind: "tool", id: "research-method", toolName: "research_method" },
+    parents: [{ relation: "uses", artifact: toResearchArtifactRef(brief) }],
+    now,
+  });
+  const sourceParent = { relation: "derived_from" as const, artifact: toResearchArtifactRef(method) };
+
+  const saved = await tool.execute({
+    operation: "spec",
+    spec: {
+      experimentId: "experiment-control-provenance",
+      title: "Control provenance",
+      parents: [sourceParent],
+      sourceArtifacts: [method, brief, method],
+    },
+  }, runtime);
+  assert.equal(saved.data?.artifact?.kind, "experiment_spec");
+  assert.equal(saved.data?.artifact?.parents.some((parent) => parent.relation === "derived_from"
+    && parent.artifact.contentHash === method.contentHash), true);
+  assert.equal(saved.data?.manifest?.artifactEnvelopes.length, 2);
+
+  const missingMethod = createResearchArtifact({
+    kind: "method_spec",
+    artifactId: "method-control-missing",
+    revision: 1,
+    payload: { title: "Unprojected method" },
+    producer: { kind: "tool", id: "research-method", toolName: "research_method" },
+    now,
+  });
+
+  await assert.rejects(
+    tool.execute({
+      operation: "spec",
+      spec: {
+        experimentId: "experiment-control-missing-source",
+        title: "Missing source closure",
+        parents: [{ relation: "uses", artifact: toResearchArtifactRef(missingMethod) }],
+      },
+    }, runtime),
+    (error: unknown) => error instanceof PilotDeckToolRuntimeError
+      && error.code === "invalid_tool_input"
+      && /is not resolved/u.test(error.message),
+  );
 });
 
 test("experiment_control enforces plan_only, confirm_each, and budget_auto grants", async () => {

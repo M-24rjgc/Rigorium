@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import test, { after } from "node:test";
 import {
+  createResearchArtifact,
+  toResearchArtifactRef,
+} from "../../../src/research/artifacts/index.js";
+import {
   ExperimentRepositoryError,
   ExperimentServiceError,
   confirmExecutionJob,
@@ -66,6 +70,37 @@ async function createGrant(root: string, mode: "plan_only" | "confirm_each" | "b
   });
 }
 
+function upstreamClosure() {
+  const now = new Date("2026-07-25T00:00:00.000Z");
+  const brief = createResearchArtifact({
+    kind: "research_brief",
+    artifactId: "brief-upstream",
+    revision: 1,
+    payload: { topic: "Source-aware experimentation" },
+    producer: { kind: "tool", id: "research-design", toolName: "research_design" },
+    now,
+  });
+  const method = createResearchArtifact({
+    kind: "method_spec",
+    artifactId: "method-upstream",
+    revision: 1,
+    payload: { method: "calibrated-evaluation" },
+    producer: { kind: "tool", id: "research-method", toolName: "research_method" },
+    parents: [{ relation: "uses", artifact: toResearchArtifactRef(brief) }],
+    now,
+  });
+  const implementation = createResearchArtifact({
+    kind: "implementation_snapshot",
+    artifactId: "implementation-upstream",
+    revision: 1,
+    payload: { route: "reference-route" },
+    producer: { kind: "tool", id: "research-method", toolName: "research_method" },
+    parents: [{ relation: "derived_from", artifact: toResearchArtifactRef(method) }],
+    now,
+  });
+  return { brief, method, implementation, now };
+}
+
 test("persists envelope-backed specs and defaults paper baselines to reported, not rerun", async () => {
   const root = await projectRoot("reported-baseline");
   const spec = await createSpec(root);
@@ -94,6 +129,159 @@ test("persists envelope-backed specs and defaults paper baselines to reported, n
   const reloaded = await loadExperimentManifest({ projectRoot: root });
   assert.equal(reloaded?.baselineObservations.length, 1);
   assert.match(await readFile(spec.path, "utf8"), /"experiment_manifest"/u);
+});
+
+test("spec source parent closures are projected, revisioned, and restart-verifiable", async () => {
+  const root = await projectRoot("source-closure");
+  const { brief, method, implementation, now } = upstreamClosure();
+  const sourceParents = [
+    { relation: "uses" as const, artifact: toResearchArtifactRef(implementation) },
+    { relation: "derived_from" as const, artifact: toResearchArtifactRef(method) },
+  ];
+  const specInput = {
+    experimentId: "experiment-provenanced",
+    title: "Provenanced evaluation",
+    expectedMetrics: ["accuracy"],
+    parents: sourceParents,
+    sourceArtifacts: [implementation, method, brief, method],
+  };
+
+  const first = await saveExperimentSpec({ projectRoot: root, spec: specInput, now });
+  assert.equal(first.value.revision, 1);
+  assert.deepEqual(first.value.parents.map((parent) => parent.relation), ["derived_from", "uses"]);
+  assert.equal(first.manifest.artifactEnvelopes.length, 3);
+
+  const duplicate = await saveExperimentSpec({
+    projectRoot: root,
+    spec: {
+      ...specInput,
+      parents: [sourceParents[1]!, sourceParents[0]!, sourceParents[0]!],
+      sourceArtifacts: [brief, method, implementation, brief],
+    },
+    now: new Date("2026-07-25T00:01:00.000Z"),
+  });
+  assert.equal(duplicate.value.revision, 1);
+  assert.equal(duplicate.persisted, false);
+
+  const implementationRevision = createResearchArtifact({
+    kind: "implementation_snapshot",
+    artifactId: "implementation-upstream-next",
+    revision: 1,
+    payload: { route: "revised-route" },
+    producer: { kind: "tool", id: "research-method", toolName: "research_method" },
+    parents: [{ relation: "derived_from", artifact: toResearchArtifactRef(method) }],
+    now: new Date("2026-07-25T00:02:00.000Z"),
+  });
+  const revised = await saveExperimentSpec({
+    projectRoot: root,
+    spec: {
+      ...specInput,
+      parents: [{ relation: "uses", artifact: toResearchArtifactRef(implementationRevision) }],
+      sourceArtifacts: [implementationRevision],
+    },
+    now: new Date("2026-07-25T00:03:00.000Z"),
+  });
+  assert.equal(revised.value.revision, 2);
+  assert.equal(revised.value.parents.some((parent) => parent.relation === "uses"
+    && parent.artifact.artifactId === implementationRevision.artifactId), true);
+  assert.equal(revised.value.parents.some((parent) => parent.relation === "supersedes"
+    && parent.artifact.contentHash === first.value.contentHash), true);
+  assert.equal(revised.manifest.artifactEnvelopes.length, 4);
+
+  const reloaded = await loadExperimentManifest({ projectRoot: root });
+  assert.equal(reloaded?.specs.length, 2);
+  assert.equal(reloaded?.artifactEnvelopes.length, 4);
+});
+
+test("spec revisions can reuse an already-projected upstream closure", async () => {
+  const root = await projectRoot("reused-source-closure");
+  const { brief, method, implementation, now } = upstreamClosure();
+  const parent = { relation: "uses" as const, artifact: toResearchArtifactRef(implementation) };
+  const first = await saveExperimentSpec({
+    projectRoot: root,
+    spec: {
+      experimentId: "experiment-reused-provenance",
+      title: "Initial provenanced evaluation",
+      parents: [parent],
+      sourceArtifacts: [implementation, method, brief],
+    },
+    now,
+  });
+
+  const revised = await saveExperimentSpec({
+    projectRoot: root,
+    spec: {
+      experimentId: "experiment-reused-provenance",
+      title: "Revised provenanced evaluation",
+      parents: [parent],
+    },
+    now: new Date("2026-07-25T00:01:00.000Z"),
+  });
+
+  assert.equal(revised.value.revision, 2);
+  assert.equal(revised.manifest.artifactEnvelopes.length, 3);
+  assert.equal(revised.value.parents.some((entry) => entry.relation === "uses"
+    && entry.artifact.contentHash === implementation.contentHash), true);
+  assert.equal(revised.value.parents.some((entry) => entry.relation === "supersedes"
+    && entry.artifact.contentHash === first.value.contentHash), true);
+});
+
+test("spec parents reject unresolved, incomplete, or tampered closures and caller-supplied supersedes", async () => {
+  const root = await projectRoot("invalid-source-closure");
+  const { brief, method, implementation } = upstreamClosure();
+  const parent = { relation: "uses" as const, artifact: toResearchArtifactRef(implementation) };
+
+  await assert.rejects(
+    saveExperimentSpec({
+      projectRoot: root,
+      spec: { experimentId: "experiment-missing", title: "Missing source", parents: [parent] },
+    }),
+    (error: unknown) => error instanceof ExperimentServiceError
+      && error.code === "invalid_input"
+      && /is not resolved/u.test(error.message),
+  );
+  await assert.rejects(
+    saveExperimentSpec({
+      projectRoot: root,
+      spec: {
+        experimentId: "experiment-incomplete",
+        title: "Incomplete source closure",
+        parents: [parent],
+        sourceArtifacts: [implementation],
+      },
+    }),
+    (error: unknown) => error instanceof ExperimentServiceError
+      && error.code === "invalid_input"
+      && /complete, valid Artifact DAG closure/u.test(error.message),
+  );
+  await assert.rejects(
+    saveExperimentSpec({
+      projectRoot: root,
+      spec: {
+        experimentId: "experiment-tampered",
+        title: "Tampered source closure",
+        parents: [parent],
+        sourceArtifacts: [{ ...implementation, contentHash: "0".repeat(64) }, method, brief],
+      },
+    }),
+    (error: unknown) => error instanceof ExperimentServiceError
+      && error.code === "invalid_input"
+      && /contentHash does not match/u.test(error.message),
+  );
+  await assert.rejects(
+    saveExperimentSpec({
+      projectRoot: root,
+      spec: {
+        experimentId: "experiment-forged-lineage",
+        title: "Forged lineage",
+        parents: [{ relation: "supersedes", artifact: toResearchArtifactRef(method) }],
+        sourceArtifacts: [method],
+      } as never,
+    }),
+    (error: unknown) => error instanceof ExperimentServiceError
+      && error.code === "invalid_input"
+      && /cannot use supersedes/u.test(error.message),
+  );
 });
 
 test("plan_only can prepare a manifest but cannot submit a worker", async () => {

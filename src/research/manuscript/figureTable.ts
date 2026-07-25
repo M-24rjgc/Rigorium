@@ -5,6 +5,7 @@ import {
   createResearchArtifact,
   type ResearchArtifactParent,
   type ResearchArtifactProducer,
+  type ResearchArtifactRef,
   type ResearchArtifactSource,
 } from "../artifacts/index.js";
 import type {
@@ -39,6 +40,7 @@ export type FigureTableFileVerification = Readonly<{
 
 export function createFigureTableArtifact(input: {
   items: readonly FigureTableItemInput[];
+  provenanceRefs?: readonly ResearchArtifactRef[];
   producer: ResearchArtifactProducer;
   artifactId?: string;
   now?: Date;
@@ -53,11 +55,18 @@ export function createFigureTableArtifact(input: {
     ids.add(item.itemId);
   }
   const parentByKey = new Map<string, ResearchArtifactParent>();
+  const addParent = (relation: ResearchArtifactParent["relation"], artifact: ResearchArtifactRef): void => {
+    parentByKey.set(
+      `${relation}:${artifact.kind}:${artifact.artifactId}@${artifact.revision}:${artifact.contentHash}`,
+      { relation, artifact },
+    );
+  };
   for (const item of items) {
     for (const ref of item.captionEvidenceRefs) {
-      parentByKey.set(`supports:${ref.artifactId}@${ref.revision}`, { relation: "supports", artifact: ref });
+      addParent("supports", ref);
     }
   }
+  for (const ref of input.provenanceRefs ?? []) addParent("uses", ref);
   const sources: ResearchArtifactSource[] = [];
   for (const item of items) {
     for (const data of item.data) sources.push(fileSource("figure-table-data", data));
@@ -166,4 +175,3 @@ function fileSource(sourceId: string, file: FigureTableFileRef): ResearchArtifac
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
 }
-

@@ -1,5 +1,6 @@
 import type {
   ResearchArtifactEnvelope,
+  ResearchArtifactParent,
   ResearchArtifactRef,
 } from "../artifacts/index.js";
 
@@ -353,6 +354,14 @@ export type ExperimentSpecInput = Readonly<{
   expectedMetrics?: readonly string[];
   tags?: readonly string[];
   localWorker?: LocalWorkerDefinition;
+  /** Direct upstream relationships retained on the ExperimentSpec envelope. */
+  parents?: readonly ResearchArtifactParent[];
+  /**
+   * Immutable envelope closure that resolves every explicit upstream parent.
+   * It is projected into the Project experiment manifest so its DAG remains
+   * self-contained and verifiable after a restart.
+   */
+  sourceArtifacts?: readonly ResearchArtifactEnvelope[];
 }>;
 
 export type ExecutionGrantInput = Readonly<{
