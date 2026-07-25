@@ -7,7 +7,10 @@ import {
 
 export type ResearchArtifactGraph = Readonly<{
   artifacts: ReadonlyMap<string, ResearchArtifactEnvelope>;
+  /** All parent relations, including immutable revision lineage. */
   children: ReadonlyMap<string, readonly string[]>;
+  /** Only causal dependency relations; revision lineage never invalidates a replacement. */
+  invalidationChildren: ReadonlyMap<string, readonly string[]>;
   roots: readonly string[];
   missingParents: readonly ResearchArtifactRef[];
 }>;
@@ -17,6 +20,7 @@ export function buildResearchArtifactGraph(
 ): ResearchArtifactGraph {
   const byKey = new Map<string, ResearchArtifactEnvelope>();
   const children = new Map<string, string[]>();
+  const invalidationChildren = new Map<string, string[]>();
   const missingParents = new Map<string, ResearchArtifactRef>();
 
   for (const artifact of artifacts) {
@@ -24,6 +28,7 @@ export function buildResearchArtifactGraph(
     if (byKey.has(key)) throw new TypeError(`Research artifact ${key} is duplicated.`);
     byKey.set(key, artifact);
     children.set(key, []);
+    invalidationChildren.set(key, []);
   }
 
   for (const artifact of artifacts) {
@@ -39,10 +44,12 @@ export function buildResearchArtifactGraph(
         throw new TypeError(`Research artifact parent ${parentKey} does not match its referenced kind or content hash.`);
       }
       children.get(parentKey)?.push(childKey);
+      if (parent.relation !== "supersedes") invalidationChildren.get(parentKey)?.push(childKey);
     }
   }
 
   for (const entries of children.values()) entries.sort(compareText);
+  for (const entries of invalidationChildren.values()) entries.sort(compareText);
   assertAcyclic(byKey, children);
   const roots = [...byKey.keys()]
     .filter((key) => (byKey.get(key)?.parents.length ?? 0) === 0)
@@ -51,6 +58,7 @@ export function buildResearchArtifactGraph(
   return Object.freeze({
     artifacts: byKey,
     children,
+    invalidationChildren,
     roots,
     missingParents: [...missingParents.values()].sort(compareRefs),
   });
@@ -70,7 +78,7 @@ export function invalidateResearchArtifactDescendants(input: {
   for (let index = 0; index < queue.length; index += 1) {
     const key = queue[index];
     if (!key) continue;
-    for (const childKey of graph.children.get(key) ?? []) {
+    for (const childKey of graph.invalidationChildren.get(key) ?? []) {
       if (changedKeys.has(childKey) || staleKeys.has(childKey)) continue;
       staleKeys.add(childKey);
       queue.push(childKey);

@@ -89,6 +89,51 @@ test("upstream changes stale only transitive active descendants", () => {
   });
 });
 
+test("revision lineage is retained for validation but does not invalidate the replacement", () => {
+  const evidenceV1 = createResearchArtifact({
+    kind: "evidence_pack",
+    payload: { revision: 1 },
+    producer,
+    artifactId: "lineage-evidence",
+    revision: 1,
+    now: new Date("2026-07-25T00:00:00.000Z"),
+  });
+  const evidenceV2 = createResearchArtifact({
+    kind: "evidence_pack",
+    payload: { revision: 2 },
+    producer,
+    artifactId: "lineage-evidence",
+    revision: 2,
+    parents: [{ relation: "supersedes", artifact: toResearchArtifactRef(evidenceV1) }],
+    now: new Date("2026-07-25T00:01:00.000Z"),
+  });
+  const derivedV1 = createResearchArtifact({
+    kind: "research_brief",
+    payload: { conclusion: "Based on evidence v1." },
+    producer,
+    artifactId: "lineage-brief",
+    parents: [{ relation: "uses", artifact: toResearchArtifactRef(evidenceV1) }],
+    now: new Date("2026-07-25T00:02:00.000Z"),
+  });
+
+  const graph = buildResearchArtifactGraph([evidenceV1, evidenceV2, derivedV1]);
+  assert.deepEqual(graph.children.get("lineage-evidence@1"), ["lineage-brief@1", "lineage-evidence@2"]);
+  assert.deepEqual(graph.invalidationChildren.get("lineage-evidence@1"), ["lineage-brief@1"]);
+
+  const updated = invalidateResearchArtifactDescendants({
+    artifacts: [evidenceV1, evidenceV2, derivedV1],
+    roots: [toResearchArtifactRef(evidenceV1)],
+    reason: "upstream_changed",
+    now: new Date("2026-07-25T01:00:00.000Z"),
+  });
+  const status = Object.fromEntries(updated.map((artifact) => [`${artifact.artifactId}@${artifact.revision}`, artifact.status]));
+  assert.deepEqual(status, {
+    "lineage-evidence@1": "active",
+    "lineage-evidence@2": "active",
+    "lineage-brief@1": "stale",
+  });
+});
+
 test("research artifact graph rejects cycles and latest projection is deterministic", () => {
   const first = createResearchArtifact({
     kind: "research_brief",
