@@ -1,5 +1,6 @@
 import {
   createResearchArtifact,
+  LITERATURE_NOVELTY_RESCAN_ARTIFACT_KIND,
   type ResearchArtifactEnvelope,
   type ResearchArtifactParent,
   type ResearchArtifactProducer,
@@ -92,13 +93,16 @@ export type NoveltyRescanResult = Readonly<{
   }>;
 }>;
 
-export type CandidatePortfolioPayload = Readonly<{
+export type LiteratureNoveltyRescanPayload = Readonly<{
   schemaVersion: 1;
-  kind: "candidate_portfolio";
+  kind: typeof LITERATURE_NOVELTY_RESCAN_ARTIFACT_KIND;
   rescan: NoveltyRescanResult;
 }>;
 
-export type CandidatePortfolioArtifact = ResearchArtifactEnvelope<"candidate_portfolio", CandidatePortfolioPayload>;
+export type LiteratureNoveltyRescanArtifact = ResearchArtifactEnvelope<
+  typeof LITERATURE_NOVELTY_RESCAN_ARTIFACT_KIND,
+  LiteratureNoveltyRescanPayload
+>;
 
 /**
  * Run a bounded, read-only novelty/value rescan for each candidate across all
@@ -193,18 +197,22 @@ export async function rescanCandidateDirections(input: {
   });
 }
 
-/** Wrap a rescan in the shared candidate-portfolio artifact envelope. */
-export function createCandidatePortfolioArtifact(input: {
+/** Wrap a rescan in its own versioned literature artifact envelope. */
+export function createLiteratureNoveltyRescanArtifact(input: {
   rescan: NoveltyRescanResult;
   producer: ResearchArtifactProducer;
   parents?: readonly ResearchArtifactParent[];
   artifactId?: string;
   revision?: number;
   now?: Date;
-}): CandidatePortfolioArtifact {
+}): LiteratureNoveltyRescanArtifact {
   return createResearchArtifact({
-    kind: "candidate_portfolio",
-    payload: { schemaVersion: 1, kind: "candidate_portfolio", rescan: input.rescan },
+    kind: LITERATURE_NOVELTY_RESCAN_ARTIFACT_KIND,
+    payload: {
+      schemaVersion: 1,
+      kind: LITERATURE_NOVELTY_RESCAN_ARTIFACT_KIND,
+      rescan: input.rescan,
+    },
     producer: input.producer,
     ...(input.parents === undefined ? {} : { parents: input.parents }),
     ...(input.artifactId === undefined ? {} : { artifactId: input.artifactId }),
@@ -215,7 +223,7 @@ export function createCandidatePortfolioArtifact(input: {
       ...(source.queryUrls[0] ? { locator: source.queryUrls[0] } : {}),
     })),
     now: input.now,
-  }) as CandidatePortfolioArtifact;
+  }) as LiteratureNoveltyRescanArtifact;
 }
 
 function assessCandidate(

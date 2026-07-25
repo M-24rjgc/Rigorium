@@ -53,7 +53,7 @@ test("repository persists append-only artifacts, restarts cleanly, and isolates 
   assert.equal(retry.snapshot.revision, 1);
   assert.deepEqual(retry.idempotentRefs, [toResearchArtifactRef(evidence)]);
 
-  const later = artifact("candidate_portfolio", "later-independent", 1, [], { value: "later" }, [], T1);
+  const later = artifact("method_spec", "later-independent", 1, [], { value: "later" }, [], T1);
   await appendProjectResearchArtifact({ projectRoot: left, artifact: later, now: T1 });
   const lateRetry = await appendProjectResearchArtifact({ projectRoot: left, artifact: evidence, now: T0 });
   assert.equal(lateRetry.persisted, false);
@@ -187,6 +187,72 @@ test("repository rejects hash drift, missing parents, revision gaps, and immutab
   );
 });
 
+test("repository separates versioned literature novelty rescans from design candidate portfolios", async () => {
+  const rescan = {
+    schemaVersion: 1,
+    kind: "candidate_novelty_value_rescan",
+    createdAt: T0.toISOString(),
+    candidates: [],
+    sources: [],
+    coverage: {
+      status: "complete",
+      requestedSourceIds: [],
+      successfulSourceIds: [],
+      failedSourceIds: [],
+      warnings: [],
+    },
+  };
+  const literatureArtifact = createResearchArtifact({
+    kind: "literature_novelty_rescan",
+    artifactId: "novelty-rescan-valid",
+    payload: { schemaVersion: 1, kind: "literature_novelty_rescan", rescan },
+    producer: { kind: "tool", toolName: "literature_closeout" },
+    now: T0,
+  });
+  const validRoot = await projectRoot("novelty-rescan-valid");
+  const persisted = await appendProjectResearchArtifact({ projectRoot: validRoot, artifact: literatureArtifact, now: T0 });
+  assert.equal(persisted.snapshot.artifacts[0]?.kind, "literature_novelty_rescan");
+
+  const mismatchedArtifact = createResearchArtifact({
+    kind: "literature_novelty_rescan",
+    artifactId: "novelty-rescan-mismatched",
+    payload: { schemaVersion: 1, kind: "candidate_portfolio", rescan },
+    producer: { kind: "tool", toolName: "fixture" },
+    now: T0,
+  });
+  await assertRepositoryError(
+    appendProjectResearchArtifact({ projectRoot: await projectRoot("novelty-rescan-mismatched"), artifact: mismatchedArtifact, now: T0 }),
+    "invalid_schema",
+  );
+
+  const legacyArtifact = createResearchArtifact({
+    kind: "candidate_portfolio",
+    artifactId: "legacy-novelty-rescan",
+    payload: { schemaVersion: 1, kind: "candidate_portfolio", rescan },
+    producer: { kind: "tool", toolName: "legacy_literature_closeout" },
+    now: T0,
+  });
+  const legacyRoot = await projectRoot("legacy-novelty-rescan");
+  await appendProjectResearchArtifact({
+    projectRoot: legacyRoot,
+    artifact: artifact("evidence_pack", "legacy-seed"),
+    now: T0,
+  });
+  const legacyPaths = getProjectResearchArtifactPaths({ projectRoot: legacyRoot });
+  const legacyManifest = JSON.parse(await readFile(legacyPaths.manifestPath, "utf8")) as Record<string, unknown>;
+  legacyManifest.artifacts = [legacyArtifact];
+  legacyManifest.statusEvents = [];
+  resealManifest(legacyManifest);
+  await writeFile(legacyPaths.manifestPath, `${JSON.stringify(legacyManifest, null, 2)}\n`, "utf8");
+  await assert.rejects(loadProjectResearchArtifactRepository({ projectRoot: legacyRoot }), (error: unknown) => {
+    assert.equal(error instanceof ResearchArtifactRepositoryError, true);
+    const repositoryError = error as ResearchArtifactRepositoryError;
+    assert.equal(repositoryError.code, "migration_required");
+    assert.match(repositoryError.message, /literature_novelty_rescan/iu);
+    return true;
+  });
+});
+
 test("new upstream revision stales only precise descendants and a new derived revision recovers independently", async () => {
   const root = await projectRoot("precise-invalidation");
   const evidenceV1 = artifact("evidence_pack", "evidence-versioned", 1, [], { value: 1 }, [{
@@ -201,7 +267,7 @@ test("new upstream revision stales only precise descendants and a new derived re
     relation: "derived_from",
     artifact: toResearchArtifactRef(briefV1),
   }]);
-  const unrelated = artifact("candidate_portfolio", "unrelated-active");
+  const unrelated = artifact("method_spec", "unrelated-active");
   const unrelatedChild = artifact("challenge_report", "unrelated-child", 1, [{
     relation: "uses",
     artifact: toResearchArtifactRef(unrelated),
@@ -309,7 +375,7 @@ test("manual invalidation is precise and idempotent", async () => {
 test("concurrent transactions serialize atomically and optimistic revision checks fail closed", async () => {
   const root = await projectRoot("concurrent");
   const left = artifact("evidence_pack", "concurrent-left");
-  const right = artifact("candidate_portfolio", "concurrent-right");
+  const right = artifact("method_spec", "concurrent-right");
   await Promise.all([
     appendProjectResearchArtifact({ projectRoot: root, artifact: left, now: T0 }),
     appendProjectResearchArtifact({ projectRoot: root, artifact: right, now: T0 }),
@@ -376,7 +442,7 @@ test("repository rejects status-event identity drift and unrelated invalidation 
     relation: "uses",
     artifact: toResearchArtifactRef(source),
   }]);
-  const unrelated = artifact("candidate_portfolio", "status-event-unrelated");
+  const unrelated = artifact("method_spec", "status-event-unrelated");
   await appendProjectResearchArtifacts({ projectRoot: root, artifacts: [source, child, unrelated], now: T0 });
   await invalidateProjectResearchArtifactDescendants({
     projectRoot: root,

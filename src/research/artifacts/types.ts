@@ -2,9 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 
 export const RESEARCH_ARTIFACT_SCHEMA_VERSION = 1 as const;
 
+/** Stable envelope kind for versioned literature novelty/value rescan results. */
+export const LITERATURE_NOVELTY_RESCAN_ARTIFACT_KIND = "literature_novelty_rescan" as const;
+
 export const RESEARCH_ARTIFACT_KINDS = [
   "evidence_pack",
   "candidate_portfolio",
+  LITERATURE_NOVELTY_RESCAN_ARTIFACT_KIND,
   "challenge_report",
   "decision_record",
   "research_brief",

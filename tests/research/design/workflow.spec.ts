@@ -44,6 +44,7 @@ test("both natural-language entries produce a complete artifact-linked design pa
     assert.equal(result.decisionRecord.payload.choice, "adaptive-gate");
     assert.equal(result.researchBrief.payload.status, "ready");
     assert.equal(result.researchBrief.payload.title.status, "provisional");
+    assert.equal(result.portfolio.kind, "candidate_portfolio");
     assert.equal(result.artifacts.every((artifact) => validateResearchDesignArtifact(artifact).ok), true);
     assert.deepEqual(result.sourceArtifacts, []);
     validateComparisonAgainstPortfolio({ portfolio: result.portfolio, decision: result.decisionRecord });

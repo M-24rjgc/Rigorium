@@ -178,6 +178,8 @@ test("literature_closeout rescans a candidate across enabled official sources an
   }, context(projectRoot, pilotHome));
 
   if (output.data?.action !== "novelty_rescan") assert.fail("expected novelty_rescan result");
+  assert.equal(output.data.artifact.kind, "literature_novelty_rescan");
+  assert.equal(output.data.artifact.payload.kind, "literature_novelty_rescan");
   const rescan = output.data.artifact.payload.rescan;
   assert.equal(rescan.coverage.status, "complete");
   assert.deepEqual(rescan.coverage.successfulSourceIds, ["openalex", "crossref"]);

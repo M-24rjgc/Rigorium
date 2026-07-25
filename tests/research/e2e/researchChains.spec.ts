@@ -420,8 +420,8 @@ Adaptive aggregation is evaluated against prior work \\citep{prior2025}.
   assert.equal(review.reviewRound.payload.laneSummaries.length, 7);
 
   const unrelated = createResearchArtifact({
-    kind: "candidate_portfolio",
-    artifactId: `${entry}-unrelated-portfolio`,
+    kind: "method_spec",
+    artifactId: `${entry}-unrelated-method-spec`,
     payload: { branch: "unrelated" },
     producer: { kind: "user" },
     now: nextNow(),

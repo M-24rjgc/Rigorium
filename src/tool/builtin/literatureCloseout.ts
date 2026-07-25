@@ -17,9 +17,9 @@ import {
   type EvidencePackEntryInput,
 } from "../../research/literature/evidencePack.js";
 import {
-  createCandidatePortfolioArtifact,
+  createLiteratureNoveltyRescanArtifact,
   rescanCandidateDirections,
-  type CandidatePortfolioArtifact,
+  type LiteratureNoveltyRescanArtifact,
   type NoveltyRescanCandidate,
   type NoveltyRescanSource,
 } from "../../research/literature/noveltyRescan.js";
@@ -106,7 +106,7 @@ export type LiteratureCloseoutResult =
       schemaVersion: 1;
       kind: "literature_closeout_result";
       action: "novelty_rescan";
-      artifact: CandidatePortfolioArtifact;
+      artifact: LiteratureNoveltyRescanArtifact;
       safety: CloseoutSafety;
     }>
   | Readonly<{
@@ -271,7 +271,7 @@ async function executeNoveltyRescan(
   } catch (error) {
     throw invalidInput(error);
   }
-  const artifact = createCandidatePortfolioArtifact({
+  const artifact = createLiteratureNoveltyRescanArtifact({
     rescan,
     producer: { kind: "tool", toolName: TOOL_NAME },
     ...(input.artifactId ? { artifactId: input.artifactId } : {}),

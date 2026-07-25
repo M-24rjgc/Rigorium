@@ -13,7 +13,7 @@ import { compareResearchCandidates, normalizeEliminationRecords } from "./compar
 
 export type ResearchDesignValidationIssue = Readonly<{
   path: string;
-  code: "invalid_envelope" | "invalid_payload" | "invalid_reference" | "invalid_comparison";
+  code: "invalid_envelope" | "unsupported_kind" | "invalid_payload" | "invalid_reference" | "invalid_comparison";
   message: string;
 }>;
 
@@ -25,10 +25,22 @@ export function validateResearchDesignArtifact(artifact: ResearchArtifactEnvelop
   const issues: ResearchDesignValidationIssue[] = [];
   try {
     validateEnvelopeHash(artifact);
-    if (artifact.kind === "candidate_portfolio") validateCandidatePortfolioArtifact(artifact as CandidatePortfolioArtifact);
-    if (artifact.kind === "challenge_report") validateChallengeReportArtifact(artifact as ChallengeReportArtifact);
-    if (artifact.kind === "decision_record") validateDecisionRecordArtifact(artifact as DecisionRecordArtifact);
-    if (artifact.kind === "research_brief") validateResearchBriefArtifact(artifact as ResearchBriefArtifact);
+    switch (artifact.kind) {
+      case "candidate_portfolio":
+        validateCandidatePortfolioArtifact(artifact as CandidatePortfolioArtifact);
+        break;
+      case "challenge_report":
+        validateChallengeReportArtifact(artifact as ChallengeReportArtifact);
+        break;
+      case "decision_record":
+        validateDecisionRecordArtifact(artifact as DecisionRecordArtifact);
+        break;
+      case "research_brief":
+        validateResearchBriefArtifact(artifact as ResearchBriefArtifact);
+        break;
+      default:
+        throw new TypeError(`Artifact kind ${artifact.kind} is not a research design artifact.`);
+    }
   } catch (error) {
     issues.push({ path: "$", code: classify(error), message: messageOf(error) });
   }
@@ -43,6 +55,9 @@ export function assertValidResearchDesignArtifact(artifact: ResearchArtifactEnve
 export function validateCandidatePortfolioArtifact(artifact: CandidatePortfolioArtifact): void {
   requireKind(artifact, "candidate_portfolio");
   const payload = artifact.payload;
+  if (payload.schemaVersion !== 1 || payload.kind !== "candidate_portfolio") {
+    throw new TypeError("CandidatePortfolio payload kind or schemaVersion does not match its envelope.");
+  }
   const rebuilt = buildCandidatePortfolioPayload({
     entry: payload.entry,
     idea: payload.idea,
@@ -145,6 +160,7 @@ function requireKind<TKind extends ResearchArtifactEnvelope["kind"]>(artifact: R
 function classify(error: unknown): ResearchDesignValidationIssue["code"] {
   const message = messageOf(error);
   if (/contentHash|envelope/iu.test(message)) return "invalid_envelope";
+  if (/not a research design artifact/iu.test(message)) return "unsupported_kind";
   if (/comparison|objective|score/iu.test(message)) return "invalid_comparison";
   if (/reference|unknown candidate|absent/iu.test(message)) return "invalid_reference";
   return "invalid_payload";

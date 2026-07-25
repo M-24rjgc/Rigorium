@@ -7,6 +7,7 @@ import {
   canonicalJson,
   createResearchArtifact,
   hashResearchArtifactContent,
+  LITERATURE_NOVELTY_RESCAN_ARTIFACT_KIND,
   RESEARCH_ARTIFACT_KINDS,
   researchArtifactKey,
   toResearchArtifactRef,
@@ -103,6 +104,7 @@ export type ResearchArtifactRepositoryErrorCode =
   | "corrupt_json"
   | "invalid_schema"
   | "integrity_mismatch"
+  | "migration_required"
   | "revision_conflict"
   | "artifact_conflict"
   | "missing_parent"
@@ -548,6 +550,14 @@ function normalizeEnvelope(value: unknown, path: string): ResearchArtifactEnvelo
   const updatedAt = requireDate(envelope.updatedAt, "updatedAt", path);
   if (Date.parse(updatedAt) < Date.parse(createdAt)) invalidSchema(path, "Artifact updatedAt must not precede createdAt.");
   const payload = cloneCanonical(envelope.payload, `${path}.payload`);
+  if (isLegacyLiteratureNoveltyRescanEnvelope(envelope.kind, payload)) {
+    throw repositoryError(
+      "migration_required",
+      "Legacy candidate_portfolio novelty-rescan artifacts must be migrated to literature_novelty_rescan and have their hashes and references regenerated.",
+      { path, operation: "migrate_legacy_artifact" },
+    );
+  }
+  validateArtifactPayloadContract(envelope.kind, payload, path);
   let rebuilt: ResearchArtifactEnvelope;
   try {
     rebuilt = createResearchArtifact({
@@ -593,6 +603,36 @@ function normalizeEnvelope(value: unknown, path: string): ResearchArtifactEnvelo
   });
   assertCanonicalShape(value, normalized, path, "Artifact envelope contains unknown or non-canonical fields.");
   return normalized;
+}
+
+function isLegacyLiteratureNoveltyRescanEnvelope(kind: ResearchArtifactKind, payload: unknown): boolean {
+  return kind === "candidate_portfolio"
+    && isRecord(payload)
+    && payload.schemaVersion === 1
+    && payload.kind === "candidate_portfolio"
+    && Object.prototype.hasOwnProperty.call(payload, "rescan");
+}
+
+function validateArtifactPayloadContract(kind: ResearchArtifactKind, payload: unknown, path: string): void {
+  if (kind === "candidate_portfolio") {
+    const candidatePortfolio = expectRecord(payload, "candidate_portfolio payload", path);
+    if (candidatePortfolio.schemaVersion !== 1 || candidatePortfolio.kind !== "candidate_portfolio") {
+      invalidSchema(path, "candidate_portfolio payload kind or schemaVersion does not match its envelope.");
+    }
+    if (Object.prototype.hasOwnProperty.call(candidatePortfolio, "rescan")) {
+      invalidSchema(path, "candidate_portfolio payloads must not carry literature novelty rescan data.");
+    }
+    return;
+  }
+  if (kind !== LITERATURE_NOVELTY_RESCAN_ARTIFACT_KIND) return;
+  const literatureRescan = expectRecord(payload, "literature_novelty_rescan payload", path);
+  if (literatureRescan.schemaVersion !== 1 || literatureRescan.kind !== LITERATURE_NOVELTY_RESCAN_ARTIFACT_KIND) {
+    invalidSchema(path, "literature_novelty_rescan payload kind or schemaVersion does not match its envelope.");
+  }
+  const rescan = expectRecord(literatureRescan.rescan, "literature_novelty_rescan result", path);
+  if (rescan.schemaVersion !== 1 || rescan.kind !== "candidate_novelty_value_rescan") {
+    invalidSchema(path, "literature_novelty_rescan payload must contain a versioned novelty rescan result.");
+  }
 }
 
 function normalizeInvalidation(value: unknown, path: string): ResearchArtifactInvalidation {
@@ -1286,6 +1326,10 @@ function assertCanonicalShape(value: unknown, normalized: unknown, path: string,
 function expectRecord(value: unknown, label: string, path: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) invalidSchema(path, `${label} must be an object.`);
   return value as Record<string, unknown>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function requireIdentifier(value: unknown, label: string, path: string): string {

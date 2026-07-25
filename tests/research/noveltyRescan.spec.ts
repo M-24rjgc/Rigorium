@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  createCandidatePortfolioArtifact,
+  createLiteratureNoveltyRescanArtifact,
   rescanCandidateDirections,
   type NoveltyRescanSource,
 } from "../../src/research/literature/noveltyRescan.js";
+import { validateResearchDesignArtifact } from "../../src/research/design/validators.js";
 import type { LiteratureSearchResult, ResearchPaper } from "../../src/research/types.js";
 
 const now = () => new Date("2026-07-25T00:00:00.000Z");
@@ -63,14 +64,18 @@ test("candidate rescans merge strong identities across providers and retain part
   assert.deepEqual(result.candidates[0]!.matches[0]!.sourceIds, ["crossref", "openalex"]);
   assert.equal(result.candidates[0]!.novelty.status, "not_established");
 
-  const artifact = createCandidatePortfolioArtifact({
+  const artifact = createLiteratureNoveltyRescanArtifact({
     artifactId: "candidate-portfolio-review",
     rescan: result,
     producer: { kind: "agent", id: "research-agent" },
     now: now(),
   });
-  assert.equal(artifact.kind, "candidate_portfolio");
+  assert.equal(artifact.kind, "literature_novelty_rescan");
+  assert.equal(artifact.payload.kind, "literature_novelty_rescan");
   assert.equal(artifact.payload.rescan.candidates[0]!.candidateId, "direction-1");
+  const designValidation = validateResearchDesignArtifact(artifact);
+  assert.equal(designValidation.ok, false);
+  if (!designValidation.ok) assert.equal(designValidation.issues[0]?.code, "unsupported_kind");
 });
 
 test("a disconnected provider is an auditable failure instead of a novelty claim", async () => {

@@ -18,10 +18,10 @@ export * from "./literature/maintenance.js";
 export * from "./literature/evidencePack.js";
 export {
   NOVELTY_RESCAN_LIMITS,
-  createCandidatePortfolioArtifact as createNoveltyRescanCandidatePortfolioArtifact,
+  createLiteratureNoveltyRescanArtifact,
   rescanCandidateDirections,
-  type CandidatePortfolioArtifact as NoveltyRescanCandidatePortfolioArtifact,
-  type CandidatePortfolioPayload as NoveltyRescanCandidatePortfolioPayload,
+  type LiteratureNoveltyRescanArtifact,
+  type LiteratureNoveltyRescanPayload,
   type NoveltyRescanAssessment,
   type NoveltyRescanCandidate,
   type NoveltyRescanMatch,

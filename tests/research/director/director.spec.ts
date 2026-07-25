@@ -51,6 +51,24 @@ test("Director starts from a broad direction and resumes from midstream artifact
   assert.doesNotThrow(() => assertNoFixedStageFields(midstream));
 });
 
+test("Director routes literature novelty rescans separately from design candidate portfolios", () => {
+  const noveltyRescan = artifact("literature_novelty_rescan", "novelty-rescan-active");
+  const result = plan({
+    artifacts: [noveltyRescan],
+    capabilities: [
+      capability("novelty-rescan", [], ["literature_novelty_rescan"]),
+      capability("design-brief", ["candidate_portfolio"], ["research_brief"]),
+    ],
+  });
+
+  assert.deepEqual(result.actions.map((action) => action.capabilityId), ["design-brief"]);
+  const design = result.actions[0]!;
+  assert.deepEqual(design.inputArtifactRefs, []);
+  assert.equal(result.blockedBoundaries.some((boundary) => boundary.kind === "missing_dependency"
+    && boundary.capabilityId === "design-brief"
+    && boundary.detail.includes("candidate_portfolio")), true);
+});
+
 test("Director recomputes only latest stale artifacts and preserves stale-parent ordering", () => {
   const evidence = artifact("evidence_pack", "evidence-active");
   const unaffected = artifact("candidate_portfolio", "portfolio-unaffected");
