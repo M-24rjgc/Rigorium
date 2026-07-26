@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "Rigorium personal research workspace",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/M-24rjgc/Rigorium.git"
+  },
   "type": "module",
   "main": "desktop/main.mjs",
   "engines": {
@@ -19,7 +23,7 @@
     "check:runtime": "node scripts/check-node-runtime.mjs",
     "install:browser": "npx @playwright/mcp install-browser chrome-for-testing",
     "prebuild": "npm run check:runtime && node scripts/bootstrap-pilotdeck-config.mjs && cd src/context/memory/edgeclaw-memory-core && npm run build",
-    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/extension/plugins/builtin','dist/src/extension/plugins/builtin',{recursive:true})\"",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/extension/plugins/builtin','dist/src/extension/plugins/builtin',{recursive:true})\" && node scripts/write-release-metadata.mjs",
     "server": "npm run check:runtime && tsx src/cli/pilotdeck.ts server",
     "server:built": "npm run check:runtime && node dist/src/cli/pilotdeck.js server",
     "skills:migrate": "tsx src/cli/pilotdeck.ts skills migrate",
@@ -27,12 +31,15 @@
     "desktop:start": "electron .",
     "desktop:smoke": "electron . --smoke-test",
     "desktop:verify-research": "node scripts/verify-packaged-research.mjs",
+    "desktop:verify-release-metadata": "node scripts/verify-packaged-release-metadata.mjs",
     "desktop:pack": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && electron-builder --dir --win --x64",
     "desktop:build": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && electron-builder --win nsis --x64",
     "predev": "npm run check:runtime && node scripts/bootstrap-pilotdeck-config.mjs",
     "dev": "node scripts/dev-launcher.mjs",
     "test": "npm run build && node --test --test-force-exit --test-timeout 60000 \"dist/tests/**/*.test.js\" \"dist/tests/**/*.spec.js\"",
     "test:research-bridge": "node --test desktop/zotero-broker.test.mjs ui/server/routes/zoteroCloudTransport.node-test.mjs",
+    "test:desktop-update": "node --test ui/server/services/desktopUpdateService.node-test.mjs",
+    "release:verify-tag": "node scripts/verify-release-tag.mjs",
     "research:smoke-sources": "node scripts/smoke-literature-sources.mjs",
     "e2e:real-agent-lifecycle-hooks": "npm run build && PILOTDECK_RUN_REAL_AGENT_LIFECYCLE_E2E=1 node dist/tests/agent/e2e/run-real-agent-lifecycle-hooks.js"
   },

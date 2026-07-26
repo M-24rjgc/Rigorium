@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -49,6 +49,7 @@ import ResearchSettingsTab from './tabs/ResearchSettingsTab';
 
 type SettingsPage = 'main' | 'config' | 'mcp' | 'permissions' | 'chatInput' | 'codeEditor' | 'gateway' | 'research';
 type ThemeMode = 'system' | 'light' | 'dark';
+type MainInitialSection = 'updates';
 
 const splitInitialTab = (tab: string) => {
   const [page, section] = String(tab || '').split(':', 2);
@@ -70,6 +71,11 @@ const configSectionFromInitialTab = (tab: string): string | undefined => {
   return page === 'config' && section ? section : undefined;
 };
 
+const mainSectionFromInitialTab = (tab: string): MainInitialSection | undefined => {
+  const { page, section } = splitInitialTab(tab);
+  return page === 'appearance' && section === 'updates' ? 'updates' : undefined;
+};
+
 function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }: SettingsProps) {
   const { t } = useTranslation('settings');
   const {
@@ -82,6 +88,10 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
   const [page, setPage] = useState<SettingsPage>(() => pageFromInitialTab(initialTab));
   const configInitialSection = useMemo(
     () => configSectionFromInitialTab(initialTab),
+    [initialTab],
+  );
+  const mainInitialSection = useMemo(
+    () => mainSectionFromInitialTab(initialTab),
     [initialTab],
   );
 
@@ -145,6 +155,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
                 projectSortOrder={projectSortOrder}
                 onProjectSortOrderChange={setProjectSortOrder}
                 onOpenPage={setPage}
+                initialSection={mainInitialSection}
               />
             )}
 
@@ -174,9 +185,10 @@ type SettingsHomeProps = {
   projectSortOrder: ProjectSortOrder;
   onProjectSortOrderChange: (value: ProjectSortOrder) => void;
   onOpenPage: (page: SettingsPage) => void;
+  initialSection?: MainInitialSection;
 };
 
-function SettingsHome({ projectSortOrder, onProjectSortOrderChange, onOpenPage }: SettingsHomeProps) {
+function SettingsHome({ projectSortOrder, onProjectSortOrderChange, onOpenPage, initialSection }: SettingsHomeProps) {
   const { t, i18n } = useTranslation('settings');
   const { themeMode = 'system', setThemeMode } = useTheme() as {
     themeMode?: ThemeMode;
@@ -208,6 +220,12 @@ function SettingsHome({ projectSortOrder, onProjectSortOrderChange, onOpenPage }
   const currentLanguage = languages.some((language) => language.value === i18n.language)
     ? i18n.language
     : 'en';
+  const updateSectionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (initialSection !== 'updates') return;
+    updateSectionRef.current?.scrollIntoView({ block: 'start' });
+  }, [initialSection]);
 
   return (
     <div className="space-y-8">
@@ -331,7 +349,9 @@ function SettingsHome({ projectSortOrder, onProjectSortOrderChange, onOpenPage }
         </GroupedCard>
       </SettingsGroup>
 
-      <VersionUpdateSection />
+      <div ref={updateSectionRef} data-testid="desktop-version-update-section">
+        <VersionUpdateSection />
+      </div>
     </div>
   );
 }
@@ -585,10 +605,10 @@ function SelectControl({
   );
 }
 
-const isDesktopApp = typeof window !== 'undefined' && !!(window as any).pilotdeckDesktop;
+const isDesktopApp = () => typeof window !== 'undefined' && !!(window as any).pilotdeckDesktop;
 
 function VersionUpdateSection() {
-  return isDesktopApp ? <DesktopVersionUpdateSection /> : <GitVersionUpdateSection />;
+  return isDesktopApp() ? <DesktopVersionUpdateSection /> : <GitVersionUpdateSection />;
 }
 
 function GitVersionUpdateSection() {
@@ -760,6 +780,7 @@ function DesktopVersionUpdateSection() {
 
   const downloadState = download?.state;
   const downloadPercent = download ? Math.round((download.progress ?? 0) * 100) : 0;
+  const installerVerified = downloadState === 'downloaded' && download?.verified === true;
 
   return (
     <SettingsGroup title={t('about.title')}>
@@ -847,11 +868,23 @@ function DesktopVersionUpdateSection() {
               <div className="flex min-h-[56px] items-center gap-3.5 px-5 py-3">
                 <div className="min-w-0 flex-1">
                   <span className="text-sm font-medium text-green-700 dark:text-green-400">{t('about.downloadComplete')}</span>
+                  <span
+                    className={cn(
+                      'mt-1 flex items-center gap-1 text-xs',
+                      installerVerified ? 'text-green-700 dark:text-green-400' : 'text-amber-700 dark:text-amber-400',
+                    )}
+                    data-testid="desktop-update-verification"
+                  >
+                    {installerVerified ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                    {installerVerified ? t('about.installerVerified') : t('about.installerVerificationPending')}
+                  </span>
                 </div>
                 <button
                   type="button"
                   onClick={triggerInstall}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600"
+                  disabled={!installerVerified}
+                  title={installerVerified ? undefined : t('about.installerVerificationPending')}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-green-500 dark:hover:bg-green-600"
                 >
                   <Download className="h-3 w-3" />
                   {t('about.installUpdate')}

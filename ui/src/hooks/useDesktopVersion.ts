@@ -15,6 +15,7 @@ export type DesktopVersionInfo = {
     size: number;
     downloadUrl: string;
   } | null;
+  desktop: boolean;
 };
 
 export type DesktopDownloadStatus = {
@@ -24,6 +25,8 @@ export type DesktopDownloadStatus = {
   totalBytes: number | null;
   filePath: string | null;
   error: string | null;
+  verified?: boolean;
+  sha256?: string | null;
 };
 
 export function useDesktopVersion() {
@@ -43,12 +46,19 @@ export function useDesktopVersion() {
   const fetchStatus = useCallback(async () => {
     setChecking(true);
     try {
-      const res = await authenticatedFetch('/api/update/desktop/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      const [res, downloadRes] = await Promise.all([
+        authenticatedFetch('/api/update/desktop/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+        authenticatedFetch('/api/update/desktop/download/status'),
+      ]);
       if (!res.ok) throw new Error('Failed to check desktop version');
       const data = await res.json();
+      if (downloadRes.ok) {
+        const downloadData = await downloadRes.json();
+        setDownload(downloadData.download ?? null);
+      }
 
       setInfo({
         currentVersion: data.current?.version ?? 'unknown',
@@ -59,6 +69,7 @@ export function useDesktopVersion() {
         message: data.message,
         releaseUrl: data.latest?.htmlUrl,
         selectedAsset: data.latest?.selectedAsset ?? null,
+        desktop: Boolean(data.current?.desktop),
       });
       setError(null);
     } catch (e) {
@@ -69,6 +80,7 @@ export function useDesktopVersion() {
         hasUpdate: false,
         checkUnavailable: true,
         message: e instanceof Error ? e.message : String(e),
+        desktop: false,
       });
       setError(e instanceof Error ? e.message : String(e));
     } finally {

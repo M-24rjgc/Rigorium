@@ -1,9 +1,20 @@
-import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync } from 'fs';
+import {
+  closeSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  statSync,
+} from 'fs';
 import { rm } from 'fs/promises';
+import { createHash } from 'crypto';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
@@ -14,6 +25,11 @@ const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const DEFAULT_TIMEOUT_MS = 15_000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const USER_AGENT = 'Rigorium-Updater/0.1';
+const CHECKSUM_MAX_BYTES = 1024 * 1024;
+const DEFAULT_INSTALLER_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+const DEFAULT_DOWNLOAD_IDLE_TIMEOUT_MS = 120_000;
+const MAX_DOWNLOAD_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const HASH_BUFFER_BYTES = 1024 * 1024;
 
 let cachedStatus = null;
 let downloadJob = createIdleDownloadJob();
@@ -46,23 +62,33 @@ export function parseVersionParts(value) {
 }
 
 export function normalizeRepository(value) {
-  const raw = String(value || '').trim();
+  const raw = String(value || '').trim().replace(/^git\+/i, '');
   if (!raw) return null;
 
-  if (/^https?:\/\//i.test(raw)) {
+  if (/^(?:https?|git|ssh):\/\//i.test(raw)) {
     try {
       const url = new URL(raw);
-      const parts = url.pathname.replace(/^\/+/, '').replace(/\.git$/, '').split('/');
-      if (parts.length >= 2 && parts[0] && parts[1]) {
-        return `${parts[0]}/${parts[1]}`;
-      }
+      if (!/^(?:www\.)?github\.com$/i.test(url.hostname)) return null;
+      return normalizeRepositoryPath(url.pathname);
     } catch {
       return null;
     }
   }
 
-  const match = raw.replace(/\.git$/, '').match(/^([^/\s]+)\/([^/\s]+)$/);
-  return match ? `${match[1]}/${match[2]}` : null;
+  const sshMatch = raw.match(/^(?:git@)?github\.com:([^\s]+)$/i);
+  if (sshMatch) return normalizeRepositoryPath(sshMatch[1]);
+  return normalizeRepositoryPath(raw);
+}
+
+function normalizeRepositoryPath(value) {
+  const parts = String(value || '')
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.git$/i, '')
+    .split('/');
+  if (parts.length !== 2) return null;
+  const [owner, repository] = parts;
+  const validPart = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+  return validPart.test(owner) && validPart.test(repository) ? `${owner}/${repository}` : null;
 }
 
 export function mapGitHubRelease(release) {
@@ -77,6 +103,7 @@ export function mapGitHubRelease(release) {
         contentType: asset.content_type,
         createdAt: asset.created_at,
         updatedAt: asset.updated_at,
+        digest: asset.digest || null,
       }))
     : [];
 
@@ -112,9 +139,10 @@ export function selectDesktopAsset(release, options = {}) {
 export async function getCurrentDesktopVersion(options = {}) {
   const env = options.env || process.env;
   const projectRoot = options.projectRoot || PROJECT_ROOT;
+  const releaseMetadata = readReleaseMetadata(projectRoot);
   const packageVersion = readPackageVersion(projectRoot);
-  const commit = await getCurrentCommit(projectRoot, env);
-  const buildTime = await getBuildTime(projectRoot, env);
+  const commit = await getCurrentCommit(projectRoot, env, releaseMetadata);
+  const buildTime = await getBuildTime(projectRoot, env, releaseMetadata);
 
   return {
     version:
@@ -123,6 +151,7 @@ export async function getCurrentDesktopVersion(options = {}) {
         env.PILOTDECK_VERSION,
         env.APP_VERSION,
         env.npm_package_version,
+        releaseMetadata?.version,
         packageVersion,
       ) || '0.0.0',
     buildTime,
@@ -143,11 +172,7 @@ export async function getDesktopUpdateStatus(options = {}) {
   }
 
   const current = await getCurrentDesktopVersion({ env, projectRoot: options.projectRoot });
-  const repository = normalizeRepository(
-    env.RIGORIUM_UPDATE_REPOSITORY
-      || env.PILOTDECK_UPDATE_REPOSITORY
-      || env.PILOTDECK_RELEASE_REPOSITORY,
-  );
+  const repository = resolveUpdateRepository({ env, projectRoot: options.projectRoot || PROJECT_ROOT });
 
   if (!repository) {
     const status = {
@@ -214,11 +239,7 @@ export async function getDesktopUpdateStatus(options = {}) {
 
 export async function listDesktopReleases(options = {}) {
   const env = options.env || process.env;
-  const repository = normalizeRepository(
-    env.RIGORIUM_UPDATE_REPOSITORY
-      || env.PILOTDECK_UPDATE_REPOSITORY
-      || env.PILOTDECK_RELEASE_REPOSITORY,
-  );
+  const repository = resolveUpdateRepository({ env, projectRoot: options.projectRoot || PROJECT_ROOT });
   if (!repository) {
     throw new Error('Rigorium update repository is not configured.');
   }
@@ -256,16 +277,26 @@ export async function startDesktopUpdateDownload(options = {}) {
   }
 
   const asset = resolveDownloadAsset(status.latest, options);
-  if (!asset?.downloadUrl) {
+  if (!asset) {
     const error = new Error('No compatible desktop installer asset was found for this platform.');
     error.statusCode = 404;
     throw error;
   }
 
-  const destinationDir = getUpdateCacheDir(options.env || process.env, status.latest.tagName || status.latest.version);
+  const env = options.env || process.env;
+  const maxBytes = getInstallerDownloadLimit(env);
+  const checksum = await resolveExpectedInstallerChecksum(status.latest, asset, env, status.repository);
+  if (!checksum?.sha256) {
+    const error = new Error('The release does not include a SHA-256 checksum for the selected installer.');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const destinationDir = getUpdateCacheDir(env, status.latest.tagName || status.latest.version);
   mkdirSync(destinationDir, { recursive: true });
   const destinationPath = path.join(destinationDir, sanitizeFilename(asset.name || 'pilotdeck-update'));
   const partialPath = `${destinationPath}.download`;
+  await clearDownloadFiles(partialPath, destinationPath);
 
   downloadAbortController = new AbortController();
   downloadJob = {
@@ -275,6 +306,11 @@ export async function startDesktopUpdateDownload(options = {}) {
     receivedBytes: 0,
     totalBytes: asset.size ?? null,
     asset,
+    checksumAsset: checksum.asset,
+    expectedSha256: checksum.sha256,
+    sha256: null,
+    verified: false,
+    maxBytes,
     release: {
       tagName: status.latest.tagName,
       version: status.latest.version,
@@ -287,7 +323,13 @@ export async function startDesktopUpdateDownload(options = {}) {
     error: null,
   };
 
-  runDownload(asset.downloadUrl, partialPath, destinationPath, downloadAbortController.signal)
+  runDownload(asset, partialPath, destinationPath, {
+    signal: downloadAbortController.signal,
+    env,
+    expectedSha256: checksum.sha256,
+    maxBytes,
+    repository: status.repository,
+  })
     .then((result) => {
       downloadJob = {
         ...downloadJob,
@@ -295,6 +337,8 @@ export async function startDesktopUpdateDownload(options = {}) {
         progress: 1,
         receivedBytes: result.receivedBytes,
         totalBytes: result.totalBytes ?? downloadJob.totalBytes,
+        sha256: result.sha256,
+        verified: true,
         completedAt: new Date().toISOString(),
       };
       downloadAbortController = null;
@@ -307,7 +351,7 @@ export async function startDesktopUpdateDownload(options = {}) {
         completedAt: new Date().toISOString(),
       };
       downloadAbortController = null;
-      rm(partialPath, { force: true }).catch(() => {});
+      removeDownloadFiles(partialPath, destinationPath).catch(() => {});
     });
 
   return getDesktopDownloadStatus();
@@ -328,6 +372,11 @@ export function launchDownloadedDesktopUpdate(options = {}) {
     error.statusCode = 404;
     throw error;
   }
+  if (downloadJob.state !== 'downloaded' || downloadJob.verified !== true || !downloadJob.sha256) {
+    const error = new Error('The downloaded installer has not passed SHA-256 verification.');
+    error.statusCode = 409;
+    throw error;
+  }
 
   const cacheRoot = getUpdateCacheRoot(options.env || process.env);
   const resolvedPath = path.resolve(filePath);
@@ -337,12 +386,31 @@ export function launchDownloadedDesktopUpdate(options = {}) {
     error.statusCode = 400;
     throw error;
   }
+  if (path.resolve(downloadJob.filePath) !== resolvedPath) {
+    const error = new Error('Installer path does not match the verified desktop update.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!isLaunchableInstallerPath(resolvedPath, process.platform)) {
+    const error = new Error('The verified release asset is not a launchable installer for this platform.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  assertInstallerFileIntegrity(resolvedPath, {
+    expectedSha256: downloadJob.expectedSha256,
+    expectedBytes: downloadJob.receivedBytes,
+    maxBytes: downloadJob.maxBytes || getInstallerDownloadLimit(options.env || process.env),
+  });
 
   const { command, args } = getOpenFileSpawnCommand(resolvedPath);
-  const child = execFile(command, args, {
+  const child = spawn(command, args, {
     cwd: path.dirname(resolvedPath),
+    detached: true,
+    stdio: 'ignore',
     windowsHide: process.platform === 'win32',
   });
+  child.unref();
   child.on('error', () => {});
 
   return {
@@ -405,37 +473,82 @@ async function fetchJson(url, env) {
   }
 }
 
-function createGitHubHeaders(env) {
+async function fetchBoundedText(url, env, maxBytes = CHECKSUM_MAX_BYTES, options = {}) {
+  const timeoutMs = clampInteger(env.PILOTDECK_UPDATE_TIMEOUT_MS, 1_000, 120_000, DEFAULT_TIMEOUT_MS);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      headers: createGitHubHeaders(env, options),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Checksum download failed (${response.status} ${response.statusText})`);
+    const declaredLength = parseContentLength(response.headers.get('content-length'));
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) throw new Error('Checksum response is too large.');
+    if (!response.body) throw new Error('Checksum response did not include a body.');
+    const chunks = [];
+    let receivedBytes = 0;
+    for await (const chunk of response.body) {
+      receivedBytes += chunk.length;
+      if (receivedBytes > maxBytes) throw new Error('Checksum response is too large.');
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function createGitHubHeaders(env, options = {}) {
   const token = firstNonEmpty(env.PILOTDECK_GITHUB_TOKEN, env.GITHUB_TOKEN);
   return {
-    Accept: 'application/vnd.github+json',
+    Accept: options.accept || 'application/vnd.github+json',
     'User-Agent': USER_AGENT,
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(token && options.includeAuthorization !== false ? { Authorization: `Bearer ${token}` } : {}),
   };
 }
 
-async function runDownload(url, partialPath, destinationPath, signal) {
-  const response = await fetch(url, {
-    headers: { 'User-Agent': USER_AGENT },
+async function runDownload(asset, partialPath, destinationPath, options) {
+  const { signal, env, expectedSha256, maxBytes, repository } = options;
+  const request = resolveReleaseAssetRequest(asset, repository);
+  const idleTimeout = createDownloadIdleTimeout(
     signal,
-  });
-  if (!response.ok) {
-    throw new Error(`Installer download failed (${response.status} ${response.statusText})`);
-  }
-  if (!response.body) {
-    throw new Error('Installer download response did not include a body.');
-  }
-
-  const totalBytes = Number.parseInt(response.headers.get('content-length') || '', 10);
-  const writer = createWriteStream(partialPath);
-  let writeError = null;
-  writer.on('error', (error) => {
-    writeError = error;
-  });
-  let receivedBytes = 0;
+    clampInteger(
+      env.RIGORIUM_UPDATE_DOWNLOAD_IDLE_TIMEOUT_MS,
+      1_000,
+      MAX_DOWNLOAD_IDLE_TIMEOUT_MS,
+      DEFAULT_DOWNLOAD_IDLE_TIMEOUT_MS,
+    ),
+  );
+  let writer = null;
 
   try {
+    const response = await fetch(request.url, {
+      headers: createGitHubHeaders(env, request.headers),
+      signal: idleTimeout.signal,
+    });
+    idleTimeout.touch();
+    if (!response.ok) {
+      throw new Error(`Installer download failed (${response.status} ${response.statusText})`);
+    }
+    if (!response.body) {
+      throw new Error('Installer download response did not include a body.');
+    }
+
+    const totalBytes = parseContentLength(response.headers.get('content-length'));
+    if (Number.isFinite(totalBytes) && totalBytes > maxBytes) {
+      throw new Error(`Installer exceeds the configured download limit (${maxBytes} bytes).`);
+    }
+    writer = createWriteStream(partialPath, { flags: 'wx' });
+    const hash = createHash('sha256');
+    let writeError = null;
+    writer.on('error', (error) => {
+      writeError = error;
+    });
+    let receivedBytes = 0;
+
     for await (const chunk of response.body) {
+      idleTimeout.touch();
       if (writeError) throw writeError;
       if (signal.aborted) {
         const error = new Error('Download cancelled.');
@@ -444,6 +557,8 @@ async function runDownload(url, partialPath, destinationPath, signal) {
       }
 
       receivedBytes += chunk.length;
+      if (receivedBytes > maxBytes) throw new Error(`Installer exceeds the configured download limit (${maxBytes} bytes).`);
+      hash.update(chunk);
       downloadJob = {
         ...downloadJob,
         receivedBytes,
@@ -460,24 +575,44 @@ async function runDownload(url, partialPath, destinationPath, signal) {
 
     if (writeError) throw writeError;
     await finishWriter(writer);
+    writer = null;
+    const sha256 = hash.digest('hex');
+    if (sha256 !== expectedSha256) {
+      throw new Error(`Installer SHA-256 mismatch (expected ${expectedSha256}, received ${sha256}).`);
+    }
     renameSync(partialPath, destinationPath);
     return {
       receivedBytes,
       totalBytes: Number.isFinite(totalBytes) ? totalBytes : null,
+      sha256,
     };
   } catch (error) {
-    writer.destroy();
+    if (writer) await destroyWriter(writer);
+    await removeDownloadFiles(partialPath, destinationPath);
+    if (idleTimeout.timedOut()) {
+      const timeoutError = new Error('Installer download timed out while waiting for data.');
+      timeoutError.name = 'TimeoutError';
+      throw timeoutError;
+    }
     throw error;
+  } finally {
+    idleTimeout.dispose();
   }
 }
 
 function finishWriter(writer) {
   return new Promise((resolve, reject) => {
-    writer.once('error', reject);
-    writer.end(() => {
-      writer.off('error', reject);
+    const onError = (error) => {
+      writer.off('close', onClose);
+      reject(error);
+    };
+    const onClose = () => {
+      writer.off('error', onError);
       resolve();
-    });
+    };
+    writer.once('error', onError);
+    writer.once('close', onClose);
+    writer.end();
   });
 }
 
@@ -496,9 +631,127 @@ function waitForDrain(writer) {
   });
 }
 
+function destroyWriter(writer) {
+  if (writer.closed || writer.destroyed) return Promise.resolve();
+  return new Promise((resolve) => {
+    writer.once('close', resolve);
+    writer.destroy();
+  });
+}
+
+function createDownloadIdleTimeout(signal, timeoutMs) {
+  const controller = new AbortController();
+  let timer = null;
+  let timedOut = false;
+  const onAbort = () => controller.abort(signal.reason);
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timedOut = true;
+      const error = new Error('Installer download timed out while waiting for data.');
+      error.name = 'TimeoutError';
+      controller.abort(error);
+    }, timeoutMs);
+  };
+
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener('abort', onAbort, { once: true });
+  arm();
+
+  return {
+    signal: controller.signal,
+    touch: () => {
+      if (!controller.signal.aborted) arm();
+    },
+    timedOut: () => timedOut,
+    dispose: () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    },
+  };
+}
+
+function parseContentLength(value) {
+  const text = String(value || '').trim();
+  if (!/^\d+$/u.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function getInstallerDownloadLimit(env) {
+  return clampInteger(
+    env.RIGORIUM_UPDATE_MAX_BYTES,
+    1024 * 1024,
+    DEFAULT_INSTALLER_MAX_BYTES,
+    DEFAULT_INSTALLER_MAX_BYTES,
+  );
+}
+
+async function clearDownloadFiles(partialPath, destinationPath) {
+  await Promise.all([
+    rm(partialPath, { force: true, maxRetries: 3, retryDelay: 100 }),
+    rm(destinationPath, { force: true, maxRetries: 3, retryDelay: 100 }),
+  ]);
+  if (existsSync(partialPath) || existsSync(destinationPath)) {
+    throw new Error('Unable to clear a previous desktop update download.');
+  }
+}
+
+async function removeDownloadFiles(partialPath, destinationPath) {
+  await Promise.allSettled([
+    rm(partialPath, { force: true, maxRetries: 3, retryDelay: 100 }),
+    rm(destinationPath, { force: true, maxRetries: 3, retryDelay: 100 }),
+  ]);
+}
+
+function assertInstallerFileIntegrity(filePath, options) {
+  let stats;
+  try {
+    stats = statSync(filePath);
+  } catch {
+    const error = new Error('The verified desktop update installer is no longer available.');
+    error.statusCode = 404;
+    throw error;
+  }
+  if (!stats.isFile()) {
+    const error = new Error('The verified desktop update installer is not a file.');
+    error.statusCode = 409;
+    throw error;
+  }
+  if (stats.size > options.maxBytes || stats.size !== options.expectedBytes) {
+    const error = new Error('The downloaded installer changed after verification.');
+    error.statusCode = 409;
+    throw error;
+  }
+  const sha256 = hashFileSha256(filePath);
+  if (sha256 !== options.expectedSha256 || sha256 !== downloadJob.sha256) {
+    const error = new Error('The downloaded installer changed after verification.');
+    error.statusCode = 409;
+    throw error;
+  }
+}
+
+function hashFileSha256(filePath) {
+  const handle = openSync(filePath, 'r');
+  const hash = createHash('sha256');
+  const buffer = Buffer.allocUnsafe(HASH_BUFFER_BYTES);
+  try {
+    let offset = 0;
+    while (true) {
+      const bytesRead = readSync(handle, buffer, 0, buffer.length, offset);
+      if (bytesRead === 0) break;
+      hash.update(buffer.subarray(0, bytesRead));
+      offset += bytesRead;
+    }
+  } finally {
+    closeSync(handle);
+  }
+  return hash.digest('hex');
+}
+
 function getOpenFileSpawnCommand(filePath, platform = process.platform) {
   if (platform === 'win32') {
-    return { command: 'cmd.exe', args: ['/d', '/s', '/c', `start "" "${filePath.replace(/"/g, '""')}"`] };
+    return { command: filePath, args: [] };
   }
   if (platform === 'darwin') {
     return { command: 'open', args: [filePath] };
@@ -506,21 +759,98 @@ function getOpenFileSpawnCommand(filePath, platform = process.platform) {
   return { command: 'xdg-open', args: [filePath] };
 }
 
-function resolveDownloadAsset(release, options) {
-  if (options.assetId) {
+function resolveDownloadAsset(release, options = {}) {
+  const assets = Array.isArray(release?.assets) ? release.assets : [];
+  let candidate = null;
+  if (options.assetId !== undefined && options.assetId !== null && options.assetId !== '') {
     const id = Number(options.assetId);
-    return release.assets.find((asset) => Number(asset.id) === id) ?? null;
+    candidate = assets.find((asset) => Number(asset.id) === id) ?? null;
+  } else if (options.assetName) {
+    candidate = assets.find((asset) => asset.name === options.assetName) ?? null;
+  } else if (release?.selectedAsset) {
+    candidate = assets.find((asset) => Number(asset.id) === Number(release.selectedAsset.id))
+      || assets.find((asset) => asset.name === release.selectedAsset.name)
+      || null;
   }
-  if (options.assetName) {
-    return release.assets.find((asset) => asset.name === options.assetName) ?? null;
+
+  candidate ||= selectDesktopAsset(release, { platform: process.platform, arch: process.arch });
+  return isCompatibleDesktopInstallerAsset(candidate, process.platform, process.arch) ? candidate : null;
+}
+
+export function resolveReleaseAssetRequest(asset, repository) {
+  const assetId = Number(asset?.id);
+  const normalizedRepository = normalizeRepository(repository);
+  if (normalizedRepository && Number.isSafeInteger(assetId) && assetId > 0) {
+    return {
+      url: `https://api.github.com/repos/${normalizedRepository}/releases/assets/${assetId}`,
+      headers: { accept: 'application/octet-stream' },
+    };
   }
-  return release.selectedAsset || selectDesktopAsset(release, options);
+
+  const downloadUrl = String(asset?.downloadUrl || '').trim();
+  if (!/^https?:\/\//i.test(downloadUrl)) {
+    throw new Error('Release asset does not provide a valid download URL.');
+  }
+  return {
+    url: downloadUrl,
+    // Browser download URLs may redirect to an asset CDN. Never leak a GitHub token to that initial URL.
+    headers: { includeAuthorization: false },
+  };
+}
+
+export function selectChecksumAsset(release, installerAsset) {
+  const assets = Array.isArray(release?.assets) ? release.assets : [];
+  const installerName = String(installerAsset?.name || '');
+  if (!installerName) return null;
+  const names = [
+    `${installerName}.sha256`,
+    `${installerName}.sha256.txt`,
+    'SHA256SUMS.txt',
+    'sha256sums.txt',
+  ];
+  for (const name of names) {
+    const match = assets.find((asset) => String(asset?.name || '').toLowerCase() === name.toLowerCase());
+    if (match) return match;
+  }
+  return null;
+}
+
+export function parseInstallerSha256(value, installerName, options = {}) {
+  const text = String(value || '').replace(/^\uFEFF/u, '');
+  const bare = text.trim().match(/^([a-fA-F0-9]{64})$/u);
+  if (bare && options.allowBare !== false) return bare[1].toLowerCase();
+  for (const line of text.split(/\r?\n/u)) {
+    const match = line.trim().match(/^([a-fA-F0-9]{64})\s+\*?(.+)$/u);
+    if (match && match[2].trim() === installerName) return match[1].toLowerCase();
+  }
+  return null;
+}
+
+async function resolveExpectedInstallerChecksum(release, installerAsset, env, repository) {
+  const digest = String(installerAsset?.digest || '').match(/^sha256:([a-fA-F0-9]{64})$/u);
+  if (digest) return { sha256: digest[1].toLowerCase(), asset: null };
+  const checksumAsset = selectChecksumAsset(release, installerAsset);
+  if (!checksumAsset) return null;
+  const request = resolveReleaseAssetRequest(checksumAsset, repository);
+  const manifest = await fetchBoundedText(request.url, env, CHECKSUM_MAX_BYTES, request.headers);
+  const sha256 = parseInstallerSha256(manifest, installerAsset.name, {
+    allowBare: isDedicatedChecksumAsset(checksumAsset, installerAsset),
+  });
+  return sha256 ? { sha256, asset: checksumAsset } : null;
+}
+
+function isDedicatedChecksumAsset(checksumAsset, installerAsset) {
+  const checksumName = String(checksumAsset?.name || '').toLowerCase();
+  const installerName = String(installerAsset?.name || '').toLowerCase();
+  return checksumName === `${installerName}.sha256` || checksumName === `${installerName}.sha256.txt`;
 }
 
 function scoreAsset(asset, platform, arch) {
   const name = String(asset?.name || '').toLowerCase();
   if (!name || /\.(?:blockmap|yml|yaml|sha256|sha512|sig|asc|txt)$/i.test(name)) return 0;
   if (/source[ -_]?code/.test(name)) return 0;
+  if (!isLaunchableInstallerPath(name, platform)) return 0;
+  if (!isCompatibleAssetArch(name, arch)) return 0;
 
   const platformScore = scorePlatform(name, platform);
   if (platformScore <= 0) return 0;
@@ -546,11 +876,32 @@ function scorePlatform(name, platform) {
 
 function scoreExtension(name, platform) {
   const priorities = {
-    darwin: [['.dmg', 40], ['.pkg', 35], ['.zip', 10]],
-    win32: [['.exe', 40], ['.msi', 35], ['.zip', 10]],
-    linux: [['.appimage', 40], ['.deb', 35], ['.rpm', 30], ['.tar.gz', 10]],
+    darwin: [['.dmg', 40], ['.pkg', 35]],
+    win32: [['.exe', 40]],
+    linux: [['.appimage', 40], ['.deb', 35], ['.rpm', 30]],
   };
   return priorities[platform]?.find(([extension]) => name.endsWith(extension))?.[1] ?? 0;
+}
+
+function isCompatibleDesktopInstallerAsset(asset, platform, arch) {
+  return Boolean(asset) && scoreAsset(asset, platform, arch) > 0;
+}
+
+function isCompatibleAssetArch(name, arch) {
+  if (/(?:^|[._-])(?:universal|all)(?:[._-]|$)/u.test(name)) return true;
+  let assetArch = null;
+  if (/(?:^|[._-])(?:arm64|aarch64)(?:[._-]|$)/u.test(name)) assetArch = 'arm64';
+  else if (/(?:^|[._-])(?:x64|x86_64|amd64)(?:[._-]|$)/u.test(name)) assetArch = 'x64';
+  else if (/(?:^|[._-])(?:ia32|i386|x86)(?:[._-]|$)/u.test(name)) assetArch = 'ia32';
+  return assetArch === null || assetArch === arch;
+}
+
+function isLaunchableInstallerPath(filePath, platform) {
+  const name = String(filePath || '').toLowerCase();
+  if (platform === 'win32') return name.endsWith('.exe');
+  if (platform === 'darwin') return name.endsWith('.dmg') || name.endsWith('.pkg');
+  if (platform === 'linux') return name.endsWith('.appimage') || name.endsWith('.deb') || name.endsWith('.rpm');
+  return false;
 }
 
 function scoreArch(name, arch) {
@@ -570,9 +921,42 @@ function readPackageVersion(projectRoot) {
   }
 }
 
-async function getCurrentCommit(projectRoot, env) {
+function readPackageMetadata(projectRoot) {
+  try {
+    return JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function readReleaseMetadata(projectRoot) {
+  try {
+    const metadata = JSON.parse(readFileSync(path.join(projectRoot, 'dist', 'release-metadata.json'), 'utf8'));
+    return metadata?.schemaVersion === 1 ? metadata : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveUpdateRepository(options = {}) {
+  const env = options.env || process.env;
+  const projectRoot = options.projectRoot || PROJECT_ROOT;
+  const releaseMetadata = readReleaseMetadata(projectRoot);
+  const packageMetadata = readPackageMetadata(projectRoot);
+  const configured = firstNonEmpty(
+    env.RIGORIUM_UPDATE_REPOSITORY,
+    env.PILOTDECK_UPDATE_REPOSITORY,
+    env.PILOTDECK_RELEASE_REPOSITORY,
+    releaseMetadata?.repository,
+    typeof packageMetadata?.repository === 'string' ? packageMetadata.repository : packageMetadata?.repository?.url,
+  );
+  return normalizeRepository(configured);
+}
+
+async function getCurrentCommit(projectRoot, env, releaseMetadata) {
   const fromEnv = firstNonEmpty(env.PILOTDECK_COMMIT_SHA, env.GIT_COMMIT, env.VERCEL_GIT_COMMIT_SHA);
   if (fromEnv) return fromEnv;
+  if (releaseMetadata?.commit) return releaseMetadata.commit;
 
   try {
     const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: projectRoot });
@@ -582,7 +966,7 @@ async function getCurrentCommit(projectRoot, env) {
   }
 }
 
-async function getBuildTime(projectRoot, env) {
+async function getBuildTime(projectRoot, env, releaseMetadata) {
   const fromEnv = firstNonEmpty(
     env.PILOTDECK_DESKTOP_BUILD_TIME,
     env.PILOTDECK_BUILD_TIME,
@@ -590,6 +974,7 @@ async function getBuildTime(projectRoot, env) {
     env.npm_package_build_time,
   );
   if (fromEnv) return fromEnv;
+  if (releaseMetadata?.buildTime) return releaseMetadata.buildTime;
 
   try {
     const { stdout } = await execFileAsync('git', ['log', '-1', '--format=%cI', 'HEAD'], { cwd: projectRoot });
@@ -640,6 +1025,10 @@ function createIdleDownloadJob() {
     receivedBytes: 0,
     totalBytes: null,
     asset: null,
+    checksumAsset: null,
+    expectedSha256: null,
+    sha256: null,
+    verified: false,
     release: null,
     filePath: null,
     startedAt: null,

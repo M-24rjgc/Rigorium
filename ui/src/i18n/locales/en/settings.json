@@ -1316,6 +1316,12 @@
     "downloadComplete": "Download complete",
     "downloadFailed": "Download failed",
     "installUpdate": "Install Update",
+    "installerVerified": "Installer integrity verified (SHA-256)",
+    "installerVerificationPending": "Verifying installer integrity...",
+    "backgroundUpdateAvailable": "Rigorium {{version}} is available",
+    "verifiedInstallerHint": "The installer will be verified before it can run.",
+    "reviewUpdate": "Review",
+    "dismissUpdate": "Dismiss update notice",
     "cancelDownload": "Cancel",
     "dismiss": "Dismiss"
   },

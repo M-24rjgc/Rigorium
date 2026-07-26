@@ -1310,6 +1310,12 @@
     "downloadComplete": "下载完成",
     "downloadFailed": "下载失败",
     "installUpdate": "安装更新",
+    "installerVerified": "安装程序完整性已验证（SHA-256）",
+    "installerVerificationPending": "正在校验安装程序完整性...",
+    "backgroundUpdateAvailable": "Rigorium {{version}} 可用",
+    "verifiedInstallerHint": "安装程序通过完整性校验后才可运行。",
+    "reviewUpdate": "查看",
+    "dismissUpdate": "暂时忽略更新提醒",
     "cancelDownload": "取消下载",
     "dismiss": "关闭"
   },
