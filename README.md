@@ -1,6 +1,10 @@
 # Rigorium
 
-**Personal Research Workspace**
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/M-24rjgc/Rigorium)](https://github.com/M-24rjgc/Rigorium/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/M-24rjgc/Rigorium#download)
+
+**Personal Research Workspace** | [中文文档](./README.zh.md)
 
 <p align="center">
   <img src="./branding/rigorium/rigorium-lockup.svg" alt="Rigorium" width="480">
