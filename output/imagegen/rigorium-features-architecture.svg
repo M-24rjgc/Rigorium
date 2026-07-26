@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="1152" viewBox="0 0 2048 1152">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#101719"/>
+      <stop offset="0.48" stop-color="#17282a"/>
+      <stop offset="1" stop-color="#0d2428"/>
+    </linearGradient>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#36B59F"/>
+      <stop offset="1" stop-color="#77D5C3"/>
+    </linearGradient>
+    <linearGradient id="warm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E8875C"/>
+      <stop offset="1" stop-color="#F2B277"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#ffffff" stroke-opacity="0.035" stroke-width="1"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="7" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#77D5C3"/>
+    </marker>
+    <style>
+      .cn { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+      .muted { fill: #A9BAB9; }
+      .paper { fill: #F4F1EA; }
+      .line { stroke: #77D5C3; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .panel { fill: #152326; stroke: #365255; stroke-width: 2; }
+      .chip { fill: #203438; stroke: #41666A; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect width="2048" height="1152" fill="url(#bg)"/>
+  <rect width="2048" height="1152" fill="url(#grid)"/>
+  <circle cx="1810" cy="86" r="330" fill="#36B59F" opacity="0.08"/>
+  <circle cx="110" cy="1120" r="380" fill="#E8875C" opacity="0.07"/>
+
+  <!-- Brand and title -->
+  <g transform="translate(104 78)">
+    <rect width="72" height="72" rx="18" fill="url(#hero)"/>
+    <path d="M22 53V19h18c11 0 18 6 18 16 0 7-4 12-10 14l11 16H48L38 51h-6v14H22zm10-24v14h8c5 0 8-3 8-7s-3-7-8-7h-8z" transform="translate(0 -6)" fill="#0F2022"/>
+    <circle cx="48" cy="18" r="5" fill="#F4F1EA"/>
+    <circle cx="58" cy="36" r="5" fill="#E8875C"/>
+    <circle cx="46" cy="56" r="5" fill="#F4F1EA"/>
+    <text x="96" y="29" class="cn paper" font-size="30" font-weight="700" letter-spacing="1.8">RIGORIUM</text>
+    <text x="96" y="60" class="cn muted" font-size="21">长期个人科研工作台</text>
+  </g>
+
+  <text x="104" y="236" class="cn paper" font-size="70" font-weight="800">从研究方向，到完整论文</text>
+  <text x="108" y="292" class="cn muted" font-size="28">研究不是一条死流水线，而是一张可以分叉、回退、重做的证据网络。</text>
+
+  <!-- Feature cards -->
+  <g transform="translate(104 348)" filter="url(#shadow)">
+    <rect width="555" height="118" rx="24" class="panel"/>
+    <circle cx="62" cy="59" r="31" fill="#36B59F" opacity="0.20"/>
+    <path d="M48 52h28M48 61h21M48 70h16" stroke="#77D5C3" stroke-width="5" stroke-linecap="round"/>
+    <text x="112" y="50" class="cn paper" font-size="25" font-weight="700">自然语言科研入口</text>
+    <text x="112" y="82" class="cn muted" font-size="19">从宽泛方向或已有 Idea 直接开始</text>
+  </g>
+
+  <g transform="translate(104 486)" filter="url(#shadow)">
+    <rect width="555" height="118" rx="24" class="panel"/>
+    <circle cx="62" cy="59" r="31" fill="#E8875C" opacity="0.18"/>
+    <path d="M45 72c11-22 24-27 34-31M49 42h25v25" stroke="#F2B277" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="112" y="50" class="cn paper" font-size="25" font-weight="700">多源文献与 Zotero</text>
+    <text x="112" y="82" class="cn muted" font-size="19">检索、地图、证据包与确认后写入</text>
+  </g>
+
+  <g transform="translate(104 624)" filter="url(#shadow)">
+    <rect width="555" height="118" rx="24" class="panel"/>
+    <circle cx="62" cy="59" r="31" fill="#36B59F" opacity="0.20"/>
+    <circle cx="48" cy="46" r="6" fill="#77D5C3"/>
+    <circle cx="76" cy="45" r="6" fill="#77D5C3"/>
+    <circle cx="62" cy="73" r="6" fill="#E8875C"/>
+    <path d="M53 49l18-1M51 51l8 17M72 50l-8 18" stroke="#77D5C3" stroke-width="3"/>
+    <text x="112" y="50" class="cn paper" font-size="25" font-weight="700">版本化 Research Artifact</text>
+    <text x="112" y="82" class="cn muted" font-size="19">来源、依赖、哈希与局部失效可追溯</text>
+  </g>
+
+  <g transform="translate(104 762)" filter="url(#shadow)">
+    <rect width="555" height="118" rx="24" class="panel"/>
+    <circle cx="62" cy="59" r="31" fill="#E8875C" opacity="0.18"/>
+    <path d="M45 67l10-18 10 10 13-21" stroke="#F2B277" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="112" y="50" class="cn paper" font-size="25" font-weight="700">方法、实验与远程运行</text>
+    <text x="112" y="82" class="cn muted" font-size="19">本地、SSH、Slurm 与三档执行权限</text>
+  </g>
+
+  <g transform="translate(104 900)" filter="url(#shadow)">
+    <rect width="555" height="118" rx="24" class="panel"/>
+    <circle cx="62" cy="59" r="31" fill="#36B59F" opacity="0.20"/>
+    <path d="M48 40h20l10 10v28H48zM68 40v12h10M55 61h16M55 70h12" stroke="#77D5C3" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="112" y="50" class="cn paper" font-size="25" font-weight="700">LaTeX 成稿与交叉审核</text>
+    <text x="112" y="82" class="cn muted" font-size="19">引用、图表、渲染、七路独立评审</text>
+  </g>
+
+  <!-- Architecture overview -->
+  <g transform="translate(742 344)" filter="url(#shadow)">
+    <rect width="1200" height="684" rx="34" fill="#132124" stroke="#365255" stroke-width="2"/>
+    <text x="50" y="66" class="cn paper" font-size="30" font-weight="700">架构总览</text>
+    <text x="50" y="102" class="cn muted" font-size="19">保留通用 Agent 工作台，在其上增加科研领域能力</text>
+
+    <g transform="translate(48 138)">
+      <rect width="1104" height="72" rx="18" fill="#20363A" stroke="#4A7276" stroke-width="2"/>
+      <text x="552" y="31" text-anchor="middle" class="cn paper" font-size="23" font-weight="700">用户 · General Chat · Research Project</text>
+      <text x="552" y="56" text-anchor="middle" class="cn muted" font-size="16">普通对话方式，自然语言触发科研能力</text>
+    </g>
+
+    <path d="M600 210V242" class="line"/>
+
+    <g transform="translate(48 250)">
+      <rect width="335" height="78" rx="18" class="chip"/>
+      <text x="167" y="33" text-anchor="middle" class="cn paper" font-size="22" font-weight="700">AgentLoop · Always-On</text>
+      <text x="167" y="59" text-anchor="middle" class="cn muted" font-size="16">执行、恢复与持续运行</text>
+    </g>
+    <path d="M386 289H426" class="line"/>
+    <g transform="translate(434 250)">
+      <rect width="718" height="78" rx="18" fill="#24413F" stroke="#36B59F" stroke-width="2"/>
+      <text x="359" y="33" text-anchor="middle" class="cn paper" font-size="23" font-weight="700">Research Director</text>
+      <text x="359" y="59" text-anchor="middle" class="cn muted" font-size="16">读取目标、工件、Finding、预算与权限，动态选择动作</text>
+    </g>
+
+    <path d="M600 328V360" class="line"/>
+
+    <g transform="translate(48 370)">
+      <rect width="148" height="74" rx="16" class="chip"/>
+      <text x="74" y="31" text-anchor="middle" class="cn paper" font-size="19" font-weight="700">文献</text>
+      <text x="74" y="56" text-anchor="middle" class="cn muted" font-size="14">Literature</text>
+      <rect x="160" width="148" height="74" rx="16" class="chip"/>
+      <text x="234" y="31" text-anchor="middle" class="cn paper" font-size="19" font-weight="700">Idea</text>
+      <text x="234" y="56" text-anchor="middle" class="cn muted" font-size="14">Design</text>
+      <rect x="320" width="148" height="74" rx="16" class="chip"/>
+      <text x="394" y="31" text-anchor="middle" class="cn paper" font-size="19" font-weight="700">方法</text>
+      <text x="394" y="56" text-anchor="middle" class="cn muted" font-size="14">Method</text>
+      <rect x="480" width="148" height="74" rx="16" class="chip"/>
+      <text x="554" y="31" text-anchor="middle" class="cn paper" font-size="19" font-weight="700">实验</text>
+      <text x="554" y="56" text-anchor="middle" class="cn muted" font-size="14">Experiment</text>
+      <rect x="640" width="148" height="74" rx="16" class="chip"/>
+      <text x="714" y="31" text-anchor="middle" class="cn paper" font-size="19" font-weight="700">论文</text>
+      <text x="714" y="56" text-anchor="middle" class="cn muted" font-size="14">Manuscript</text>
+      <rect x="800" width="148" height="74" rx="16" class="chip"/>
+      <text x="874" y="31" text-anchor="middle" class="cn paper" font-size="19" font-weight="700">审核</text>
+      <text x="874" y="56" text-anchor="middle" class="cn muted" font-size="14">Review</text>
+      <rect x="960" width="144" height="74" rx="16" class="chip"/>
+      <text x="1032" y="31" text-anchor="middle" class="cn paper" font-size="19" font-weight="700">Zotero</text>
+      <text x="1032" y="56" text-anchor="middle" class="cn muted" font-size="14">Library</text>
+    </g>
+
+    <path d="M600 444V475" class="line"/>
+
+    <g transform="translate(48 484)">
+      <rect width="1104" height="74" rx="18" fill="#2B3330" stroke="#E8875C" stroke-width="2"/>
+      <text x="552" y="32" text-anchor="middle" class="cn paper" font-size="22" font-weight="700">Research Artifact DAG · 版本 · 哈希 · 来源 · 局部失效</text>
+      <text x="552" y="58" text-anchor="middle" class="cn muted" font-size="16">EvidencePack · ResearchBrief · MethodSpec · RunAttempt · ManuscriptVersion · Finding</text>
+    </g>
+
+    <path d="M600 558V586" class="line"/>
+
+    <g transform="translate(48 594)">
+      <rect width="1104" height="58" rx="16" fill="#182B2E" stroke="#355B60" stroke-width="2"/>
+      <text x="552" y="36" text-anchor="middle" class="cn paper" font-size="18">OpenAlex · Crossref · arXiv · OpenReview · Zotero · Files · Git · MCP · SSH · Slurm</text>
+    </g>
+  </g>
+
+  <text x="104" y="1092" class="cn muted" font-size="18">LOCAL-FIRST  ·  PROJECT-ISOLATED  ·  EVIDENCE-TRACEABLE  ·  PERMISSION-AWARE</text>
+  <text x="1942" y="1092" text-anchor="end" class="cn" fill="#77D5C3" font-size="18" font-weight="700">Rigorium</text>
+</svg>
