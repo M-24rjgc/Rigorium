@@ -1,6 +1,6 @@
 {
   "name": "rigorium",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Rigorium personal research workspace",
   "private": true,
   "repository": {
@@ -33,7 +33,7 @@
     "desktop:verify-research": "node scripts/verify-packaged-research.mjs",
     "desktop:verify-release-metadata": "node scripts/verify-packaged-release-metadata.mjs",
     "desktop:pack": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && electron-builder --dir --win --x64",
-    "desktop:build": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && electron-builder --win nsis --x64",
+    "desktop:build": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && electron-builder --win nsis --x64 --publish never",
     "predev": "npm run check:runtime && node scripts/bootstrap-pilotdeck-config.mjs",
     "dev": "node scripts/dev-launcher.mjs",
     "test": "npm run build && node --test --test-force-exit --test-timeout 60000 \"dist/tests/**/*.test.js\" \"dist/tests/**/*.spec.js\"",
