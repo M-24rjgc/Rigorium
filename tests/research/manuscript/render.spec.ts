@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createCitationSet } from "../../../src/research/manuscript/citations.js";
 import { createManuscriptVersion } from "../../../src/research/manuscript/manuscript.js";
 import {
   createNodeManuscriptCommandRunner,
@@ -33,6 +34,65 @@ test("diagnostic parser is deterministic and separates undefined citations", () 
   ].join("\n"));
   assert.equal(diagnostics.length, 2);
   assert.equal(diagnostics.some((entry) => entry.code === "undefined_citation"), true);
+});
+
+test("render uses the final TeX log instead of transient latexmk citation warnings", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-manuscript-final-log-"));
+  const citations = createCitationSet({
+    artifactId: "final-log-citations",
+    bibtexEntries: [{
+      citationKey: "synthetic2026",
+      entryType: "article",
+      paperId: "synthetic-2026",
+      fields: { title: "Synthetic source", author: "Synthetic Author", year: "2026" },
+    }],
+    producer: { kind: "import" },
+    now: SYNTHETIC_NOW,
+  });
+  const manuscript = createManuscriptVersion({
+    title: "Final TeX Log Fixture",
+    latex: minimalLatex("A resolved citation: \\citep{synthetic2026}."),
+    target: { venue: "generic", mode: "internal_draft" },
+    sections: [{
+      sectionId: "fixture",
+      kind: "custom",
+      title: "Fixture",
+      requestedOutput: "preserve",
+      minimumMaturity: "none",
+      statements: [],
+    }],
+    revisionNote: "Regression fixture for final-log diagnostics.",
+    citationSet: citations,
+    producer: { kind: "user" },
+    now: SYNTHETIC_NOW,
+  });
+  const runner: ManuscriptCommandRunner = async (request) => {
+    const buildDirectory = join(request.cwd!, "build");
+    await mkdir(buildDirectory, { recursive: true });
+    await writeFile(join(buildDirectory, "main.pdf"), "%PDF-1.4\n% synthetic fixture\n", "utf8");
+    await writeFile(join(buildDirectory, "main.log"), "Final TeX pass: citations resolved.\n", "utf8");
+    return {
+      exitCode: 0,
+      stdout: "Package natbib Warning: Citation `synthetic2026' on page 1 undefined on input line 4.\n",
+      stderr: "",
+      timedOut: false,
+    };
+  };
+  const result = await renderManuscript({
+    projectRoot,
+    manuscript,
+    citationSet: citations,
+    engine: "latexmk",
+    producer: { kind: "tool", toolName: "manuscript_latex" },
+    now: SYNTHETIC_NOW,
+  }, {
+    runner,
+    engineProbes: [{ name: "latexmk", status: "available", executable: "latexmk", version: "synthetic" }],
+  });
+
+  assert.equal(result.payload.compileStatus, "succeeded");
+  assert.equal(result.payload.diagnostics.some((entry) => entry.code === "undefined_citation"), false);
+  assert.equal(result.payload.checks.find((check) => check.name === "citations")?.status, "pass");
 });
 
 test("render commands omit ambient secrets and enforce each engine's TeX file-access boundary", async () => {

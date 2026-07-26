@@ -340,7 +340,16 @@ export async function renderManuscript(
   const finalRun = runs.at(-1)!;
   const logPath = join(buildDirectory, "main.log");
   const log = await readTextIfExists(logPath);
-  const diagnostics = parseLatexDiagnostics(`${log}\n${runs.map((run) => `${run.stdout}\n${run.stderr}`).join("\n")}`);
+  // latexmk retains output from intermediate passes, including citations resolved by later passes.
+  // A final TeX log is authoritative for warnings once it exists. Retain only errors from
+  // process output so launch and sandbox failures remain actionable.
+  const processOutput = runs.map((run) => `${run.stdout}\n${run.stderr}`).join("\n");
+  const diagnostics = log
+    ? mergeCompileDiagnostics(
+      parseLatexDiagnostics(log),
+      parseLatexDiagnostics(processOutput).filter((diagnostic) => diagnostic.severity === "error"),
+    )
+    : parseLatexDiagnostics(processOutput);
   const pdfPath = join(buildDirectory, "main.pdf");
   const pdfExists = await isRegularFile(pdfPath);
   const compileSucceeded = finalRun.exitCode === 0 && !finalRun.timedOut && pdfExists;
@@ -427,10 +436,16 @@ export function parseLatexDiagnostics(text: string): CompileDiagnostic[] {
       diagnostics.push({ severity: "warning", code: "unclosed_group", message: line.replace(/^\(/u, "") });
     }
   }
+  return mergeCompileDiagnostics(diagnostics);
+}
+
+function mergeCompileDiagnostics(...groups: readonly (readonly CompileDiagnostic[])[]): CompileDiagnostic[] {
   const unique = new Map<string, CompileDiagnostic>();
-  for (const diagnostic of diagnostics) {
-    const key = `${diagnostic.severity}|${diagnostic.code}|${diagnostic.file ?? ""}|${diagnostic.line ?? ""}|${diagnostic.message}`;
-    unique.set(key, Object.freeze(diagnostic));
+  for (const group of groups) {
+    for (const diagnostic of group) {
+      const key = `${diagnostic.severity}|${diagnostic.code}|${diagnostic.file ?? ""}|${diagnostic.line ?? ""}|${diagnostic.message}`;
+      unique.set(key, Object.freeze(diagnostic));
+    }
   }
   const severityRank = { error: 0, warning: 1, info: 2 } as const;
   return [...unique.values()].sort((left, right) => {
