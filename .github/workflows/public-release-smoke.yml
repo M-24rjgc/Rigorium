@@ -1,0 +1,53 @@
+name: Public Release Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Latest public Rigorium release tag to verify
+        required: true
+        default: v0.2.1
+        type: string
+      current_version:
+        description: Older installed version to simulate
+        required: true
+        default: 0.2.0
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-release-smoke-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  verify-public-update:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      RIGORIUM_PUBLIC_RELEASE_TAG: ${{ inputs.tag }}
+      RIGORIUM_PUBLIC_CURRENT_VERSION: ${{ inputs.current_version }}
+      RIGORIUM_UPDATE_REPOSITORY: ${{ github.repository }}
+
+    steps:
+      - name: Check out updater implementation
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify public update download
+        run: pnpm run release:verify-public-update
