@@ -2,6 +2,7 @@
   "name": "rigorium",
   "version": "0.2.1",
   "description": "Rigorium personal research workspace",
+  "license": "AGPL-3.0-only",
   "private": true,
   "repository": {
     "type": "git",

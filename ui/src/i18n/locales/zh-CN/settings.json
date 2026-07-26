@@ -367,7 +367,7 @@
         "description": "Google Gemini AI 助手"
       },
       "rigorium": {
-        "description": "OpenBMB Rigorium AI 助手"
+        "description": "Rigorium AI 助手"
       }
     },
     "connectionStatus": "连接状态",
