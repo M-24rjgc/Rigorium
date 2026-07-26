@@ -19,7 +19,7 @@ test("rigorium-manuscript exposes a natural-language Skill without vendoring an 
   assert.equal(files.some((file) => /\.(?:zip|sty|bst|cls)$/iu.test(String(file))), false);
 
   const root = await mkdtemp(join(tmpdir(), "rigorium-manuscript-plugin-"));
-  const runtime = new PluginRuntime({ projectRoot: root, pilotHome: join(root, ".pilot"), builtinPlugins: builtins });
+  const runtime = new PluginRuntime({ projectRoot: root, rigoriumHome: join(root, ".rigorium"), builtinPlugins: builtins });
   await runtime.refresh();
   assert.equal(runtime.getAllSkills().some((skill) => skill.name === "rigorium-manuscript:manuscript-latex"), true);
 });

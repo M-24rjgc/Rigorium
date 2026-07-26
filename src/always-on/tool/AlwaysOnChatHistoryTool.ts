@@ -1,7 +1,7 @@
 import { join } from "node:path";
-import { PilotDeckToolRuntimeError } from "../../tool/protocol/errors.js";
-import type { PilotDeckToolDefinition } from "../../tool/protocol/types.js";
-import { getPilotProjectChatDir } from "../../pilot/paths.js";
+import { RigoriumToolRuntimeError } from "../../tool/protocol/errors.js";
+import type { RigoriumToolDefinition } from "../../tool/protocol/types.js";
+import { getRigoriumProjectChatDir } from "../../rigorium/paths.js";
 import { readTranscript } from "../../session/transcript/TranscriptReader.js";
 import { replayTranscriptEntries } from "../../session/transcript/TranscriptReplay.js";
 import { sanitizeSessionIdForPath } from "../../session/storage/ProjectSessionStorage.js";
@@ -35,7 +35,7 @@ const ASSISTANT_TEXT_LIMIT = 300;
 
 export function createAlwaysOnChatHistoryTool(
   options: CreateAlwaysOnChatHistoryToolOptions,
-): PilotDeckToolDefinition<AlwaysOnChatHistoryInput, AlwaysOnChatHistoryOutput> {
+): RigoriumToolDefinition<AlwaysOnChatHistoryInput, AlwaysOnChatHistoryOutput> {
   return {
     name: ALWAYS_ON_CHAT_HISTORY_TOOL_NAME,
     aliases: ["AlwaysOnReadChatHistory"],
@@ -60,7 +60,7 @@ export function createAlwaysOnChatHistoryTool(
     execute: async (input, context) => {
       const ctx = options.runContexts.getDiscovery(context.sessionId);
       if (!ctx) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "tool_execution_failed",
           `${ALWAYS_ON_CHAT_HISTORY_TOOL_NAME} is only available during Always-On discovery (Phase 1).`,
         );
@@ -68,7 +68,7 @@ export function createAlwaysOnChatHistoryTool(
 
       const realSessionId = ctx.chatSessionAliases?.get(input.sessionId) ?? input.sessionId;
 
-      const chatDir = getPilotProjectChatDir(ctx.projectKey, ctx.paths.pilotHome);
+      const chatDir = getRigoriumProjectChatDir(ctx.projectKey, ctx.paths.rigoriumHome);
       const transcriptPath = join(chatDir, `${sanitizeSessionIdForPath(realSessionId)}.jsonl`);
 
       const { entries, diagnostics } = await readTranscript(transcriptPath);
@@ -76,7 +76,7 @@ export function createAlwaysOnChatHistoryTool(
         const reason = diagnostics.length > 0
           ? diagnostics[0].message
           : "No transcript entries found.";
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "tool_execution_failed",
           `Could not read session ${input.sessionId}: ${reason}`,
         );
@@ -86,7 +86,7 @@ export function createAlwaysOnChatHistoryTool(
 
       const sessions = await listProjectSessions({
         projectRoot: ctx.projectKey,
-        pilotHome: ctx.paths.pilotHome,
+        rigoriumHome: ctx.paths.rigoriumHome,
         includeInternal: false,
       });
       const sessionInfo = sessions.find((s) => s.sessionId === realSessionId);

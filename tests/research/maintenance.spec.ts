@@ -32,7 +32,7 @@ function paper(id: string, doi?: string) {
 }
 
 async function projectRoot(name: string) {
-  return mkdtemp(join(tmpdir(), `pilotdeck-maintenance-${name}-`));
+  return mkdtemp(join(tmpdir(), `rigorium-maintenance-${name}-`));
 }
 
 test('maintenance merges search candidates, preserves map state, and persists source audit', async () => {

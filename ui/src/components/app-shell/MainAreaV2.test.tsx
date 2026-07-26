@@ -57,9 +57,9 @@ vi.mock('../../utils/api', () => ({
 }));
 
 const project: Project = {
-  name: 'pilotdeck',
-  displayName: 'PilotDeck',
-  fullPath: '/workspace/PilotDeck',
+  name: 'rigorium',
+  displayName: 'Rigorium',
+  fullPath: '/workspace/Rigorium',
 };
 
 function Harness({

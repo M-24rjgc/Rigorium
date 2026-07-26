@@ -1,27 +1,27 @@
-export type PilotDeckToolInputSchema = {
+export type RigoriumToolInputSchema = {
   type: "object";
-  properties?: Record<string, PilotDeckJsonSchema>;
+  properties?: Record<string, RigoriumJsonSchema>;
   required?: string[];
   additionalProperties?: boolean;
   [key: string]: unknown;
 };
 
-export type PilotDeckJsonSchema = {
+export type RigoriumJsonSchema = {
   type?: string | string[];
-  properties?: Record<string, PilotDeckJsonSchema>;
+  properties?: Record<string, RigoriumJsonSchema>;
   required?: string[];
   additionalProperties?: boolean;
-  items?: PilotDeckJsonSchema;
+  items?: RigoriumJsonSchema;
   enum?: unknown[];
   [key: string]: unknown;
 };
 
-export type PilotDeckToolValidationIssue = {
+export type RigoriumToolValidationIssue = {
   path: string;
   code: "required" | "unknown_property" | "invalid_type" | "invalid_enum" | "invalid_schema";
   message: string;
 };
 
-export type PilotDeckToolValidationResult =
+export type RigoriumToolValidationResult =
   | { ok: true; input: unknown }
-  | { ok: false; issues: PilotDeckToolValidationIssue[] };
+  | { ok: false; issues: RigoriumToolValidationIssue[] };

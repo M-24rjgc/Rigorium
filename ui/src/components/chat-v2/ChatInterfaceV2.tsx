@@ -154,9 +154,9 @@ function ChatInterfaceV2({
     allMessagesLoaded,
     isLoadingAllMessages,
     claudeStatus,
-    pilotDeckStatus,
+    rigoriumStatus,
     setClaudeStatus,
-    setPilotDeckStatus,
+    setRigoriumStatus,
     createDiff,
     scrollContainerRef,
     scrollToBottom,
@@ -257,7 +257,7 @@ function ChatInterfaceV2({
     setCanAbortSession,
     setIsAborting,
     setClaudeStatus,
-    setPilotDeckStatus,
+    setRigoriumStatus,
     setIsUserScrolledUp,
     pendingPermissionRequests,
     setPendingPermissionRequests,
@@ -285,7 +285,7 @@ function ChatInterfaceV2({
     if (shouldRefreshSessionOnReconnect({ isLoading, processingSessions, sessionId: selectedSession.id })) {
       await refreshSessionAfterReconnect(() =>
         sessionStore.refreshFromServer(selectedSession.id, {
-          provider: 'pilotdeck',
+          provider: 'rigorium',
           projectName: selectedProject.name,
           projectPath: selectedProject.fullPath || selectedProject.path || '',
           ...sessionRequestParams,
@@ -312,7 +312,7 @@ function ChatInterfaceV2({
   ]);
 
   useChatRealtimeHandlers({
-    provider: 'pilotdeck',
+    provider: 'rigorium',
     selectedProject,
     selectedSession,
     currentSessionId,
@@ -321,7 +321,7 @@ function ChatInterfaceV2({
     setCanAbortSession,
     setIsAborting,
     setClaudeStatus,
-    setPilotDeckStatus,
+    setRigoriumStatus,
     setTokenBudget,
     setPendingPermissionRequests,
     pendingViewSessionRef,
@@ -616,7 +616,7 @@ function ChatInterfaceV2({
         loadAllMessages={loadAllMessages}
         allMessagesLoaded={allMessagesLoaded}
         isLoadingAllMessages={isLoadingAllMessages}
-        provider={'pilotdeck' as Provider}
+        provider={'rigorium' as Provider}
         selectedProject={selectedProject}
         selectedSession={selectedSession}
         createDiff={createDiff}
@@ -629,7 +629,7 @@ function ChatInterfaceV2({
         inlineThinking={inlineThinking}
         setInput={setInput}
         isAssistantWorking={isLoading}
-        workingStatus={claudeStatus || pilotDeckStatus}
+        workingStatus={claudeStatus || rigoriumStatus}
         runMode={runMode}
         planModeActive={effectivePermissionMode === 'plan'}
         sessionStore={sessionStore}

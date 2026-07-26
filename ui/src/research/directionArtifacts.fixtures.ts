@@ -217,7 +217,7 @@ export const directionLifecycleArtifact: ResearchDirectionLifecycleArtifact = {
   artifactId: 'direction-lifecycle-fixture',
   createdAt: '2026-07-23T03:00:00.000Z',
   operation: 'saved',
-  path: 'D:/project/.pilotdeck/research/direction-lifecycle.json',
+  path: 'D:/project/.rigorium/research/direction-lifecycle.json',
   created: false,
   persisted: true,
   state: {

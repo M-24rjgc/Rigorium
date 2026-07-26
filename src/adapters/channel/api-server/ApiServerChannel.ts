@@ -12,7 +12,7 @@ import {
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8642;
 const MAX_REQUEST_BYTES = 1_000_000;
-const DEFAULT_MODEL_NAME = "pilotdeck-gateway";
+const DEFAULT_MODEL_NAME = "rigorium-gateway";
 const REQUEST_TIMEOUT_MS = 300_000;
 
 const CORS_HEADERS: Record<string, string> = {

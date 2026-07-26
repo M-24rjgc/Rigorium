@@ -1,6 +1,6 @@
-import type { PilotDeckToolDefinition } from "../protocol/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import { NodeShellCommandRunner, type PilotDeckCommandRunner } from "./bash/commandRunner.js";
+import type { RigoriumToolDefinition } from "../protocol/types.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import { NodeShellCommandRunner, type RigoriumCommandRunner } from "./bash/commandRunner.js";
 import { classifyBashPermission, isReadOnlyShellCommand } from "./bash/permissions.js";
 
 export type BashInput = {
@@ -10,7 +10,7 @@ export type BashInput = {
 };
 
 export type CreateBashToolOptions = {
-  runner?: PilotDeckCommandRunner;
+  runner?: RigoriumCommandRunner;
   defaultTimeoutMs?: number;
   maxTimeoutMs?: number;
 };
@@ -70,7 +70,7 @@ const LONG_LIVED_COMMAND_PATTERNS = [
   /(?:^|\s)(?:cargo\s+watch|watchexec|entr)\b/iu,
 ];
 
-export function createBashTool(options?: CreateBashToolOptions): PilotDeckToolDefinition<BashInput, BashOutput> {
+export function createBashTool(options?: CreateBashToolOptions): RigoriumToolDefinition<BashInput, BashOutput> {
   const runner = options?.runner ?? new NodeShellCommandRunner();
   const defaultTimeoutMs = options?.defaultTimeoutMs ?? 30_000;
   const maxTimeoutMs = options?.maxTimeoutMs ?? 600_000;
@@ -107,14 +107,14 @@ export function createBashTool(options?: CreateBashToolOptions): PilotDeckToolDe
     execute: async (input, context) => {
       const command = input.command.trim();
       if (input.timeout !== undefined && input.timeout > maxTimeoutMs) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           `Foreground bash timeout ${input.timeout}ms exceeds the maximum of ${maxTimeoutMs}ms. ${LONG_TASK_HINT}`,
         );
       }
       const backgroundGuidance = foregroundBackgroundGuidance(command);
       if (backgroundGuidance) {
-        throw new PilotDeckToolRuntimeError("invalid_tool_input", `${backgroundGuidance} ${LONG_TASK_HINT}`);
+        throw new RigoriumToolRuntimeError("invalid_tool_input", `${backgroundGuidance} ${LONG_TASK_HINT}`);
       }
       const timeoutMs = Math.max(1, input.timeout ?? defaultTimeoutMs);
       const progress = context.progress;
@@ -147,13 +147,13 @@ export function createBashTool(options?: CreateBashToolOptions): PilotDeckToolDe
       });
 
       if (result.timedOut) {
-        throw new PilotDeckToolRuntimeError("tool_timeout", `Command timed out after ${timeoutMs}ms.`);
+        throw new RigoriumToolRuntimeError("tool_timeout", `Command timed out after ${timeoutMs}ms.`);
       }
 
       if (result.exitCode !== 0) {
         const summary = formatShellFailure(command, result);
         const diagnostic = formatShellFailureDiagnostic(result);
-        throw new PilotDeckToolRuntimeError("tool_execution_failed", summary, {
+        throw new RigoriumToolRuntimeError("tool_execution_failed", summary, {
           command,
           exitCode: result.exitCode,
           diagnostic,
@@ -374,4 +374,4 @@ function stripQuotedText(command: string): string {
   return command.replace(/(['"])(?:\\.|(?!\1).)*\1/gu, "").replace(/`(?:\\.|[^`])*`/gu, "");
 }
 
-export type { PilotDeckCommandOptions, PilotDeckCommandResult, PilotDeckCommandRunner } from "./bash/commandRunner.js";
+export type { RigoriumCommandOptions, RigoriumCommandResult, RigoriumCommandRunner } from "./bash/commandRunner.js";

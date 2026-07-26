@@ -5,21 +5,21 @@ import { spawn } from 'child_process';
 import { prepareBackgroundSpawnOptions } from '../utils/processSpawn.js';
 import { parse as parseYaml } from 'yaml';
 import {
-  buildDefaultPilotDeckConfig,
+  buildDefaultRigoriumConfig,
   configToYaml,
-  getPilotDeckConfigPath,
+  getRigoriumConfigPath,
   maskSecrets,
   parseConfigYaml,
   preserveMaskedSecrets,
   rawYamlToMaskedString,
-  readPilotDeckConfigFile,
-  validatePilotDeckConfig,
-  writePilotDeckConfig,
-  writeRawPilotDeckYaml,
-} from '../services/pilotdeckConfig.js';
-import { reloadPilotDeckConfig } from '../services/pilotdeckConfigReloader.js';
-import { suppressNextWatchEvent } from '../services/pilotdeckConfigWatcher.js';
-import { getPilotDeckGateway } from '../pilotdeck-bridge.js';
+  readRigoriumConfigFile,
+  validateRigoriumConfig,
+  writeRigoriumConfig,
+  writeRawRigoriumYaml,
+} from '../services/rigoriumConfig.js';
+import { reloadRigoriumConfig } from '../services/rigoriumConfigReloader.js';
+import { suppressNextWatchEvent } from '../services/rigoriumConfigWatcher.js';
+import { getRigoriumGateway } from '../rigorium-bridge.js';
 import {
   buildProviderChatEndpointCandidates,
   buildProviderModelsEndpointCandidates,
@@ -28,7 +28,7 @@ import {
 } from '../../../src/model/providerEndpoint.js';
 import { searchDeepSeekNative } from '../../../src/deepseek-native-search/index.js';
 import { NetworkFetchError, networkFetch } from '../../../src/network/fetch.js';
-import { resolveDeepSeekNativeSearchConfig } from '../../../src/pilot/config/resolveDeepSeekNativeSearch.js';
+import { resolveDeepSeekNativeSearchConfig } from '../../../src/rigorium/config/resolveDeepSeekNativeSearch.js';
 import {
   OFFICE_PREVIEW_SERVICE_LIBREOFFICE,
   OFFICE_PREVIEW_SERVICE_NONE,
@@ -39,7 +39,7 @@ import {
 
 async function notifyGatewayConfigReload() {
   try {
-    const gw = await getPilotDeckGateway();
+    const gw = await getRigoriumGateway();
     if (gw?.reloadConfig) await gw.reloadConfig();
   } catch { /* gateway unreachable — self-watch will pick up the change */ }
 }
@@ -64,7 +64,7 @@ function serializeConfigResponse(record, reloadResult = null) {
     };
   }
 
-  const validation = validatePilotDeckConfig(record.config);
+  const validation = validateRigoriumConfig(record.config);
   const maskedConfig = maskSecrets(record.config);
   // Prefer the disk's actual YAML for the "raw" view so non-ui-internal
   // top-level segments (router/gateway/adapters/extension/cron/alwaysOn)
@@ -88,7 +88,7 @@ function serializeConfigResponse(record, reloadResult = null) {
 }
 
 function broadcastConfigEvent(payload) {
-  process.emit('pilotdeck:config-broadcast', payload);
+  process.emit('rigorium:config-broadcast', payload);
 }
 
 function extractProbeText(body, providerKind) {
@@ -229,7 +229,7 @@ function isExpectedModelsJsonBody(protocol, responseText) {
 
 router.get('/', (_req, res) => {
   try {
-    const record = readPilotDeckConfigFile();
+    const record = readRigoriumConfigFile();
     res.json(serializeConfigResponse(record));
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
@@ -240,7 +240,7 @@ router.post('/validate', (req, res) => {
   try {
     const raw = typeof req.body?.raw === 'string' ? req.body.raw : '';
     const config = raw ? parseConfigYaml(raw) : req.body?.config;
-    const validation = validatePilotDeckConfig(config);
+    const validation = validateRigoriumConfig(config);
     res.status(validation.valid ? 200 : 400).json(validation);
   } catch (error) {
     res.status(400).json({ valid: false, errors: [error instanceof Error ? error.message : String(error)], warnings: [] });
@@ -280,20 +280,20 @@ router.put('/', async (req, res) => {
     //
     //   • `{ raw: "..." }` from the Raw YAML editor → write the
     //     parsed YAML object to disk verbatim via
-    //     writeRawPilotDeckYaml. This is the only path that preserves
+    //     writeRawRigoriumYaml. This is the only path that preserves
     //     router/gateway/adapters/extension/cron/alwaysOn edits,
     //     because the ui-internal schema doesn't model them.
     //
     //   • `{ config: {...} }` from structured editors (provider
     //     picker, memory editor, onboarding LLM step) → run through
-    //     writePilotDeckConfig, which round-trips through
+    //     writeRigoriumConfig, which round-trips through
     //     ui-internal but read-modify-writes the rest from disk so
     //     non-ui segments aren't dropped.
     //
     // Removing the `config` branch is what got 5ad9f29 reverted;
     // never collapse the two paths into one — they have different
     // semantics and different callers.
-    const diskRecord = readPilotDeckConfigFile();
+    const diskRecord = readRigoriumConfigFile();
     const rawString = typeof req.body?.raw === 'string' ? req.body.raw : null;
 
     let saved;
@@ -316,7 +316,7 @@ router.put('/', async (req, res) => {
         ? parsed
         : preserveMaskedSecrets(parsed, diskRecord.rawYaml ?? {});
       suppressNextWatchEvent();
-      saved = await writeRawPilotDeckYaml(restored);
+      saved = await writeRawRigoriumYaml(restored);
     } else if (req.body?.config && typeof req.body.config === 'object') {
       if (diskRecord.parseError) {
         return res.status(400).json({
@@ -332,17 +332,17 @@ router.put('/', async (req, res) => {
       }
       const restored = preserveMaskedSecrets(req.body.config, diskRecord.config);
       suppressNextWatchEvent();
-      saved = await writePilotDeckConfig(restored);
+      saved = await writeRigoriumConfig(restored);
     } else {
       return res.status(400).json({ error: 'raw YAML or config object is required' });
     }
 
-    const reloadResult = await reloadPilotDeckConfig(saved.config);
+    const reloadResult = await reloadRigoriumConfig(saved.config);
     void notifyGatewayConfigReload();
     // Re-read disk so the response's `raw` field comes from the actual
     // (lossless) file rather than the lossy round-trip output, and so
     // `serializeConfigResponse` has a `rawYaml` to render the full view.
-    const freshRecord = readPilotDeckConfigFile();
+    const freshRecord = readRigoriumConfigFile();
     const response = serializeConfigResponse(freshRecord, reloadResult);
     broadcastConfigEvent({ source: 'ui-save', ...response, timestamp: new Date().toISOString() });
     res.json(response);
@@ -356,7 +356,7 @@ router.put('/', async (req, res) => {
 
 router.post('/reload', async (_req, res) => {
   try {
-    const record = readPilotDeckConfigFile();
+    const record = readRigoriumConfigFile();
     if (record.parseError) {
       return res.status(400).json({
         error: 'Invalid config YAML',
@@ -369,11 +369,11 @@ router.post('/reload', async (_req, res) => {
         },
       });
     }
-    const validation = validatePilotDeckConfig(record.config);
+    const validation = validateRigoriumConfig(record.config);
     if (!validation.valid) {
       return res.status(400).json({ error: 'Invalid config', validation });
     }
-    const reloadResult = await reloadPilotDeckConfig(record.config);
+    const reloadResult = await reloadRigoriumConfig(record.config);
     void notifyGatewayConfigReload();
     const response = serializeConfigResponse(record, reloadResult);
     broadcastConfigEvent({ source: 'ui-reload', ...response, timestamp: new Date().toISOString() });
@@ -385,7 +385,7 @@ router.post('/reload', async (_req, res) => {
 
 router.get('/provider', (_req, res) => {
   try {
-    const record = readPilotDeckConfigFile();
+    const record = readRigoriumConfigFile();
     const providers = record.config?.model?.providers;
     if (!providers || typeof providers !== 'object') {
       return res.json({ exists: false, provider: null });
@@ -435,7 +435,7 @@ router.post('/models', async (req, res) => {
   let effectiveApiKey = typeof apiKey === 'string' ? apiKey : '';
   if ((!effectiveApiKey || effectiveApiKey === '********') && typeof providerId === 'string' && providerId.trim()) {
     try {
-      const record = readPilotDeckConfigFile();
+      const record = readRigoriumConfigFile();
       const provider = record.config?.model?.providers?.[providerId.trim()];
       if (typeof provider?.apiKey === 'string') effectiveApiKey = provider.apiKey;
     } catch { /* fall through to validation below */ }
@@ -803,7 +803,7 @@ router.post('/test-web-search', async (req, res) => {
  * DeepSeek model provider. No credential is returned to the browser.
  */
 router.post('/test-deepseek-native-search', async (req, res) => {
-  const record = readPilotDeckConfigFile();
+  const record = readRigoriumConfigFile();
   if (record.parseError) {
     return res.status(400).json({ ok: false, error: 'Invalid config YAML.' });
   }
@@ -866,13 +866,13 @@ function readPath(value, pathValue) {
 }
 
 router.post('/open', async (_req, res) => {
-  const configPath = getPilotDeckConfigPath();
+  const configPath = getRigoriumConfigPath();
   try {
     await fsPromises.mkdir(path.dirname(configPath), { recursive: true });
     try {
       await fsPromises.access(configPath);
     } catch {
-      await fsPromises.writeFile(configPath, configToYaml(buildDefaultPilotDeckConfig()), 'utf8');
+      await fsPromises.writeFile(configPath, configToYaml(buildDefaultRigoriumConfig()), 'utf8');
     }
 
     const command = process.platform === 'darwin'

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { normalizeProviderBaseUrl } from "../model/normalizeProviderBaseUrl.js";
-import { resolvePilotHome } from "../pilot/paths.js";
+import { resolveRigoriumHome } from "../rigorium/paths.js";
 import { hashTelemetryId, resolveTelemetryRuntimeContext } from "./context.js";
 import { TelemetrySender } from "./sender.js";
 import {
@@ -24,13 +24,13 @@ import {
 
 type CreateTelemetryCollectorInput = {
   env?: Record<string, string | undefined>;
-  pilotHome?: string;
+  rigoriumHome?: string;
   fetchImpl?: typeof fetch;
   /** Explicit override for the enabled flag; takes precedence over env. */
   enabled?: boolean;
 };
 
-const DEFAULT_BASE_URL = "http://tele.pilotdeck.cn";
+const DEFAULT_BASE_URL = "http://tele.rigorium.cn";
 
 const PATH_LIKE_KEY = /path|cwd|root|dir|file/i;
 const ABSOLUTE_PATH_VALUE = /^([A-Za-z]:)?[/\\]/;
@@ -39,11 +39,11 @@ export function createTelemetryCollector(
   input: CreateTelemetryCollectorInput = {},
 ): TelemetryClient {
   const env = input.env ?? process.env;
-  const config = resolveTelemetryConfig(env, input.pilotHome);
+  const config = resolveTelemetryConfig(env, input.rigoriumHome);
   if (input.enabled != null) {
     config.enabled = input.enabled;
   }
-  const runtimeContext = resolveTelemetryRuntimeContext({ env, pilotHome: input.pilotHome });
+  const runtimeContext = resolveTelemetryRuntimeContext({ env, rigoriumHome: input.rigoriumHome });
   const sender = new TelemetrySender(config, { fetchImpl: input.fetchImpl });
 
   return {
@@ -135,13 +135,13 @@ export function createTelemetryCollector(
 
 function resolveTelemetryConfig(
   env: Record<string, string | undefined>,
-  pilotHomeOverride?: string,
+  rigoriumHomeOverride?: string,
 ): TelemetryConfig {
   const enabled = parseEnabledFlag(env.ANALYTICS_ENABLED, false);
-  const pilotHome = pilotHomeOverride ?? resolvePilotHome(env);
+  const rigoriumHome = rigoriumHomeOverride ?? resolveRigoriumHome(env);
   const queueFilePath = env.ANALYTICS_QUEUE_FILE
     ? resolve(env.ANALYTICS_QUEUE_FILE)
-    : join(pilotHome, "telemetry", "queue.jsonl");
+    : join(rigoriumHome, "telemetry", "queue.jsonl");
 
   return {
     enabled,

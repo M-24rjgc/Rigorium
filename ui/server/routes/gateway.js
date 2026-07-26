@@ -3,17 +3,17 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { suppressNextWatchEvent } from '../services/pilotdeckConfigWatcher.js';
-import { reloadPilotDeckConfig } from '../services/pilotdeckConfigReloader.js';
-import { readPilotDeckConfigFile } from '../services/pilotdeckConfig.js';
-import { getPilotDeckGateway } from '../pilotdeck-bridge.js';
+import { suppressNextWatchEvent } from '../services/rigoriumConfigWatcher.js';
+import { reloadRigoriumConfig } from '../services/rigoriumConfigReloader.js';
+import { readRigoriumConfigFile } from '../services/rigoriumConfig.js';
+import { getRigoriumGateway } from '../rigorium-bridge.js';
 
 const router = express.Router();
 
-const PILOT_HOME = process.env.PILOT_HOME || join(homedir(), '.pilotdeck');
-const PILOTDECK_YAML = process.env.PILOTDECK_CONFIG_PATH || join(PILOT_HOME, 'pilotdeck.yaml');
-const WEIXIN_CREDS = join(PILOT_HOME, 'weixin-credentials.json');
-const CHANNEL_RUNTIME_STATUS = join(PILOT_HOME, 'channels', 'runtime-status.json');
+const RIGORIUM_HOME = process.env.RIGORIUM_HOME || join(homedir(), '.rigorium');
+const RIGORIUM_YAML = process.env.RIGORIUM_CONFIG_PATH || join(RIGORIUM_HOME, 'rigorium.yaml');
+const WEIXIN_CREDS = join(RIGORIUM_HOME, 'weixin-credentials.json');
+const CHANNEL_RUNTIME_STATUS = join(RIGORIUM_HOME, 'channels', 'runtime-status.json');
 
 const FEISHU_TOKEN_URL = 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal';
 const LARK_TOKEN_URL = 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal';
@@ -35,15 +35,15 @@ const REGISTRATION_PATH = '/oauth/v1/app/registration';
 
 async function notifyGatewayReload() {
   try {
-    const gw = await getPilotDeckGateway();
+    const gw = await getRigoriumGateway();
     if (gw?.reloadConfig) await gw.reloadConfig();
   } catch { /* gateway unreachable */ }
 }
 
 function loadYaml() {
   try {
-    if (!existsSync(PILOTDECK_YAML)) return {};
-    return parseYaml(readFileSync(PILOTDECK_YAML, 'utf-8')) ?? {};
+    if (!existsSync(RIGORIUM_YAML)) return {};
+    return parseYaml(readFileSync(RIGORIUM_YAML, 'utf-8')) ?? {};
   } catch { return {}; }
 }
 
@@ -68,9 +68,9 @@ function loadWeixinCredentials() {
 }
 
 function saveYaml(config) {
-  mkdirSync(dirname(PILOTDECK_YAML), { recursive: true });
+  mkdirSync(dirname(RIGORIUM_YAML), { recursive: true });
   suppressNextWatchEvent();
-  writeFileSync(PILOTDECK_YAML, stringifyYaml(config, { lineWidth: 0 }), 'utf-8');
+  writeFileSync(RIGORIUM_YAML, stringifyYaml(config, { lineWidth: 0 }), 'utf-8');
 }
 
 function maskValue(value) {
@@ -114,8 +114,8 @@ function writeWeComConfig(config, input) {
 
 async function persistConfigAndReload(config) {
   saveYaml(config);
-  const record = readPilotDeckConfigFile();
-  await reloadPilotDeckConfig(record.config);
+  const record = readRigoriumConfigFile();
+  await reloadRigoriumConfig(record.config);
   void notifyGatewayReload();
 }
 
@@ -318,8 +318,8 @@ router.get('/feishu/qr-poll', async (req, res) => {
       };
       saveYaml(config);
 
-      const record = readPilotDeckConfigFile();
-      await reloadPilotDeckConfig(record.config);
+      const record = readRigoriumConfigFile();
+      await reloadRigoriumConfig(record.config);
       void notifyGatewayReload();
 
       return res.json({
@@ -369,8 +369,8 @@ router.post('/feishu/save', async (req, res) => {
     };
     saveYaml(config);
 
-    const record = readPilotDeckConfigFile();
-    await reloadPilotDeckConfig(record.config);
+    const record = readRigoriumConfigFile();
+    await reloadRigoriumConfig(record.config);
     void notifyGatewayReload();
 
     res.json({ ok: true, message: '飞书配置已保存，重启后生效' });
@@ -387,8 +387,8 @@ router.post('/feishu/disable', async (_req, res) => {
     }
     saveYaml(config);
 
-    const record = readPilotDeckConfigFile();
-    await reloadPilotDeckConfig(record.config);
+    const record = readRigoriumConfigFile();
+    await reloadRigoriumConfig(record.config);
     void notifyGatewayReload();
 
     res.json({ ok: true });
@@ -408,11 +408,11 @@ router.post('/weixin/qr-begin', async (_req, res) => {
     if (previous.enabled !== true) {
       config.adapters.weixin = { ...previous, enabled: true };
       saveYaml(config);
-      const record = readPilotDeckConfigFile();
-      await reloadPilotDeckConfig(record.config);
+      const record = readRigoriumConfigFile();
+      await reloadRigoriumConfig(record.config);
     }
 
-    const gw = await getPilotDeckGateway();
+    const gw = await getRigoriumGateway();
     if (!gw?.prepareWeixinLogin) {
       return res.json({
         ok: false,
@@ -479,8 +479,8 @@ router.post('/weixin/disable', async (_req, res) => {
     }
     saveYaml(config);
 
-    const record = readPilotDeckConfigFile();
-    await reloadPilotDeckConfig(record.config);
+    const record = readRigoriumConfigFile();
+    await reloadRigoriumConfig(record.config);
     void notifyGatewayReload();
 
     res.json({ ok: true });

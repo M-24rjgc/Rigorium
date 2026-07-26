@@ -62,7 +62,7 @@ export const authenticatedFetch = (url, options = {}) => {
       localStorage.setItem('auth-token', refreshedToken);
     }
     if (!suppressServerErrorToast && response.status >= 500) {
-      window.dispatchEvent(new CustomEvent('pilotdeck:toast', {
+      window.dispatchEvent(new CustomEvent('rigorium:toast', {
         detail: { kind: 'error', message: `Server error (${response.status}): ${response.statusText || 'Internal Server Error'}` },
       }));
     }
@@ -317,7 +317,7 @@ export const api = {
     const query = params.toString();
     return authenticatedFetch(`/api/office-preview/status${query ? `?${query}` : ''}`);
   },
-  pilotDeckConfig: () =>
+  rigoriumConfig: () =>
     authenticatedFetch('/api/config'),
   saveFile: (projectName, filePath, content) =>
     authenticatedFetch(`/api/projects/${projectName}/file`, {

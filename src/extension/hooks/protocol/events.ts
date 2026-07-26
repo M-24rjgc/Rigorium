@@ -1,4 +1,4 @@
-export const PILOTDECK_HOOK_EVENTS = [
+export const RIGORIUM_HOOK_EVENTS = [
   "PreToolUse",
   "PostToolUse",
   "PostToolUseFailure",
@@ -41,16 +41,16 @@ export const PILOTDECK_HOOK_EVENTS = [
   "ElicitationResult",
 ] as const;
 
-export const PILOTDECK_NOT_APPLICABLE_LEGACY_HOOK_EVENTS = [
+export const RIGORIUM_NOT_APPLICABLE_LEGACY_HOOK_EVENTS = [
   "TeammateIdle",
   "TaskCreated",
   "TaskCompleted",
 ] as const;
 
-export type PilotDeckHookEvent = (typeof PILOTDECK_HOOK_EVENTS)[number];
-export type PilotDeckNotApplicableLegacyHookEvent =
-  (typeof PILOTDECK_NOT_APPLICABLE_LEGACY_HOOK_EVENTS)[number];
+export type RigoriumHookEvent = (typeof RIGORIUM_HOOK_EVENTS)[number];
+export type RigoriumNotApplicableLegacyHookEvent =
+  (typeof RIGORIUM_NOT_APPLICABLE_LEGACY_HOOK_EVENTS)[number];
 
-export function isPilotDeckHookEvent(value: string): value is PilotDeckHookEvent {
-  return (PILOTDECK_HOOK_EVENTS as readonly string[]).includes(value);
+export function isRigoriumHookEvent(value: string): value is RigoriumHookEvent {
+  return (RIGORIUM_HOOK_EVENTS as readonly string[]).includes(value);
 }

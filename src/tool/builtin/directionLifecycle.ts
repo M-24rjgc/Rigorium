@@ -8,11 +8,11 @@ import {
 import type { DirectionAssessmentInput } from "../../research/direction/directionAssessment.js";
 import type { ResearchDirectionSeedInput } from "../../research/direction/directionSeed.js";
 import type { TitleConfirmationInput } from "../../research/direction/titleConfirmation.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
 } from "../protocol/types.js";
 
 export type ResearchDirectionLifecycleToolInput = Readonly<{
@@ -48,13 +48,13 @@ export type CreateResearchDirectionLifecycleToolOptions = Readonly<{
  */
 export function createResearchDirectionLifecycleTool(
   options: CreateResearchDirectionLifecycleToolOptions = {},
-): PilotDeckToolDefinition<ResearchDirectionLifecycleToolInput, ResearchDirectionLifecycleArtifact> {
+): RigoriumToolDefinition<ResearchDirectionLifecycleToolInput, ResearchDirectionLifecycleArtifact> {
   return {
     name: "research_direction_lifecycle",
     title: "Save Research Direction Lifecycle / 保存研究方向进度",
     description: `Save or load a project-local, evidence-traceable research-direction lifecycle.
 
-Use this after a natural-language research discussion has produced cues, terminology, constraints, candidate comparisons, evidence/gap analysis, feasibility and ethics checks, hypotheses, contribution drafts, minimum viability, or a provisional title. The user does not need to type a slash command. Save only after the conversation calls for recording or progressing this Project's research state. It writes only .pilotdeck/research/direction-lifecycle.json inside the supplied Project root, never writes Zotero, never exports or snapshots research data, and never renames a Project. A titleConfirmation with confirmed=true is permitted only after the user explicitly confirms that title; even then, the result is merely a separate Project-name action intent.`,
+Use this after a natural-language research discussion has produced cues, terminology, constraints, candidate comparisons, evidence/gap analysis, feasibility and ethics checks, hypotheses, contribution drafts, minimum viability, or a provisional title. The user does not need to type a slash command. Save only after the conversation calls for recording or progressing this Project's research state. It writes only .rigorium/research/direction-lifecycle.json inside the supplied Project root, never writes Zotero, never exports or snapshots research data, and never renames a Project. A titleConfirmation with confirmed=true is permitted only after the user explicitly confirms that title; even then, the result is merely a separate Project-name action intent.`,
     kind: "custom",
     inputSchema: inputSchema(),
     maxResultBytes: positiveInteger(options.maxResultBytes) ?? 1_000_000,
@@ -62,7 +62,7 @@ Use this after a natural-language research discussion has produced cues, termino
     isConcurrencySafe: (input) => input.operation === "load",
     isDestructive: () => false,
     isOpenWorld: () => false,
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => validateInput(input),
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => validateInput(input),
     execute: async (input, context) => {
       try {
         const normalized = normalizeInput(input as unknown as Record<string, unknown>);
@@ -104,7 +104,7 @@ Use this after a natural-language research discussion has produced cues, termino
         };
         return formatOutput(artifact);
       } catch (error) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           isInputError(error) ? "invalid_tool_input" : "tool_execution_failed",
           `Research direction lifecycle ${isInputError(error) ? "input is invalid" : "storage failed"}: ${messageOf(error)}`,
           error instanceof Error && "diagnostic" in error
@@ -133,7 +133,7 @@ function inputSchema() {
   };
 }
 
-function validateInput(input: unknown): PilotDeckToolValidationResult {
+function validateInput(input: unknown): RigoriumToolValidationResult {
   try {
     const normalized = normalizeInput(input);
     if (normalized.operation === "load" && hasLifecycleUpdateFields(normalized)) {
@@ -144,7 +144,7 @@ function validateInput(input: unknown): PilotDeckToolValidationResult {
     }
     return { ok: true, input: normalized };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = {
+    const issue: RigoriumToolValidationIssue = {
       path: "$",
       code: "invalid_schema",
       message: messageOf(error),
@@ -196,7 +196,7 @@ function hasLifecycleUpdateFields(input: ResearchDirectionLifecycleToolInput): b
 
 function formatOutput(
   artifact: ResearchDirectionLifecycleArtifact,
-): PilotDeckToolExecutionOutput<ResearchDirectionLifecycleArtifact> {
+): RigoriumToolExecutionOutput<ResearchDirectionLifecycleArtifact> {
   const state = artifact.state;
   const checklist = state?.checklist;
   const lines = [

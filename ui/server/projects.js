@@ -1,13 +1,13 @@
 /**
- * Project / session metadata layer (PilotDeck-only).
+ * Project / session metadata layer (Rigorium-only).
  *
  * Replaces the legacy four-provider scanner that used to read
- * ~/.gemini/projects/. After the PilotDeck-only migration:
+ * ~/.gemini/projects/. After the Rigorium-only migration:
  *
  *   - `getProjects()` lists projects via `gateway.listProjects()`.
  *   - `getSessions()` lists session transcripts via
- *     `gateway.listSessions()` (PilotDeck transcripts under
- *     ~/.pilotdeck/projects/<id>/chats/<sessionKey>.jsonl).
+ *     `gateway.listSessions()` (Rigorium transcripts under
+ *     ~/.rigorium/projects/<id>/chats/<sessionKey>.jsonl).
  *   - All sessions are returned in the single `sessions` array.
  *
  * Exports preserved for external callers under ui/server/:
@@ -23,15 +23,15 @@ import path from 'node:path';
 import os from 'node:os';
 
 import {
-    getPilotDeckGateway,
-} from './pilotdeck-bridge.js';
+    getRigoriumGateway,
+} from './rigorium-bridge.js';
 import { mapLegacySessionPresentation } from '../../src/web/server/legacySessionPresentation.js';
 import {
-    resolvePilotHome,
+    resolveRigoriumHome,
     createProjectId,
     createCollisionResistantProjectId,
     sanitizeSessionIdForPath,
-} from './utils/pilotPaths.js';
+} from './utils/rigoriumPaths.js';
 import { mapCronRunOutcome } from '../../src/cron/protocol/types.js';
 import sessionManager from './sessionManager.js';
 import { applyCustomSessionNames } from './database/db.js';
@@ -73,7 +73,7 @@ function projectDisplayName(fullPath) {
 }
 
 /**
- * Map a PilotDeck `WebSessionInfo` onto the legacy `ProjectSession`
+ * Map a Rigorium `WebSessionInfo` onto the legacy `ProjectSession`
  * shape the React frontend expects.
  */
 function toLegacySession(session, projectName) {
@@ -108,11 +108,11 @@ function toLegacySession(session, projectName) {
 }
 
 async function readMarkedProjectPaths() {
-    // Scan ~/.pilotdeck/projects/<id>/.cwd to recover real workspace paths
+    // Scan ~/.rigorium/projects/<id>/.cwd to recover real workspace paths
     // for projects whose encoded id is ambiguous (see addProjectManually).
     // Returns a Map<id, absoluteCwd>; missing/unreadable markers are skipped.
-    const pilotHome = resolvePilotHome(process.env);
-    const projectsDir = path.join(pilotHome, 'projects');
+    const rigoriumHome = resolveRigoriumHome(process.env);
+    const projectsDir = path.join(rigoriumHome, 'projects');
     const result = new Map();
     let entries = [];
     try {
@@ -136,7 +136,7 @@ async function readMarkedProjectPaths() {
 }
 
 async function getProjects(progressCallback = null) {
-    const gateway = await getPilotDeckGateway();
+    const gateway = await getRigoriumGateway();
     const { projects: webProjects } = await gateway.listProjects();
     const markedProjects = await readMarkedProjectPaths();
     const markedProjectIdsByPath = new Map(
@@ -231,23 +231,23 @@ async function getProjects(progressCallback = null) {
     }
 
     // Virtual "general" workspace — a non-project chat space rooted at
-    // ~/.pilotdeck. SidebarV2 looks for a project whose `name` or
+    // ~/.rigorium. SidebarV2 looks for a project whose `name` or
     // `displayName` equals 'general' to populate the dedicated "General"
-    // toggle section. PilotDeck's gateway.listProjects() only returns
+    // toggle section. Rigorium's gateway.listProjects() only returns
     // real project directories, so we synthesize one here. New chats
     // started from the General section use this cwd; sessions are
     // sourced from the same backend as any other project.
-    const generalHome = resolvePilotHome(process.env);
+    const generalHome = resolveRigoriumHome(process.env);
     let generalSessions = [];
     let generalTotal = 0;
     let generalLastActivity;
     try {
-        const generalGateway = await getPilotDeckGateway();
+        const generalGateway = await getRigoriumGateway();
         // Pair the first page query with describeProject so the General
         // workspace gets the real session count instead of the page size.
         // Without this, sessionMeta.hasMore was hardcoded `false` and the
         // sidebar would silently truncate to the first 5 sessions even
-        // when dozens existed under ~/.pilotdeck/projects/<encoded>/chats/.
+        // when dozens existed under ~/.rigorium/projects/<encoded>/chats/.
         const [generalSessionsResult, generalSummary] = await Promise.all([
             generalGateway
                 .listSessions({ projectKey: generalHome, limit: 5 })
@@ -288,7 +288,7 @@ async function getProjects(progressCallback = null) {
 }
 
 async function getSessions(projectName, limit = 5, offset = 0) {
-    const gateway = await getPilotDeckGateway();
+    const gateway = await getRigoriumGateway();
     const projectPath = await extractProjectDirectory(projectName);
     const cursor = offset > 0 ? String(offset) : undefined;
     // Fan-out the page query and the project summary (for the authoritative
@@ -325,14 +325,14 @@ async function getSessions(projectName, limit = 5, offset = 0) {
 }
 
 /**
- * Resolve a `projectName` (encoded form like `-Users-miwi-PilotDeck`,
+ * Resolve a `projectName` (encoded form like `-Users-miwi-Rigorium`,
  * a basename, or an already-absolute path) to the absolute project root.
  * Falls back to consulting the directory cache populated by
  * `getProjects()` so worktree-aware paths resolve correctly.
  */
 async function extractProjectDirectory(projectName) {
     if (!projectName) {
-        return resolvePilotHome(process.env);
+        return resolveRigoriumHome(process.env);
     }
     if (path.isAbsolute(projectName)) {
         rememberProjectDirectory(projectName, projectName);
@@ -354,7 +354,7 @@ async function extractProjectDirectory(projectName) {
         rememberProjectDirectory(projectName, decoded);
         return decoded;
     }
-    return resolvePilotHome(process.env);
+    return resolveRigoriumHome(process.env);
 }
 
 async function addProjectManually(projectPath, _displayName = null) {
@@ -362,25 +362,25 @@ async function addProjectManually(projectPath, _displayName = null) {
         throw new Error('projectPath is required');
     }
     const absolute = path.resolve(projectPath);
-    const pilotHome = resolvePilotHome(process.env);
-    const name = await allocateProjectIdForPath(absolute, pilotHome);
+    const rigoriumHome = resolveRigoriumHome(process.env);
+    const name = await allocateProjectIdForPath(absolute, rigoriumHome);
     rememberProjectDirectory(name, absolute);
 
-    // Materialize a PilotDeck project directory and drop a `.cwd` marker
+    // Materialize a Rigorium project directory and drop a `.cwd` marker
     // recording the real absolute path. We need the marker because
     // createProjectId() encodes both '/' and literal '-' to '-', so the
-    // PilotDeck's listWebProjects() heuristically tries each `-` as a
+    // Rigorium's listWebProjects() heuristically tries each `-` as a
     // path separator and drops the project when no decode matches an
     // existing directory — which would silently lose workspaces whose
     // real path contains a dash. getProjects() reads `.cwd` to backfill
     // any project listProjects() couldn't recover.
-    const projectDir = path.join(pilotHome, 'projects', name);
+    const projectDir = path.join(rigoriumHome, 'projects', name);
     try {
         await fs.mkdir(projectDir, { recursive: true });
         await fs.writeFile(path.join(projectDir, '.cwd'), absolute, 'utf8');
     } catch (error) {
         console.warn(
-            `[projects] failed to materialize PilotDeck project dir for ${name}:`,
+            `[projects] failed to materialize Rigorium project dir for ${name}:`,
             error?.message || error,
         );
     }
@@ -393,9 +393,9 @@ async function addProjectManually(projectPath, _displayName = null) {
     };
 }
 
-async function allocateProjectIdForPath(absolutePath, pilotHome) {
+async function allocateProjectIdForPath(absolutePath, rigoriumHome) {
     const legacyId = createProjectId(absolutePath);
-    const legacyDir = path.join(pilotHome, 'projects', legacyId);
+    const legacyDir = path.join(rigoriumHome, 'projects', legacyId);
     try {
         await fs.access(legacyDir);
     } catch (error) {
@@ -421,14 +421,14 @@ async function allocateProjectIdForPath(absolutePath, pilotHome) {
 }
 
 async function renameProject(_projectName, _displayName) {
-    // PilotDeck does not yet expose a rename API. Display names are derived
+    // Rigorium does not yet expose a rename API. Display names are derived
     // from the project's basename today, so this is a no-op.
     return { success: true };
 }
 
 async function deleteSession(projectName, sessionId, _options = {}) {
     const fullPath = await extractProjectDirectory(projectName);
-    const pilotHome = resolvePilotHome(process.env);
+    const rigoriumHome = resolveRigoriumHome(process.env);
     const projectId = await resolveProjectIdForPathOrName(projectName, fullPath);
     // Try the sanitized filename first (current storage layout), then the
     // raw form (legacy files written before the sanitize fix).
@@ -437,7 +437,7 @@ async function deleteSession(projectName, sessionId, _options = {}) {
     let removed = false;
     for (const name of filenames) {
         const transcript = path.join(
-            pilotHome,
+            rigoriumHome,
             'projects',
             projectId,
             'chats',
@@ -457,9 +457,9 @@ async function deleteSession(projectName, sessionId, _options = {}) {
 
 async function deleteProject(projectName, force = false) {
     const fullPath = await extractProjectDirectory(projectName);
-    const pilotHome = resolvePilotHome(process.env);
+    const rigoriumHome = resolveRigoriumHome(process.env);
     const projectId = await resolveProjectIdForPathOrName(projectName, fullPath);
-    const projectDir = path.join(pilotHome, 'projects', projectId);
+    const projectDir = path.join(rigoriumHome, 'projects', projectId);
     try {
         await fs.rm(projectDir, { recursive: true, force });
         directoryCache.delete(projectName);
@@ -488,7 +488,7 @@ async function resolveProjectIdForPathOrName(projectName, fullPath) {
 
 async function getProjectCronJobsOverview(projectName) {
     try {
-        const gateway = await getPilotDeckGateway();
+        const gateway = await getRigoriumGateway();
         const projectKey = projectName
             ? await extractProjectDirectory(projectName)
             : undefined;

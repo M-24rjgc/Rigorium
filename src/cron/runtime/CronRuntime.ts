@@ -5,7 +5,7 @@ import {
   UNATTENDED_SESSION_EXCLUDED_TOOLS,
 } from "../../always-on/runtime/SessionConfigOverrides.js";
 import type { Gateway } from "../../gateway/index.js";
-import type { PilotDeckToolDefinition } from "../../tool/index.js";
+import type { RigoriumToolDefinition } from "../../tool/index.js";
 import type { CronConfig } from "../config/parseCronConfig.js";
 import type {
   CronCreateInput,
@@ -40,7 +40,7 @@ export type CronRuntimeLogger = {
 
 export type CreateCronRuntimeOptions = {
   config: CronConfig;
-  pilotHome: string;
+  rigoriumHome: string;
   projectKey: string;
   now?: () => Date;
   uuid?: () => string;
@@ -70,7 +70,7 @@ export class CronRuntime {
   private readonly telemetry?: TelemetryClient;
   private readonly onResultDelivery?: CronResultDeliveryHandler;
   private readonly sessionOverrides: SessionConfigOverrides;
-  private readonly tools: PilotDeckToolDefinition[];
+  private readonly tools: RigoriumToolDefinition[];
   private readonly activeRuns = new Map<string, CronActiveRun>();
   private readonly sharedActiveRunCount?: () => number;
   private gateway?: Gateway;
@@ -80,7 +80,7 @@ export class CronRuntime {
   constructor(options: CreateCronRuntimeOptions) {
     this.config = options.config;
     this.projectKey = resolve(options.projectKey);
-    this.paths = resolveCronPaths({ pilotHome: options.pilotHome, projectKey: this.projectKey });
+    this.paths = resolveCronPaths({ rigoriumHome: options.rigoriumHome, projectKey: this.projectKey });
     this.store = options.store ?? new CronTaskStore(this.paths);
     this.now = options.now ?? (() => new Date());
     this.uuid = options.uuid ?? randomUUID;
@@ -99,7 +99,7 @@ export class CronRuntime {
         ];
   }
 
-  getTools(): PilotDeckToolDefinition[] {
+  getTools(): RigoriumToolDefinition[] {
     if (!this.config.enabled) return [];
     return [...this.tools];
   }
@@ -200,7 +200,7 @@ export class CronRuntime {
 
   async createTask(input: CronCreateInput): Promise<CronCreateResult> {
     if (!this.config.enabled) {
-      throw new Error("Cron is disabled. Enable it in pilotdeck.yaml to create tasks.");
+      throw new Error("Cron is disabled. Enable it in rigorium.yaml to create tasks.");
     }
     const now = this.now();
     const taskId = this.uuid();

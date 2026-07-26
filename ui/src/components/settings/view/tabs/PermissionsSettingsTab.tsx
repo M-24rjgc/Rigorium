@@ -4,13 +4,13 @@ import { useTranslation } from 'react-i18next';
 import { Button, Input } from '../../../../shared/view/ui';
 import { isImeEnterEvent } from '../../../../utils/ime';
 import {
-  PILOTDECK_SETTINGS_KEY,
-  fetchPilotDeckPermissionSettings,
-  getPilotDeckSettings,
+  RIGORIUM_SETTINGS_KEY,
+  fetchRigoriumPermissionSettings,
+  getRigoriumSettings,
   safeLocalStorage,
-  savePilotDeckPermissionSettings,
+  saveRigoriumPermissionSettings,
 } from '../../../chat/utils/chatStorage';
-import type { PilotDeckSettings } from '../../../chat/types/types';
+import type { RigoriumSettings } from '../../../chat/types/types';
 import SettingsCard from '../SettingsCard';
 import SettingsRow from '../SettingsRow';
 import SettingsSection from '../SettingsSection';
@@ -21,7 +21,7 @@ const IS_WINDOWS = typeof navigator !== 'undefined'
   && !/darwin/i.test(navigator.userAgent);
 
 // Curated convenience shortcuts shown in the Permissions tab. Users can
-// still type any free-form pattern the PilotDeck permission DSL accepts —
+// still type any free-form pattern the Rigorium permission DSL accepts —
 // these are just one-click presets for the most common allow-list entries.
 const QUICK_ADD_TOOLS = [
   'bash:git log:*',
@@ -59,18 +59,18 @@ const addUnique = (items: string[], value: string): string[] => {
 const removeValue = (items: string[], value: string): string[] =>
   items.filter((item) => item !== value);
 
-function persist(updates: Partial<PilotDeckSettings>) {
-  const current = getPilotDeckSettings();
-  const next: PilotDeckSettings = {
+function persist(updates: Partial<RigoriumSettings>) {
+  const current = getRigoriumSettings();
+  const next: RigoriumSettings = {
     ...current,
     ...updates,
     lastUpdated: new Date().toISOString(),
   };
-  safeLocalStorage.setItem(PILOTDECK_SETTINGS_KEY, JSON.stringify(next));
+  safeLocalStorage.setItem(RIGORIUM_SETTINGS_KEY, JSON.stringify(next));
   // Tell other tabs / mounted components (notably the chat permission
   // suggestion in MessageComponent) to re-read from localStorage.
-  window.dispatchEvent(new Event('pilotdeck-settings-changed'));
-  savePilotDeckPermissionSettings(updates).catch((error) => {
+  window.dispatchEvent(new Event('rigorium-settings-changed'));
+  saveRigoriumPermissionSettings(updates).catch((error) => {
     console.error('Failed to persist permission settings to backend:', error);
   });
   return next;
@@ -82,18 +82,18 @@ function persist(updates: Partial<PilotDeckSettings>) {
 type PermissionsExport = {
   version: 2;
   exportedAt: string;
-  source: 'pilotdeck';
+  source: 'rigorium';
   allowedTools: string[];
   disallowedTools: string[];
   skipPermissions: boolean;
 };
 
 function buildExportPayload(): PermissionsExport {
-  const settings = getPilotDeckSettings();
+  const settings = getRigoriumSettings();
   return {
     version: 2,
     exportedAt: new Date().toISOString(),
-    source: 'pilotdeck',
+    source: 'rigorium',
     allowedTools: settings.allowedTools,
     disallowedTools: settings.disallowedTools,
     skipPermissions: settings.skipPermissions,
@@ -180,7 +180,7 @@ export default function PermissionsSettingsTab() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(() => {
-    const settings = getPilotDeckSettings();
+    const settings = getRigoriumSettings();
     setAllowedTools(settings.allowedTools);
     setDisallowedTools(settings.disallowedTools);
     setSkipPermissions(settings.skipPermissions);
@@ -188,9 +188,9 @@ export default function PermissionsSettingsTab() {
 
   useEffect(() => {
     reload();
-    fetchPilotDeckPermissionSettings()
+    fetchRigoriumPermissionSettings()
       .then((settings) => {
-        safeLocalStorage.setItem(PILOTDECK_SETTINGS_KEY, JSON.stringify(settings));
+        safeLocalStorage.setItem(RIGORIUM_SETTINGS_KEY, JSON.stringify(settings));
         setAllowedTools(settings.allowedTools);
         setDisallowedTools(settings.disallowedTools);
         setSkipPermissions(settings.skipPermissions);
@@ -201,14 +201,14 @@ export default function PermissionsSettingsTab() {
     // so users can flip back and forth between the chat and this dialog
     // without seeing stale state.
     const onStorage = (event: StorageEvent) => {
-      if (event.key === PILOTDECK_SETTINGS_KEY) reload();
+      if (event.key === RIGORIUM_SETTINGS_KEY) reload();
     };
     const onCustom = () => reload();
     window.addEventListener('storage', onStorage);
-    window.addEventListener('pilotdeck-settings-changed', onCustom);
+    window.addEventListener('rigorium-settings-changed', onCustom);
     return () => {
       window.removeEventListener('storage', onStorage);
-      window.removeEventListener('pilotdeck-settings-changed', onCustom);
+      window.removeEventListener('rigorium-settings-changed', onCustom);
     };
   }, [reload]);
 
@@ -257,7 +257,7 @@ export default function PermissionsSettingsTab() {
     try {
       const payload = buildExportPayload();
       const stamp = new Date().toISOString().slice(0, 10);
-      downloadJson(`pilotdeck-permissions-${stamp}.json`, payload);
+      downloadJson(`rigorium-permissions-${stamp}.json`, payload);
       setBanner({
         kind: 'success',
         message: t('permissions.exportSuccess', {
@@ -329,10 +329,10 @@ export default function PermissionsSettingsTab() {
       return;
     }
 
-    const current = getPilotDeckSettings();
+    const current = getRigoriumSettings();
     const nextAllowed = mergeUnique(current.allowedTools, parsed.allowedTools);
     const nextBlocked = mergeUnique(current.disallowedTools, parsed.disallowedTools);
-    const updates: Partial<PilotDeckSettings> = {
+    const updates: Partial<RigoriumSettings> = {
       allowedTools: nextAllowed,
       disallowedTools: nextBlocked,
       ...(parsed.skipPermissions !== undefined ? { skipPermissions: parsed.skipPermissions } : {}),

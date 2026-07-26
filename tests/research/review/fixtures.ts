@@ -131,7 +131,7 @@ export function createSyntheticReviewArtifacts(options: Readonly<{
     latex: `\\documentclass{article}
 \\begin{document}
 Synthetic claim \\citep{synthetic2026}.
-\\label{pilotdeck-main-matter-end}
+\\label{rigorium-main-matter-end}
 \\bibliographystyle{plain}
 \\bibliography{references}
 \\end{document}`,

@@ -22,12 +22,12 @@ import {
   type ResearchArtifactSource,
   type ResearchArtifactStatus,
 } from "../../research/artifacts/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 
 export const RESEARCH_ARTIFACT_OPERATIONS = [
@@ -107,7 +107,7 @@ export type CreateResearchArtifactsToolOptions = Readonly<{
  */
 export function createResearchArtifactsTool(
   options: CreateResearchArtifactsToolOptions = {},
-): PilotDeckToolDefinition<ResearchArtifactsToolInput, ResearchArtifactsToolOutput> {
+): RigoriumToolDefinition<ResearchArtifactsToolInput, ResearchArtifactsToolOutput> {
   return {
     name: "research_artifacts",
     title: "Persist and Query Research Artifacts",
@@ -135,7 +135,7 @@ The Project root is always the tool runtime cwd and cannot be supplied by the ca
 
 async function executeOperation(
   input: ResearchArtifactsToolInput,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
 ): Promise<ResearchArtifactsToolOutput> {
   const projectRoot = context.cwd;
   const now = context.now?.();
@@ -247,12 +247,12 @@ function summarizeSnapshot(
   });
 }
 
-function validateInput(input: unknown): PilotDeckToolValidationResult {
+function validateInput(input: unknown): RigoriumToolValidationResult {
   try {
     normalizeInput(input);
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = {
+    const issue: RigoriumToolValidationIssue = {
       path: "$",
       code: "invalid_schema",
       message: messageOf(error),
@@ -457,7 +457,7 @@ function researchArtifactsInputSchema() {
   };
 }
 
-function formatOutput(data: ResearchArtifactsToolOutput): PilotDeckToolExecutionOutput<ResearchArtifactsToolOutput> {
+function formatOutput(data: ResearchArtifactsToolOutput): RigoriumToolExecutionOutput<ResearchArtifactsToolOutput> {
   const lines = [
     `Research artifact operation: ${data.operation}`,
     `Project: ${data.projectRoot}`,
@@ -490,21 +490,21 @@ function formatOutput(data: ResearchArtifactsToolOutput): PilotDeckToolExecution
   };
 }
 
-function mapResearchArtifactError(error: unknown): PilotDeckToolRuntimeError {
-  if (error instanceof PilotDeckToolRuntimeError) return error;
+function mapResearchArtifactError(error: unknown): RigoriumToolRuntimeError {
+  if (error instanceof RigoriumToolRuntimeError) return error;
   if (error instanceof ResearchArtifactRepositoryError) {
     const details = { diagnostic: error.diagnostic };
-    if (error.code === "path_violation") return new PilotDeckToolRuntimeError("path_not_allowed", error.message, details);
+    if (error.code === "path_violation") return new RigoriumToolRuntimeError("path_not_allowed", error.message, details);
     if (error.code === "revision_conflict" || error.code === "repository_busy") {
-      return new PilotDeckToolRuntimeError("file_conflict", error.message, details);
+      return new RigoriumToolRuntimeError("file_conflict", error.message, details);
     }
     if (["invalid_input", "invalid_project_root", "invalid_schema", "integrity_mismatch", "artifact_conflict", "missing_parent"].includes(error.code)) {
-      return new PilotDeckToolRuntimeError("invalid_tool_input", error.message, details);
+      return new RigoriumToolRuntimeError("invalid_tool_input", error.message, details);
     }
-    return new PilotDeckToolRuntimeError("tool_execution_failed", error.message, details);
+    return new RigoriumToolRuntimeError("tool_execution_failed", error.message, details);
   }
-  if (error instanceof TypeError) return new PilotDeckToolRuntimeError("invalid_tool_input", error.message);
-  return new PilotDeckToolRuntimeError("tool_execution_failed", `Research artifact operation failed: ${messageOf(error)}`);
+  if (error instanceof TypeError) return new RigoriumToolRuntimeError("invalid_tool_input", error.message);
+  return new RigoriumToolRuntimeError("tool_execution_failed", `Research artifact operation failed: ${messageOf(error)}`);
 }
 
 function isReadOperation(operation: ResearchArtifactOperation): boolean {

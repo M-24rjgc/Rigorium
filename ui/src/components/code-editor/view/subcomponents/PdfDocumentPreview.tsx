@@ -862,7 +862,7 @@ export default function PdfDocumentPreview({
 
   const handleAddReference = () => {
     if (!selectionAction) return;
-    window.dispatchEvent(new CustomEvent('pilotdeck:add-chat-reference', {
+    window.dispatchEvent(new CustomEvent('rigorium:add-chat-reference', {
       detail: selectionAction.reference,
     }));
     window.getSelection()?.removeAllRanges();
@@ -1037,7 +1037,7 @@ export default function PdfDocumentPreview({
             className="absolute z-20 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-[12px] font-medium text-neutral-900 shadow-lg transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100 dark:hover:bg-neutral-900"
             style={{ top: selectionAction.top, left: selectionAction.left }}
           >
-            {t('selection.chatInPilotDeck')}
+            {t('selection.chatInRigorium')}
           </button>
         ) : null}
       </div>

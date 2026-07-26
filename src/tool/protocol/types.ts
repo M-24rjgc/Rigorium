@@ -12,9 +12,9 @@ import type {
   PermissionResult,
 } from "../../permission/index.js";
 import type { AgentRunMode } from "../../agent/protocol/input.js";
-import type { PilotDeckToolAuditRecorder } from "../audit/ToolAuditRecorder.js";
-import type { PilotDeckElicitationChannel } from "../elicitation/PilotDeckElicitationChannel.js";
-import type { PilotDeckToolInputSchema, PilotDeckToolValidationResult } from "./schema.js";
+import type { RigoriumToolAuditRecorder } from "../audit/ToolAuditRecorder.js";
+import type { RigoriumElicitationChannel } from "../elicitation/RigoriumElicitationChannel.js";
+import type { RigoriumToolInputSchema, RigoriumToolValidationResult } from "./schema.js";
 
 /**
  * File-history sink used by `edit_file` / `write_file` to backup files
@@ -23,7 +23,7 @@ import type { PilotDeckToolInputSchema, PilotDeckToolValidationResult } from "./
  * runtimes (tests, scripted invocations) — affected tools tolerate the
  * missing sink and proceed without backups.
  */
-export type PilotDeckToolFileHistorySink = {
+export type RigoriumToolFileHistorySink = {
   trackEdit(filePath: string, messageId: string): Promise<void>;
 };
 
@@ -33,7 +33,7 @@ export type PilotDeckToolFileHistorySink = {
  * `AgentModelRuntime` but lives in the tool protocol to avoid a tool→agent
  * dependency cycle.
  */
-export type PilotDeckToolModelClient = {
+export type RigoriumToolModelClient = {
   stream(request: CanonicalModelRequest, signal?: AbortSignal): AsyncIterable<CanonicalModelEvent>;
 };
 
@@ -47,7 +47,7 @@ export type PilotDeckToolModelClient = {
  * `maxSubagentDepth` is the cap (default 1) — the `agent` tool raises
  * `subagent_depth_exceeded` when `depth >= maxSubagentDepth`.
  */
-export type PilotDeckSubagentForkApi = {
+export type RigoriumSubagentForkApi = {
   depth: number;
   maxSubagentDepth: number;
   listDefinitions(): { id: string; description: string }[];
@@ -68,7 +68,7 @@ export type PilotDeckSubagentForkApi = {
   }>;
 };
 
-export type PilotDeckToolKind =
+export type RigoriumToolKind =
   | "filesystem"
   | "shell"
   | "network"
@@ -78,14 +78,14 @@ export type PilotDeckToolKind =
   | "structured_output"
   | "custom";
 
-export type PilotDeckToolResultContent =
+export type RigoriumToolResultContent =
   | { type: "text"; text: string }
   | { type: "json"; value: unknown }
   | { type: "image"; mimeType: string; data: string; bytes?: number; detail?: "auto" | "low" | "high" }
   | { type: "pdf"; mimeType: "application/pdf"; data: string; bytes: number; pages?: number }
   | { type: "file"; path: string; mimeType?: string; description?: string };
 
-export type PilotDeckReadFileStateEntry = {
+export type RigoriumReadFileStateEntry = {
   mtimeMs: number;
   kind: "text" | "image" | "pdf" | "notebook";
   offset?: number;
@@ -93,9 +93,9 @@ export type PilotDeckReadFileStateEntry = {
   pages?: string;
 };
 
-export type PilotDeckReadFileStateMap = Map<string, PilotDeckReadFileStateEntry>;
+export type RigoriumReadFileStateMap = Map<string, RigoriumReadFileStateEntry>;
 
-export type PilotDeckWriteSnapshotEntry = {
+export type RigoriumWriteSnapshotEntry = {
   absolutePath: string;
   mtimeMs: number;
   contentHash: string;
@@ -105,9 +105,9 @@ export type PilotDeckWriteSnapshotEntry = {
   limit?: number;
 };
 
-export type PilotDeckWriteSnapshotMap = Map<string, PilotDeckWriteSnapshotEntry>;
+export type RigoriumWriteSnapshotMap = Map<string, RigoriumWriteSnapshotEntry>;
 
-export type PilotDeckFileUpdateNotification = {
+export type RigoriumFileUpdateNotification = {
   absolutePath: string;
   relativePath: string;
   root: string;
@@ -115,40 +115,40 @@ export type PilotDeckFileUpdateNotification = {
   previousContent: string | null;
 };
 
-export type PilotDeckFileUpdateNotifier = {
-  didChange?(update: PilotDeckFileUpdateNotification): Promise<void> | void;
-  didSave?(update: PilotDeckFileUpdateNotification): Promise<void> | void;
+export type RigoriumFileUpdateNotifier = {
+  didChange?(update: RigoriumFileUpdateNotification): Promise<void> | void;
+  didSave?(update: RigoriumFileUpdateNotification): Promise<void> | void;
 };
 
-export type PilotDeckToolSupplementalMessage = {
+export type RigoriumToolSupplementalMessage = {
   role: "user";
-  content: PilotDeckToolResultContent[];
+  content: RigoriumToolResultContent[];
   isMeta?: boolean;
 };
 
-export type PilotDeckToolExecutionOutput<Output = unknown> = {
-  content: PilotDeckToolResultContent[];
-  supplementalMessages?: PilotDeckToolSupplementalMessage[];
+export type RigoriumToolExecutionOutput<Output = unknown> = {
+  content: RigoriumToolResultContent[];
+  supplementalMessages?: RigoriumToolSupplementalMessage[];
   data?: Output;
   metadata?: Record<string, unknown>;
 };
 
-export type PilotDeckToolAvailability =
+export type RigoriumToolAvailability =
   | { ok: true }
   | { ok: false; code: "setup_required" | "unavailable" | "failed_check"; reason: string };
 
-export type PilotDeckToolAvailabilityContext = {
+export type RigoriumToolAvailabilityContext = {
   cwd: string;
   env?: NodeJS.ProcessEnv;
 };
 
 /**
- * Tool progress event emitted via `PilotDeckToolRuntimeContext.progress`.
+ * Tool progress event emitted via `RigoriumToolRuntimeContext.progress`.
  * The sink is fire-and-forget — progress events MUST NOT replace the final
  * `tool_result`, MUST NOT enter the durable transcript, and MAY be dropped
  * by the caller without affecting tool correctness.
  */
-export type PilotDeckToolProgressEvent = {
+export type RigoriumToolProgressEvent = {
   type: "tool_progress";
   sessionId: string;
   turnId: string;
@@ -161,23 +161,23 @@ export type PilotDeckToolProgressEvent = {
   createdAt: string;
 };
 
-export type PilotDeckToolProgressSink = (event: PilotDeckToolProgressEvent) => void;
+export type RigoriumToolProgressSink = (event: RigoriumToolProgressEvent) => void;
 
-export type PilotDeckTodoItem = {
+export type RigoriumTodoItem = {
   id?: string;
   content: string;
   status: "pending" | "in_progress" | "completed" | "cancelled";
   priority?: string;
 };
 
-export type PilotDeckTodoUpdate = {
+export type RigoriumTodoUpdate = {
   id?: string;
   content?: string;
-  status?: PilotDeckTodoItem["status"];
+  status?: RigoriumTodoItem["status"];
   priority?: string;
 };
 
-export type PilotDeckTodoDiagnostics = {
+export type RigoriumTodoDiagnostics = {
   writeCount: number;
   todoCount: number;
   activeCount: number;
@@ -199,38 +199,38 @@ export type PilotDeckTodoDiagnostics = {
   };
 };
 
-export type PilotDeckTodoWriteHistoryEntry = {
+export type RigoriumTodoWriteHistoryEntry = {
   createdAt: string;
   mode: "markdown" | "structured";
   merge: boolean;
   reason?: string;
   markdown?: string;
-  todos: PilotDeckTodoItem[];
-  diagnostics: PilotDeckTodoDiagnostics;
+  todos: RigoriumTodoItem[];
+  diagnostics: RigoriumTodoDiagnostics;
 };
 
-export type PilotDeckPlanTodoStateSnapshot = {
+export type RigoriumPlanTodoStateSnapshot = {
   approvedPlan?: string;
   requiresInitialization: boolean;
   toolCallsSinceLastTodoWrite: number;
   lastMarkdown?: string;
-  todos: PilotDeckTodoItem[];
-  activeTodos: PilotDeckTodoItem[];
-  todoHistory: PilotDeckTodoWriteHistoryEntry[];
-  todoDiagnostics: PilotDeckTodoDiagnostics;
+  todos: RigoriumTodoItem[];
+  activeTodos: RigoriumTodoItem[];
+  todoHistory: RigoriumTodoWriteHistoryEntry[];
+  todoDiagnostics: RigoriumTodoDiagnostics;
 };
 
-export type PilotDeckPlanTodoStateHandle = {
-  getSnapshot(): PilotDeckPlanTodoStateSnapshot;
+export type RigoriumPlanTodoStateHandle = {
+  getSnapshot(): RigoriumPlanTodoStateSnapshot;
   markPlanApproved(plan: string): void;
-  recordTodoWrite(markdown: string, todos: PilotDeckTodoItem[], options?: { reason?: string }): PilotDeckTodoItem[];
-  writeTodos(todos: PilotDeckTodoUpdate[], options?: { markdown?: string; merge?: boolean; reason?: string }): PilotDeckTodoItem[];
+  recordTodoWrite(markdown: string, todos: RigoriumTodoItem[], options?: { reason?: string }): RigoriumTodoItem[];
+  writeTodos(todos: RigoriumTodoUpdate[], options?: { markdown?: string; merge?: boolean; reason?: string }): RigoriumTodoItem[];
   markToolProgressChanged(toolName: string): void;
   buildPromptAddendum(): string | undefined;
   blockingMessageFor(toolName: string, isReadOnly: boolean): string | undefined;
 };
 
-export type PilotDeckToolRuntimeContext = {
+export type RigoriumToolRuntimeContext = {
   sessionId: string;
   turnId: string;
   cwd: string;
@@ -245,7 +245,7 @@ export type PilotDeckToolRuntimeContext = {
   toolAliases?: Record<string, string>;
   permissionMode: PermissionMode;
   permissionContext: PermissionContext;
-  auditRecorder?: PilotDeckToolAuditRecorder;
+  auditRecorder?: RigoriumToolAuditRecorder;
   /**
    * The final allow decision for the current tool call, populated by
    * ToolRuntime after permission checks pass and before tool execution.
@@ -262,30 +262,30 @@ export type PilotDeckToolRuntimeContext = {
    * before the final result lands. Absent by default; callers opt in by
    * supplying a sink.
    */
-  progress?: PilotDeckToolProgressSink;
+  progress?: RigoriumToolProgressSink;
   /**
    * Optional model client for tools that need to issue secondary model calls
    * (e.g. `agent` subagent prompts, `web_fetch` content extraction). Absent
    * when the caller didn't provide one — affected tools must report
    * `unsupported_tool` with a clear hint instead of failing silently.
    */
-  model?: PilotDeckToolModelClient;
+  model?: RigoriumToolModelClient;
   /**
    * Optional user-elicitation channel used by `ask_user_question` and any
    * tool that requests a synchronous user answer. The host (Gateway / TUI /
    * CLI / Feishu) wires this in. Absent when no UI is connected; affected
    * tools must report `unsupported_tool`.
    */
-  elicitation?: PilotDeckElicitationChannel;
+  elicitation?: RigoriumElicitationChannel;
   /**
    * Optional file-history sink (C4). When provided, `edit_file` /
    * `write_file` call `trackEdit(filePath, messageId)` *before* mutating,
-   * so a later `pilotdeck rewind` can restore the prior content. Absent
+   * so a later `rigorium rewind` can restore the prior content. Absent
    * for stand-alone runtimes; tools tolerate the absence by simply
    * skipping backup capture (intentional — never block the edit on
    * snapshot infrastructure).
    */
-  fileHistory?: PilotDeckToolFileHistorySink;
+  fileHistory?: RigoriumToolFileHistorySink;
   /**
    * Optional opaque "message id" the file-history sink uses to group
    * snapshots. Set by the agent loop per user turn (typically the user
@@ -306,7 +306,7 @@ export type PilotDeckToolRuntimeContext = {
    * absent, the `agent` tool falls back to the legacy single-shot model
    * call so unit tests still work.
    */
-  subagent?: PilotDeckSubagentForkApi;
+  subagent?: RigoriumSubagentForkApi;
   /**
    * Plan directory handle for plan-mode tools (`enter_plan_mode` /
    * `exit_plan_mode`). When plan mode is active the model may create and
@@ -325,7 +325,7 @@ export type PilotDeckToolRuntimeContext = {
    * that side-effecting tools do not run before the checklist is initialized
    * or refreshed after progress changes.
    */
-  planTodo?: PilotDeckPlanTodoStateHandle;
+  planTodo?: RigoriumPlanTodoStateHandle;
   /**
    * Multimodal constraints of the model driving this agent session.
    * Absent when the model config doesn't declare multimodal capabilities
@@ -354,15 +354,15 @@ export type PilotDeckToolRuntimeContext = {
    * tools report `unsupported_tool` instead of bypassing safety checks.
    */
   executeTool?: (
-    call: PilotDeckToolCall,
-    contextPatch?: Partial<PilotDeckToolRuntimeContext>,
-  ) => Promise<import("./result.js").PilotDeckToolResult>;
+    call: RigoriumToolCall,
+    contextPatch?: Partial<RigoriumToolRuntimeContext>,
+  ) => Promise<import("./result.js").RigoriumToolResult>;
   /**
    * Optional session-scoped cache for read_file de-duplication. The agent loop
    * keeps the map stable across turns so repeated reads of an unchanged file
    * can return a lightweight stub instead of re-injecting the full payload.
    */
-  readFileState?: PilotDeckReadFileStateMap;
+  readFileState?: RigoriumReadFileStateMap;
   /**
    * Session-scoped exact file paths that read_file may read even when they are
    * outside the workspace. Used for registered IM attachments only.
@@ -372,21 +372,21 @@ export type PilotDeckToolRuntimeContext = {
    * Optional session-scoped map of full-text reads that may authorize
    * subsequent write_file overwrites. Only complete text reads populate this.
    */
-  writeSnapshots?: PilotDeckWriteSnapshotMap;
+  writeSnapshots?: RigoriumWriteSnapshotMap;
   /**
    * Optional sink that propagates successful file writes to host integrations
    * such as LSP bridges or editor diff views.
    */
-  fileUpdateNotifier?: PilotDeckFileUpdateNotifier;
+  fileUpdateNotifier?: RigoriumFileUpdateNotifier;
 };
 
-export type PilotDeckToolDefinition<Input = unknown, Output = unknown> = {
+export type RigoriumToolDefinition<Input = unknown, Output = unknown> = {
   name: string;
   aliases?: string[];
   title?: string;
   description: string;
-  kind: PilotDeckToolKind;
-  inputSchema: PilotDeckToolInputSchema;
+  kind: RigoriumToolKind;
+  inputSchema: RigoriumToolInputSchema;
   outputSchema?: Record<string, unknown>;
   maxResultBytes?: number;
   shouldDefer?: boolean;
@@ -397,10 +397,10 @@ export type PilotDeckToolDefinition<Input = unknown, Output = unknown> = {
   isDestructive?(input: Input): boolean;
   requiresUserInteraction?(input: Input): boolean;
   isOpenWorld?(input: Input): boolean;
-  validateInput?(input: Input, context: PilotDeckToolRuntimeContext): Promise<PilotDeckToolValidationResult>;
-  checkAvailability?(context: PilotDeckToolAvailabilityContext): PilotDeckToolAvailability | Promise<PilotDeckToolAvailability>;
-  checkPermissions?(input: Input, context: PilotDeckToolRuntimeContext): Promise<PermissionResult>;
-  execute(input: Input, context: PilotDeckToolRuntimeContext): Promise<PilotDeckToolExecutionOutput<Output>>;
+  validateInput?(input: Input, context: RigoriumToolRuntimeContext): Promise<RigoriumToolValidationResult>;
+  checkAvailability?(context: RigoriumToolAvailabilityContext): RigoriumToolAvailability | Promise<RigoriumToolAvailability>;
+  checkPermissions?(input: Input, context: RigoriumToolRuntimeContext): Promise<PermissionResult>;
+  execute(input: Input, context: RigoriumToolRuntimeContext): Promise<RigoriumToolExecutionOutput<Output>>;
 };
 
-export type PilotDeckToolCall = CanonicalToolCall;
+export type RigoriumToolCall = CanonicalToolCall;

@@ -10,9 +10,9 @@ import type { ZoteroLibraryItem } from "../types.js";
 export const MANUSCRIPT_SCHEMA_VERSION = 1 as const;
 
 export const MANUSCRIPT_PAGE_MARKERS = Object.freeze({
-  mainMatterEnd: "pilotdeck-main-matter-end",
-  bibliographyEnd: "pilotdeck-bibliography-end",
-  appendixStart: "pilotdeck-appendix-start",
+  mainMatterEnd: "rigorium-main-matter-end",
+  bibliographyEnd: "rigorium-bibliography-end",
+  appendixStart: "rigorium-appendix-start",
 });
 
 export type BibtexEntryData = Readonly<{

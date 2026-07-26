@@ -1,7 +1,7 @@
 /**
- * Enumerate PilotDeck projects.
+ * Enumerate Rigorium projects.
  *
- * Source of truth: the `projects/` directory under `pilotHome`.
+ * Source of truth: the `projects/` directory under `rigoriumHome`.
  * Each subdirectory is a project ID; we surface its derived name + the
  * encoded `fullPath` we can recover from the ID. Where possible we also
  * include the session count via `listProjectSessions`.
@@ -10,11 +10,11 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { resolve, basename } from "node:path";
 import { listProjectSessions } from "../../session/index.js";
-import { createProjectId } from "../../pilot/index.js";
+import { createProjectId } from "../../rigorium/index.js";
 import type { WebListProjectsResult, WebProjectSummary } from "../client/protocol.js";
 
 export type ListWebProjectsOptions = {
-  pilotHome: string;
+  rigoriumHome: string;
 };
 
 export async function listWebProjects(
@@ -22,7 +22,7 @@ export async function listWebProjects(
 ): Promise<WebListProjectsResult> {
   const projects: WebProjectSummary[] = [];
 
-  const projectsDir = resolve(options.pilotHome, "projects");
+  const projectsDir = resolve(options.rigoriumHome, "projects");
   let projectIds: string[] = [];
   try {
     projectIds = await readdir(projectsDir);
@@ -48,7 +48,7 @@ export async function listWebProjects(
       // project list trustworthy.
       continue;
     }
-    if (resolve(fullPath) === resolve(options.pilotHome)) {
+    if (resolve(fullPath) === resolve(options.rigoriumHome)) {
       continue;
     }
     const summary = await summarizeProject(fullPath, options);
@@ -75,7 +75,7 @@ async function summarizeProject(
   try {
     const sessions = await listProjectSessions({
       projectRoot,
-      pilotHome: options.pilotHome,
+      rigoriumHome: options.rigoriumHome,
     });
     sessionCount = sessions.length;
     lastActivity = sessions[0]?.lastModified;

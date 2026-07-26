@@ -8,12 +8,12 @@ import {
   ExperimentRepositoryError,
   loadExperimentManifest,
 } from "../../research/experimentation/index.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 
 type ExperimentAnalysisLedgerFields = "runAttempts" | "metricObservations" | "baselineObservations";
@@ -36,7 +36,7 @@ export type CreateExperimentAnalysisToolOptions = Readonly<{
 
 export function createExperimentAnalysisTool(
   options: CreateExperimentAnalysisToolOptions = {},
-): PilotDeckToolDefinition<ExperimentAnalysisToolInput, ExperimentAnalysisReport> {
+): RigoriumToolDefinition<ExperimentAnalysisToolInput, ExperimentAnalysisReport> {
   return {
     name: "experiment_analysis",
     title: "Analyze Project Experiments",
@@ -57,7 +57,7 @@ The current Project ledger is used automatically when it exists. Otherwise, lega
         const report = createExperimentAnalysisReport(await withRuntimeMetadata(input, context));
         return formatOutput(report);
       } catch (error) {
-        throw new PilotDeckToolRuntimeError("invalid_tool_input", `Experiment analysis failed: ${messageOf(error)}`);
+        throw new RigoriumToolRuntimeError("invalid_tool_input", `Experiment analysis failed: ${messageOf(error)}`);
       }
     },
   };
@@ -65,13 +65,13 @@ The current Project ledger is used automatically when it exists. Otherwise, lega
 
 async function validateToolInput(
   input: unknown,
-  context: PilotDeckToolRuntimeContext,
-): Promise<PilotDeckToolValidationResult> {
+  context: RigoriumToolRuntimeContext,
+): Promise<RigoriumToolValidationResult> {
   try {
     validateExperimentAnalysisInput(await withRuntimeMetadata(input as ExperimentAnalysisToolInput, context));
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = {
+    const issue: RigoriumToolValidationIssue = {
       path: "$",
       code: "invalid_schema",
       message: messageOf(error),
@@ -82,7 +82,7 @@ async function validateToolInput(
 
 async function withRuntimeMetadata(
   input: ExperimentAnalysisToolInput,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
 ): Promise<ExperimentAnalysisInput> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     throw new TypeError("experiment_analysis input must be an object.");
@@ -128,7 +128,7 @@ async function loadProjectLedger(projectRoot: string) {
   }
 }
 
-function formatOutput(report: ExperimentAnalysisReport): PilotDeckToolExecutionOutput<ExperimentAnalysisReport> {
+function formatOutput(report: ExperimentAnalysisReport): RigoriumToolExecutionOutput<ExperimentAnalysisReport> {
   const lines = [
     `Experiment analysis: ${report.analysisId}`,
     `Valid aggregates: ${report.aggregates.length}`,

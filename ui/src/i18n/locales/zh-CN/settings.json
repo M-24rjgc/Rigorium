@@ -366,7 +366,7 @@
       "gemini": {
         "description": "Google Gemini AI 助手"
       },
-      "pilotdeck": {
+      "rigorium": {
         "description": "OpenBMB Rigorium AI 助手"
       }
     },
@@ -466,7 +466,7 @@
   "mcpServers": {
     "title": "MCP 服务器",
     "description": {
-      "pilotdeck": "Model Context Protocol 服务器为 Rigorium 提供额外的工具和数据源",
+      "rigorium": "Model Context Protocol 服务器为 Rigorium 提供额外的工具和数据源",
       "cursor": "Model Context Protocol 服务器为 Cursor 提供额外的工具和数据源",
       "codex": "Model Context Protocol 服务器为 Codex 提供额外的工具和数据源"
     },
@@ -499,7 +499,7 @@
   },
   "mcpConfig": {
     "title": "MCP 服务器",
-    "description": "编辑 Rigorium MCP 配置。全局配置位于 ~/.pilotdeck/mcp.json；项目配置位于 .pilotdeck/mcp.json，同名服务器会覆盖全局配置。",
+    "description": "编辑 Rigorium MCP 配置。全局配置位于 ~/.rigorium/mcp.json；项目配置位于 .rigorium/mcp.json，同名服务器会覆盖全局配置。",
     "project": "项目级配置对应的项目",
     "scopes": {
       "global": "全局",
@@ -543,7 +543,7 @@
       "addHeader": "添加请求头"
     }
   },
-  "pilotDeckConfig": {
+  "rigoriumConfig": {
     "loading": "正在加载 Rigorium 配置...",
     "header": {
       "configFile": "配置文件",
@@ -702,11 +702,11 @@
           },
           "proxyUrl": {
             "label": "HTTPS 代理",
-            "description": "出站 HTTPS 代理 URL，同时作用于 Gateway 和 UI Server（对应 pilotdeck.yaml 中的 proxy.url）。"
+            "description": "出站 HTTPS 代理 URL，同时作用于 Gateway 和 UI Server（对应 rigorium.yaml 中的 proxy.url）。"
           },
           "proxyNoProxy": {
             "label": "代理排除列表",
-            "description": "逗号分隔的主机名/IP，这些地址不走代理（对应 pilotdeck.yaml 中的 proxy.noProxy）。127.0.0.1 和 localhost 始终排除。"
+            "description": "逗号分隔的主机名/IP，这些地址不走代理（对应 rigorium.yaml 中的 proxy.noProxy）。127.0.0.1 和 localhost 始终排除。"
           }
         }
       },
@@ -1256,7 +1256,7 @@
   },
   "pluginSettings": {
     "title": "插件",
-    "description": "通过自定义插件扩展界面。从 git 安装或直接将文件夹放入 ~/.pilotdeck/plugins/",
+    "description": "通过自定义插件扩展界面。从 git 安装或直接将文件夹放入 ~/.rigorium/plugins/",
     "installPlaceholder": "https://github.com/user/my-plugin",
     "installButton": "安装",
     "installing": "安装中…",
@@ -1382,7 +1382,7 @@
       "websocketUrl": "WebSocket URL",
       "dmPolicy": "私聊策略",
       "groupPolicy": "群聊策略",
-      "policyHint": "基础策略会写入 pilotdeck.yaml；更细粒度的用户或群白名单可稍后手动编辑 YAML。",
+      "policyHint": "基础策略会写入 rigorium.yaml；更细粒度的用户或群白名单可稍后手动编辑 YAML。",
       "saveSuccess": "企业微信配置已保存"
     }
   },

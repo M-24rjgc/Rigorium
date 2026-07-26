@@ -85,6 +85,6 @@ function documentSelectionToAttachment(reference: DocumentSelectionReference): C
     occurrenceIndex: reference.occurrenceIndex,
     createdAt: reference.createdAt,
     truncated: reference.truncated,
-    mimeType: 'application/vnd.pilotdeck.document-selection',
+    mimeType: 'application/vnd.rigorium.document-selection',
   };
 }

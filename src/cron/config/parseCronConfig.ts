@@ -1,5 +1,5 @@
 import { isRecord } from "../../model/config/schema.js";
-import type { PilotConfigDiagnostic } from "../../pilot/config/types.js";
+import type { RigoriumConfigDiagnostic } from "../../rigorium/config/types.js";
 import { isValidCronTimezone } from "../CronTimezone.js";
 
 export type CronConfig = {
@@ -22,7 +22,7 @@ const ALLOWED_KEYS = new Set(["enabled", "timezone", "maxConcurrentRuns", "runTi
 
 export function parseCronConfig(
   raw: unknown,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): CronConfig | undefined {
   if (raw === undefined) {
     return undefined;
@@ -89,7 +89,7 @@ function nonEmptyString(
   value: unknown,
   fallback: string,
   path: string,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): string {
   if (value === undefined) return fallback;
   if (typeof value === "string" && value.trim().length > 0) {
@@ -109,7 +109,7 @@ function positiveInteger(
   value: unknown,
   fallback: number,
   path: string,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): number {
   if (value === undefined) return fallback;
   if (

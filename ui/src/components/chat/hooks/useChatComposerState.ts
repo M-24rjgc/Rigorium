@@ -19,7 +19,7 @@ import {
 } from '../../../utils/chatDraftInsertion';
 import { isThinkingModeId, thinkingModeToConfig, type ThinkingModeId } from '../constants/thinkingModes';
 import { getEffectiveThinkingMode, type ThinkingModeAvailability } from '../constants/thinkingModeAvailability';
-import { grantPilotDeckToolPermission } from '../utils/chatPermissions';
+import { grantRigoriumToolPermission } from '../utils/chatPermissions';
 import { getDraftInputStorageKey, safeLocalStorage } from '../utils/chatStorage';
 import {
   createTemporarySessionId,
@@ -88,7 +88,7 @@ interface UseChatComposerStateArgs {
   setCanAbortSession: (canAbort: boolean) => void;
   setIsAborting: (aborting: boolean) => void;
   setClaudeStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
-  setPilotDeckStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
+  setRigoriumStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
   setIsUserScrolledUp: (isScrolledUp: boolean) => void;
   pendingPermissionRequests: PendingPermissionRequest[];
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
@@ -211,7 +211,7 @@ export function useChatComposerState({
   setCanAbortSession,
   setIsAborting,
   setClaudeStatus,
-  setPilotDeckStatus,
+  setRigoriumStatus,
   setIsUserScrolledUp,
   pendingPermissionRequests,
   setPendingPermissionRequests,
@@ -283,9 +283,9 @@ export function useChatComposerState({
       });
     };
 
-    window.addEventListener('pilotdeck:add-chat-reference', handleAddDocumentReference);
+    window.addEventListener('rigorium:add-chat-reference', handleAddDocumentReference);
     return () => {
-      window.removeEventListener('pilotdeck:add-chat-reference', handleAddDocumentReference);
+      window.removeEventListener('rigorium:add-chat-reference', handleAddDocumentReference);
     };
   }, [syncQueuedBusySendSnapshot]);
 
@@ -867,7 +867,7 @@ export function useChatComposerState({
         sendMessage({
           type: 'abort-session',
           sessionId: targetSessionId,
-          provider: 'pilotdeck',
+          provider: 'rigorium',
         });
         setCanAbortSession(false);
         setIsAborting(true);
@@ -1018,13 +1018,13 @@ export function useChatComposerState({
         onSessionProcessing?.(effectiveSessionId);
       }
 
-      // PilotDeck-only: a single localStorage entry (`pilotdeck-settings`)
+      // Rigorium-only: a single localStorage entry (`rigorium-settings`)
       // tracks tool consent + skip-permissions for every chat. The legacy
       // per-provider keys (`cursor-tools-settings`, `codex-settings`,
       // `gemini-settings`) are no longer read or written.
       const getToolsSettings = () => {
         try {
-          const savedSettings = safeLocalStorage.getItem('pilotdeck-settings');
+          const savedSettings = safeLocalStorage.getItem('rigorium-settings');
           if (savedSettings) {
             return JSON.parse(savedSettings);
           }
@@ -1104,7 +1104,7 @@ export function useChatComposerState({
       setIsAborting,
       addMessage,
       setClaudeStatus,
-      setPilotDeckStatus,
+      setRigoriumStatus,
       setIsLoading,
       setIsUserScrolledUp,
       slashCommands,
@@ -1348,17 +1348,17 @@ export function useChatComposerState({
     sendMessage({
       type: 'abort-session',
       sessionId: targetSessionId,
-      provider: 'pilotdeck',
+      provider: 'rigorium',
     });
 
     setCanAbortSession(false);
     setIsAborting(true);
-    setPilotDeckStatus({
+    setRigoriumStatus({
       text: 'Stopping',
       tokens: 0,
       can_interrupt: false,
     });
-  }, [canAbortSession, cancelBusySendQueue, currentSessionId, pendingViewSessionRef, selectedSession?.id, sendMessage, setCanAbortSession, setClaudeStatus, setIsAborting, setPilotDeckStatus]);
+  }, [canAbortSession, cancelBusySendQueue, currentSessionId, pendingViewSessionRef, selectedSession?.id, sendMessage, setCanAbortSession, setClaudeStatus, setIsAborting, setRigoriumStatus]);
 
   const handleGrantToolPermission = useCallback(
     (suggestion: { entry: string; toolName: string }) => {
@@ -1368,9 +1368,9 @@ export function useChatComposerState({
       // adapter. After the PolitDeck-only migration every provider
       // routes through the same gateway PermissionContext, so we let
       // every provider persist its grants to localStorage and have the
-      // pilotdeck server pick them up via the gateway PermissionRuntime
+      // rigorium server pick them up via the gateway PermissionRuntime
       // on the next turn.
-      return grantPilotDeckToolPermission(suggestion.entry);
+      return grantRigoriumToolPermission(suggestion.entry);
     },
     [],
   );
@@ -1478,12 +1478,12 @@ export function useChatComposerState({
         const next = previous.filter((request) => !validIds.includes(request.requestId));
         if (next.length === 0) {
           setClaudeStatus(null);
-          setPilotDeckStatus(null);
+          setRigoriumStatus(null);
         }
         return next;
       });
     },
-    [pendingPermissionRequests, sendMessage, setClaudeStatus, setPilotDeckStatus, setPendingPermissionRequests],
+    [pendingPermissionRequests, sendMessage, setClaudeStatus, setRigoriumStatus, setPendingPermissionRequests],
   );
 
   const [isInputFocused, setIsInputFocused] = useState(false);
@@ -1578,6 +1578,6 @@ function documentReferenceToAttachment(reference: DocumentSelectionReference): C
     occurrenceIndex: reference.occurrenceIndex,
     createdAt: reference.createdAt,
     truncated: reference.truncated,
-    mimeType: 'application/vnd.pilotdeck.document-selection',
+    mimeType: 'application/vnd.rigorium.document-selection',
   };
 }

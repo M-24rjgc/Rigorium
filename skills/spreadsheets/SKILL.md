@@ -39,7 +39,7 @@ Use a task-specific scratch directory outside the skill:
 
 ```bash
 SCRATCH_ROOT="$(node -p "require('node:os').tmpdir()")"
-WORKSPACE="$SCRATCH_ROOT/pilotdeck-spreadsheets/${CODEX_THREAD_ID:-manual}/<task-slug>"
+WORKSPACE="$SCRATCH_ROOT/rigorium-spreadsheets/${CODEX_THREAD_ID:-manual}/<task-slug>"
 mkdir -p "$WORKSPACE/tmp" "$WORKSPACE/qa"
 ```
 

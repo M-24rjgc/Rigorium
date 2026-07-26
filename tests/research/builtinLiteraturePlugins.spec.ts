@@ -21,7 +21,7 @@ test("literature and Zotero builtins expose real discoverable skill contribution
   assert.equal((zotero.manifest.settings?.capabilities as string[]).includes("library.cloud.write.confirmed"), true);
 
   const root = await mkdtemp(join(tmpdir(), "rigorium-plugin-runtime-"));
-  const runtime = new PluginRuntime({ projectRoot: root, pilotHome: join(root, ".pilot"), builtinPlugins: builtins });
+  const runtime = new PluginRuntime({ projectRoot: root, rigoriumHome: join(root, ".rigorium"), builtinPlugins: builtins });
   await runtime.refresh();
   assert.equal(runtime.getAllSkills().some((skill) => skill.name === "rigorium-literature:literature-closeout"), true);
   assert.equal(runtime.getAllSkills().some((skill) => skill.name === "rigorium-zotero:zotero-library"), true);
@@ -31,7 +31,7 @@ test("builtin plugin enable settings can disable one contribution without hiding
   const root = await mkdtemp(join(tmpdir(), "rigorium-plugin-toggle-"));
   const runtime = new PluginRuntime({
     projectRoot: root,
-    pilotHome: join(root, ".pilot"),
+    rigoriumHome: join(root, ".rigorium"),
     builtinPlugins: loadBuiltinPlugins(),
     builtinPluginsEnabled: { "rigorium-zotero": false },
   });

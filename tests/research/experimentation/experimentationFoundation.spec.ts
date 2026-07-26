@@ -630,7 +630,7 @@ test("rejects project storage symlinks instead of following them outside the pro
   const root = await projectRoot("symlink-root");
   const outside = await projectRoot("symlink-outside");
   try {
-    await symlink(outside, join(root, ".pilotdeck"), process.platform === "win32" ? "junction" : "dir");
+    await symlink(outside, join(root, ".rigorium"), process.platform === "win32" ? "junction" : "dir");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EPERM") {
       t.skip("This host does not allow creating a test directory link.");

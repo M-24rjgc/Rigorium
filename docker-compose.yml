@@ -1,35 +1,37 @@
+name: rigorium
+
 services:
-  pilotdeck:
+  rigorium:
     build: .
-    image: pilotdeck:latest
+    image: rigorium:latest
     ports:
       - "3001:3001"
     volumes:
-      # Persist all PilotDeck state: generated config, auth DB, permissions,
+      # Persist all Rigorium state: generated config, auth DB, permissions,
       # sessions/projects, memory, skills/plugins, and router stats.
-      - pilotdeck-home:/root/.pilotdeck
+      - rigorium-home:/root/.rigorium
       # Optional: mount an existing config file instead of generating one from env vars.
       # Create the host file first, then uncomment this line.
-      # - ${PILOTDECK_CONFIG:-${HOME}/.pilotdeck/pilotdeck.yaml}:/root/.pilotdeck/pilotdeck.yaml:ro
+      # - ${RIGORIUM_CONFIG:-${HOME}/.rigorium/rigorium.yaml}:/root/.rigorium/rigorium.yaml:ro
       # Optional: expose a host workspace to agents running inside the container.
-      # - ${PILOTDECK_WORKSPACE:-${PWD}}:/workspace
+      # - ${RIGORIUM_WORKSPACE:-${PWD}}:/workspace
     environment:
       - NODE_ENV=production
-      - PILOT_HOME=/root/.pilotdeck
+      - RIGORIUM_HOME=/root/.rigorium
       - SERVER_PORT=3001
-      - PILOTDECK_GATEWAY_PORT=18789
+      - RIGORIUM_GATEWAY_PORT=18789
       # ── Authentication (uncomment to require login) ──
-      # - PILOTDECK_DISABLE_LOCAL_AUTH=0
+      # - RIGORIUM_DISABLE_LOCAL_AUTH=0
       #
       # ── Proxy (uncomment if behind corporate proxy) ──
       # - https_proxy=http://host.docker.internal:7890
-      # - PILOTDECK_PROXY=http://host.docker.internal:7890
+      # - RIGORIUM_PROXY=http://host.docker.internal:7890
       #
       # ── Or configure via env vars instead of mounting yaml ──
-      # - PILOTDECK_MODEL=openai/gpt-4.1
-      # - PILOTDECK_API_KEY=sk-xxx
-      # - PILOTDECK_API_URL=https://api.openai.com/v1
+      # - RIGORIUM_MODEL=openai/gpt-4.1
+      # - RIGORIUM_API_KEY=sk-xxx
+      # - RIGORIUM_API_URL=https://api.openai.com/v1
     restart: unless-stopped
 
 volumes:
-  pilotdeck-home:
+  rigorium-home:

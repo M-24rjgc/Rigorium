@@ -56,7 +56,7 @@ export type DefaultContextRuntimeOptions = {
   autoCompactionPolicy?: AutoCompactionPolicy;
   /**
    * A4 — opt-in cached micro-compaction engine. Construction is gated by
-   * `PilotConfig.context.cachedMicrocompactEnabled` upstream.
+   * `RigoriumConfig.context.cachedMicrocompactEnabled` upstream.
    */
   microcompactEngine?: CachedMicroCompactionEngine;
   /** Tier 1 — truncates old tool_result content (time-based path). */
@@ -65,7 +65,7 @@ export type DefaultContextRuntimeOptions = {
   snipEngine?: SnipEngine;
   /** Reactive overflow recovery (prompt_too_long → truncate head). */
   overflowRecovery?: ContextOverflowRecovery;
-  /** PILOTDECK.md instruction file discovery (multi-scope hierarchy). */
+  /** RIGORIUM.md instruction file discovery (multi-scope hierarchy). */
   instructionDiscovery?: InstructionDiscovery;
   /** Project root forwarded to MemoryResolver.retrieve. */
   projectRoot?: string;
@@ -226,7 +226,7 @@ export class DefaultContextRuntime implements ContextRuntime {
         diagnostics.push({
           code: "instruction_discovery_failed",
           severity: "warning",
-          message: "Failed to discover PILOTDECK.md instruction files.",
+          message: "Failed to discover RIGORIUM.md instruction files.",
         });
       }
     }

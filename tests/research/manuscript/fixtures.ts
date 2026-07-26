@@ -39,7 +39,7 @@ export function minimalLatex(body = "Synthetic fixture only."): string {
   return `\\documentclass{article}
 \\begin{document}
 ${body}
-\\label{pilotdeck-main-matter-end}
+\\label{rigorium-main-matter-end}
 \\end{document}`;
 }
 

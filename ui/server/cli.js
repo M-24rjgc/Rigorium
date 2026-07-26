@@ -7,10 +7,10 @@ import path from 'path';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import {
-  getPilotDeckConfigPath,
-  readPilotDeckConfigFile,
-  validatePilotDeckConfig,
-} from './services/pilotdeckConfig.js';
+  getRigoriumConfigPath,
+  readRigoriumConfigFile,
+  validateRigoriumConfig,
+} from './services/rigoriumConfig.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,7 +39,7 @@ const c = {
 };
 
 function defaultDatabasePath() {
-  return path.join(process.env.PILOT_HOME || path.join(os.homedir(), '.pilotdeck'), 'auth.db');
+  return path.join(process.env.RIGORIUM_HOME || path.join(os.homedir(), '.rigorium'), 'auth.db');
 }
 
 function getInstallDir() {
@@ -80,7 +80,7 @@ function applyOptions(options) {
   else if (!process.env.SERVER_PORT && process.env.PORT) process.env.SERVER_PORT = process.env.PORT;
 
   if (options.databasePath) process.env.DATABASE_PATH = options.databasePath;
-  if (options.configPath) process.env.PILOTDECK_CONFIG_PATH = options.configPath;
+  if (options.configPath) process.env.RIGORIUM_CONFIG_PATH = options.configPath;
   if (!process.env.DATABASE_PATH) process.env.DATABASE_PATH = defaultDatabasePath();
 }
 
@@ -100,7 +100,7 @@ Commands:
 Options:
   -p, --port <port>             Set server port (default: 3001)
   --database-path <path>        Set database location
-  --config <path>               Set pilotdeck.yaml location
+  --config <path>               Set rigorium.yaml location
   -h, --help                    Show this help information
   -v, --version                 Show version information
 
@@ -110,7 +110,7 @@ Examples:
   rigorium status
 
 Configuration:
-  Rigorium currently reads ~/.pilotdeck/pilotdeck.yaml for runtime compatibility.
+  Rigorium currently reads ~/.rigorium/rigorium.yaml for runtime compatibility.
   First run opens the onboarding UI if no usable config exists.
 `);
 }
@@ -120,7 +120,7 @@ function showVersion() {
 }
 
 function hasUsableConfig(record) {
-  const validation = validatePilotDeckConfig(record.config);
+  const validation = validateRigoriumConfig(record.config);
   if (!record.exists || !validation.valid) return false;
   const mainModel = record.config?.agents?.main?.model;
   const entry = mainModel ? record.config?.models?.entries?.[mainModel] : null;
@@ -129,8 +129,8 @@ function hasUsableConfig(record) {
 }
 
 function showStatus() {
-  const configPath = getPilotDeckConfigPath();
-  const record = readPilotDeckConfigFile();
+  const configPath = getRigoriumConfigPath();
+  const record = readRigoriumConfigFile();
   const dbPath = process.env.DATABASE_PATH || defaultDatabasePath();
 
   console.log(`\n${c.bright('rigorium - Status')}\n`);
@@ -152,7 +152,7 @@ function assertPortAvailable(port, host) {
     const server = net.createServer();
     server.once('error', (error) => {
       if (error.code === 'EADDRINUSE') {
-        reject(new Error(`Port ${port} is already in use. Try: pilotdeck --port ${Number(port) + 1}`));
+        reject(new Error(`Port ${port} is already in use. Try: rigorium --port ${Number(port) + 1}`));
       } else {
         reject(error);
       }
@@ -179,7 +179,7 @@ function ensureFrontendBuild() {
   });
 
   if (result.status !== 0) {
-    throw new Error('Frontend build failed. Run "cd ui && npm install && npm run build" manually, then retry pilotdeck.');
+    throw new Error('Frontend build failed. Run "cd ui && npm install && npm run build" manually, then retry rigorium.');
   }
 
   if (!fs.existsSync(distIndexPath)) {
@@ -194,7 +194,7 @@ async function startServer() {
   ensureFrontendBuild();
 
   console.log(`\n${c.bright('rigorium')} starting...\n`);
-  console.log(`${c.info('[INFO]')} Config: ${c.dim(getPilotDeckConfigPath())}`);
+  console.log(`${c.info('[INFO]')} Config: ${c.dim(getRigoriumConfigPath())}`);
   console.log(`${c.info('[INFO]')} Database: ${c.dim(process.env.DATABASE_PATH || defaultDatabasePath())}`);
   console.log(`${c.info('[INFO]')} Server: http://localhost:${port}\n`);
 

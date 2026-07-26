@@ -16,8 +16,8 @@ export async function runRemoteAgentMain(options: Readonly<{
   const writeStdout = options.writeStdout ?? ((value) => process.stdout.write(value));
   const writeStderr = options.writeStderr ?? ((value) => process.stderr.write(value));
   try {
-    const workspaceRoot = requiredEnvironmentPath(env.PILOTDECK_REMOTE_WORKSPACE_ROOT, "PILOTDECK_REMOTE_WORKSPACE_ROOT");
-    const stateRoot = requiredEnvironmentPath(env.PILOTDECK_REMOTE_STATE_ROOT, "PILOTDECK_REMOTE_STATE_ROOT");
+    const workspaceRoot = requiredEnvironmentPath(env.RIGORIUM_REMOTE_WORKSPACE_ROOT, "RIGORIUM_REMOTE_WORKSPACE_ROOT");
+    const stateRoot = requiredEnvironmentPath(env.RIGORIUM_REMOTE_STATE_ROOT, "RIGORIUM_REMOTE_STATE_ROOT");
     const selfPath = fileURLToPath(import.meta.url);
     const runtime = new RemoteAgentRuntime({
       workspaceRoot,

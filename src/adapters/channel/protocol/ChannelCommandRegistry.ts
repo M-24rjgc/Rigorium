@@ -12,7 +12,7 @@
  */
 
 import type { Gateway } from "../../../gateway/index.js";
-import { resolvePilotHome } from "../../../pilot/index.js";
+import { resolveRigoriumHome } from "../../../rigorium/index.js";
 import { runChatSearchFormatted } from "../../../cli/commands/chatSearch.js";
 
 // ---------------------------------------------------------------------------
@@ -181,7 +181,7 @@ const commands: ChannelCommand[] = [
       }
 
       // Execute the update
-      await ctx.reply("🚀 开始更新 PilotDeck...\n正在拉取最新代码、重新构建...");
+      await ctx.reply("🚀 开始更新 Rigorium...\n正在拉取最新代码、重新构建...");
       try {
         const { stdout, stderr } = await execFileAsync("bash", [scriptPath, "--restart"], {
           cwd: projectRoot,
@@ -265,7 +265,7 @@ const commands: ChannelCommand[] = [
       const { text } = await runChatSearchFormatted({
         arg: parsed,
         projectRoot,
-        pilotHome: resolvePilotHome(process.env),
+        rigoriumHome: resolveRigoriumHome(process.env),
         locale: "zh",
       });
       await ctx.reply(text);

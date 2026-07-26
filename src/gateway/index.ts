@@ -60,4 +60,4 @@ export type {
   WsNotificationFrame,
   WsResponseFrame,
 } from "./protocol/index.js";
-export { PILOTDECK_GATEWAY_PROTOCOL_VERSION } from "./protocol/index.js";
+export { RIGORIUM_GATEWAY_PROTOCOL_VERSION } from "./protocol/index.js";

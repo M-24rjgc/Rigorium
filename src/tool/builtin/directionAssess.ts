@@ -4,11 +4,11 @@ import {
   type DirectionAssessmentInput,
   type DirectionAssessmentResult,
 } from "../../research/direction/directionAssessment.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
 } from "../protocol/types.js";
 
 export type DirectionAssessInput = DirectionAssessmentInput;
@@ -34,7 +34,7 @@ export type CreateDirectionAssessToolOptions = {
  */
 export function createDirectionAssessTool(
   options: CreateDirectionAssessToolOptions = {},
-): PilotDeckToolDefinition<DirectionAssessInput, DirectionAssessmentArtifact> {
+): RigoriumToolDefinition<DirectionAssessInput, DirectionAssessmentArtifact> {
   return {
     name: "direction_assess",
     title: "Assess Research Directions",
@@ -155,7 +155,7 @@ Use this when a natural-language research discussion needs a transparent compari
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
     isOpenWorld: () => false,
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => validateDirectionAssessInput(input),
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => validateDirectionAssessInput(input),
     execute: async (input, context) => {
       const assessmentInput = normalizeInput(input);
       let result: DirectionAssessmentResult;
@@ -177,14 +177,14 @@ Use this when a natural-language research discussion needs a transparent compari
   };
 }
 
-function validateDirectionAssessInput(input: DirectionAssessInput): PilotDeckToolValidationResult {
+function validateDirectionAssessInput(input: DirectionAssessInput): RigoriumToolValidationResult {
   try {
     const assessmentInput = normalizeInput(input);
     assessResearchDirections(assessmentInput);
     return { ok: true, input };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const issue: PilotDeckToolValidationIssue = {
+    const issue: RigoriumToolValidationIssue = {
       path: "$",
       code: "invalid_schema",
       message,
@@ -195,7 +195,7 @@ function validateDirectionAssessInput(input: DirectionAssessInput): PilotDeckToo
 
 function normalizeInput(input: unknown): DirectionAssessmentInput {
   if (!isRecord(input)) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "direction_assess requires an input object.");
+    throw new RigoriumToolRuntimeError("invalid_tool_input", "direction_assess requires an input object.");
   }
   return {
     candidates: input.candidates as DirectionAssessmentInput["candidates"],
@@ -207,9 +207,9 @@ function normalizeInput(input: unknown): DirectionAssessmentInput {
   };
 }
 
-function invalidInputError(error: unknown): PilotDeckToolRuntimeError {
-  if (error instanceof PilotDeckToolRuntimeError) return error;
-  return new PilotDeckToolRuntimeError(
+function invalidInputError(error: unknown): RigoriumToolRuntimeError {
+  if (error instanceof RigoriumToolRuntimeError) return error;
+  return new RigoriumToolRuntimeError(
     "invalid_tool_input",
     `Invalid direction assessment input: ${error instanceof Error ? error.message : String(error)}`,
   );
@@ -217,7 +217,7 @@ function invalidInputError(error: unknown): PilotDeckToolRuntimeError {
 
 function formatToolOutput(
   artifact: DirectionAssessmentArtifact,
-): PilotDeckToolExecutionOutput<DirectionAssessmentArtifact> {
+): RigoriumToolExecutionOutput<DirectionAssessmentArtifact> {
   const lines = [
     "Research direction assessment",
     `Candidates: ${artifact.result.assessments.length}`,

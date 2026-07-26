@@ -11,7 +11,7 @@ import type {
 
 type ResolveRuntimeContextInput = {
   env?: Record<string, string | undefined>;
-  pilotHome?: string;
+  rigoriumHome?: string;
 };
 
 const runtimeContextCache = new Map<string, TelemetryRuntimeContext>();
@@ -20,15 +20,15 @@ export function resolveTelemetryRuntimeContext(
   input: ResolveRuntimeContextInput = {},
 ): TelemetryRuntimeContext {
   const env = input.env ?? process.env;
-  const cacheKey = buildRuntimeContextCacheKey(input.pilotHome, env);
+  const cacheKey = buildRuntimeContextCacheKey(input.rigoriumHome, env);
   const cached = runtimeContextCache.get(cacheKey);
   if (cached) {
     return cached;
   }
   const deploymentMode = resolveDeploymentMode(env);
   const runtimeContext: TelemetryRuntimeContext = {
-    installationId: resolveInstallationId(input.pilotHome, env),
-    instanceId: resolveInstanceId(input.pilotHome, env, deploymentMode),
+    installationId: resolveInstallationId(input.rigoriumHome, env),
+    instanceId: resolveInstanceId(input.rigoriumHome, env, deploymentMode),
     deploymentMode,
     commitHash: resolveAppCommitHash(env),
     appVersion: resolveAppVersion(env),
@@ -39,10 +39,10 @@ export function resolveTelemetryRuntimeContext(
 }
 
 function resolveInstallationId(
-  pilotHome: string | undefined,
+  rigoriumHome: string | undefined,
   env: Record<string, string | undefined>,
 ): string {
-  const tokenPath = resolveGatewayTokenPath({ pilotHome, env });
+  const tokenPath = resolveGatewayTokenPath({ rigoriumHome, env });
   if (existsSync(tokenPath)) {
     const token = readFileSync(tokenPath, "utf8").trim();
     if (token) {
@@ -54,14 +54,14 @@ function resolveInstallationId(
 }
 
 function resolveInstanceId(
-  pilotHome: string | undefined,
+  rigoriumHome: string | undefined,
   env: Record<string, string | undefined>,
   deploymentMode: TelemetryDeploymentMode,
 ): string {
-  const resolvedPilotHome = pilotHome ?? env.PILOT_HOME ?? "unknown-pilot-home";
+  const resolvedRigoriumHome = rigoriumHome ?? env.RIGORIUM_HOME ?? "unknown-rigorium-home";
   const executablePath = process.execPath || "unknown-exec";
   const entrypoint = process.argv[1] ?? "unknown-entry";
-  const seed = `${resolve(resolvedPilotHome)}|${resolve(executablePath)}|${resolve(entrypoint)}|${deploymentMode}`;
+  const seed = `${resolve(resolvedRigoriumHome)}|${resolve(executablePath)}|${resolve(entrypoint)}|${deploymentMode}`;
   return hashStableId(seed);
 }
 
@@ -88,7 +88,7 @@ function looksLikeDocker(env: Record<string, string | undefined>): boolean {
 function looksLikeDesktopInstaller(): boolean {
   if (process.versions.electron) return true;
   const execLower = process.execPath.toLowerCase();
-  return execLower.includes("pilotdeck.app") || execLower.endsWith("pilotdeck.exe");
+  return execLower.includes("rigorium.app") || execLower.endsWith("rigorium.exe");
 }
 
 function looksLikeSourceCheckout(): boolean {
@@ -107,8 +107,8 @@ function looksLikeSourceCheckout(): boolean {
 function looksLikeCurlInstaller(): boolean {
   const entry = (process.argv[1] ?? "").toLowerCase();
   return (
-    entry.includes("/.local/bin/pilotdeck") ||
-    entry.includes("/usr/local/bin/pilotdeck")
+    entry.includes("/.local/bin/rigorium") ||
+    entry.includes("/usr/local/bin/rigorium")
   );
 }
 
@@ -119,7 +119,7 @@ function looksLikeNpmBinary(env: Record<string, string | undefined>): boolean {
 }
 
 function resolveAppVersion(env: Record<string, string | undefined>): string {
-  const fromEnv = env.PILOTDECK_VERSION ?? env.npm_package_version;
+  const fromEnv = env.RIGORIUM_VERSION ?? env.npm_package_version;
   if (fromEnv) return fromEnv;
   try {
     const file = resolve(dirname(fileURLToPath(import.meta.url)), "../../../package.json");
@@ -134,7 +134,7 @@ function resolveAppVersion(env: Record<string, string | undefined>): string {
 }
 
 function resolveAppCommitHash(env: Record<string, string | undefined>): string {
-  const fromEnv = env.COMMIT_HASH ?? env.GIT_COMMIT ?? env.PILOTDECK_GIT_SHA ?? env.GIT_SHA;
+  const fromEnv = env.COMMIT_HASH ?? env.GIT_COMMIT ?? env.RIGORIUM_GIT_SHA ?? env.GIT_SHA;
   if (fromEnv) {
     return fromEnv;
   }
@@ -160,13 +160,13 @@ export function hashTelemetryId(input: string): string {
 }
 
 function buildRuntimeContextCacheKey(
-  pilotHome: string | undefined,
+  rigoriumHome: string | undefined,
   env: Record<string, string | undefined>,
 ): string {
   return [
-    pilotHome ?? env.PILOT_HOME ?? "default",
-    env.COMMIT_HASH ?? env.GIT_COMMIT ?? env.PILOTDECK_GIT_SHA ?? env.GIT_SHA ?? "",
-    env.PILOTDECK_VERSION ?? env.npm_package_version ?? "",
+    rigoriumHome ?? env.RIGORIUM_HOME ?? "default",
+    env.COMMIT_HASH ?? env.GIT_COMMIT ?? env.RIGORIUM_GIT_SHA ?? env.GIT_SHA ?? "",
+    env.RIGORIUM_VERSION ?? env.npm_package_version ?? "",
     process.execPath,
     process.argv[1] ?? "",
   ].join("|");

@@ -40,7 +40,7 @@ export function buildPlanModeViolationMessage(toolName: string): string {
     "",
     "What you should do instead:",
     "1. Use read-only tools (read_file, grep, glob, bash with read-only commands) to explore",
-    "2. Write your plan as markdown under .pilotdeck/plans/",
+    "2. Write your plan as markdown under .rigorium/plans/",
     "3. Call exit_plan_mode when your plan is ready",
     "",
     "Do NOT retry this tool. It will fail again.",

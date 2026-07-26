@@ -6,7 +6,7 @@ import { promises as fs } from 'fs';
 import crypto from 'crypto';
 import { userDb, apiKeysDb, githubTokensDb } from '../database/db.js';
 import { addProjectManually } from '../projects.js';
-import { runChatViaGateway } from '../pilotdeck-bridge.js';
+import { runChatViaGateway } from '../rigorium-bridge.js';
 import { Octokit } from '@octokit/rest';
 import { IS_PLATFORM } from '../constants/config.js';
 
@@ -419,7 +419,7 @@ async function cloneGitHubRepo(githubUrl, githubToken = null, projectPath) {
 async function cleanupProject(projectPath, sessionId = null) {
   try {
     // Only clean up projects in the external-projects directory
-    if (!projectPath.includes('.pilotdeck/external-projects')) {
+    if (!projectPath.includes('.rigorium/external-projects')) {
       console.warn('⚠️ Refusing to clean up non-external project:', projectPath);
       return;
     }
@@ -430,7 +430,7 @@ async function cleanupProject(projectPath, sessionId = null) {
 
     if (sessionId) {
       try {
-        const sessionPath = path.join(os.homedir(), '.pilotdeck', 'sessions', sessionId);
+        const sessionPath = path.join(os.homedir(), '.rigorium', 'sessions', sessionId);
         console.log('🧹 Cleaning up session directory:', sessionPath);
         await fs.rm(sessionPath, { recursive: true, force: true });
         console.log('✅ Session directory cleaned up');
@@ -541,7 +541,7 @@ class ResponseCollector {
       if (typeof msg === 'string') {
         try {
           const parsed = JSON.parse(msg);
-          if (parsed.type === 'claude-response' && parsed.data && parsed.data.type === 'assistant' || parsed.type === 'pilotdeck-response' && parsed.data && parsed.data.type === 'assistant') {
+          if (parsed.type === 'claude-response' && parsed.data && parsed.data.type === 'assistant' || parsed.type === 'rigorium-response' && parsed.data && parsed.data.type === 'assistant') {
             assistantMessages.push(parsed.data);
           }
         } catch (e) {
@@ -574,7 +574,7 @@ class ResponseCollector {
         }
       }
 
-      if (data && (data.type === 'claude-response' || data.type === 'pilotdeck-response') && data.data) {
+      if (data && (data.type === 'claude-response' || data.type === 'rigorium-response') && data.data) {
         const msgData = data.data;
         if (msgData.message && msgData.message.usage) {
           const usage = msgData.message.usage;
@@ -826,7 +826,7 @@ class ResponseCollector {
  *   }
  */
 router.post('/', validateExternalApiKey, async (req, res) => {
-  const { githubUrl, projectPath, message, provider = 'pilotdeck', model, githubToken, branchName, sessionId } = req.body;
+  const { githubUrl, projectPath, message, provider = 'rigorium', model, githubToken, branchName, sessionId } = req.body;
 
   // Parse stream and cleanup as booleans (handle string "true"/"false" from curl)
   const stream = req.body.stream === undefined ? true : (req.body.stream === true || req.body.stream === 'true');
@@ -845,11 +845,11 @@ router.post('/', validateExternalApiKey, async (req, res) => {
     return res.status(400).json({ error: 'message is required' });
   }
 
-  // After the PilotDeck-only migration any incoming `provider` is just a
+  // After the Rigorium-only migration any incoming `provider` is just a
   // label — every request is routed through `src/gateway`. We accept the
-  // legacy values plus the new `pilotdeck` alias for forward compatibility.
-  if (!['claude', 'cursor', 'codex', 'gemini', 'pilotdeck'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", "gemini", or "pilotdeck"' });
+  // legacy values plus the new `rigorium` alias for forward compatibility.
+  if (!['claude', 'cursor', 'codex', 'gemini', 'rigorium'].includes(provider)) {
+    return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", "gemini", or "rigorium"' });
   }
 
   // Validate GitHub branch/PR creation requirements
@@ -873,7 +873,7 @@ router.post('/', validateExternalApiKey, async (req, res) => {
       } else {
         // Generate a unique path for cloning
         const repoHash = crypto.createHash('md5').update(githubUrl + Date.now()).digest('hex');
-        targetPath = path.join(os.homedir(), '.pilotdeck', 'external-projects', repoHash);
+        targetPath = path.join(os.homedir(), '.rigorium', 'external-projects', repoHash);
       }
 
       finalProjectPath = await cloneGitHubRepo(githubUrl.trim(), tokenToUse, targetPath);

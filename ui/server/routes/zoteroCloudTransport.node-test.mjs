@@ -73,8 +73,8 @@ test('desktop broker configuration stays in process memory instead of environmen
     },
   });
 
-  assert.equal(process.env.PILOTDECK_ZOTERO_BROKER_URL, undefined);
-  assert.equal(process.env.PILOTDECK_ZOTERO_BROKER_TOKEN, undefined);
+  assert.equal(process.env.RIGORIUM_ZOTERO_BROKER_URL, undefined);
+  assert.equal(process.env.RIGORIUM_ZOTERO_BROKER_TOKEN, undefined);
   assert.equal(isAuthorizedDesktopZoteroCloudRequest(routeToken), true);
   assert.equal(isAuthorizedDesktopZoteroCloudRequest(`${routeToken}x`), false);
   assert.equal((await transport.request({ path: '/keys/current', method: 'GET' })).status, 200);

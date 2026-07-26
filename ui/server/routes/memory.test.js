@@ -12,11 +12,11 @@ describe('memory clear route', () => {
   it('returns a dashboard snapshot after clearing all memory with project context', async () => {
     const { request, clearAllMemoryData, getMemoryServiceForRequest } = await createMemoryApp();
 
-    const result = await request('/api/memory/clear?projectPath=/tmp/pilotdeck-project', {
+    const result = await request('/api/memory/clear?projectPath=/tmp/rigorium-project', {
       method: 'POST',
       body: JSON.stringify({
         scope: 'all_memory',
-        projectPath: '/tmp/pilotdeck-project',
+        projectPath: '/tmp/rigorium-project',
       }),
     });
 
@@ -68,7 +68,7 @@ describe('memory clear route', () => {
 
 describe('memory settings route', () => {
   it('saves answer_first reasoning mode', async () => {
-    const { request, writePilotDeckConfig } = await createMemorySettingsApp({
+    const { request, writeRigoriumConfig } = await createMemorySettingsApp({
       memory: {
         reasoningMode: 'accuracy_first',
         autoIndexIntervalMinutes: 30,
@@ -76,20 +76,20 @@ describe('memory settings route', () => {
       },
     });
 
-    const result = await request('/api/memory/settings?projectPath=/tmp/pilotdeck-project', {
+    const result = await request('/api/memory/settings?projectPath=/tmp/rigorium-project', {
       method: 'POST',
       body: JSON.stringify({ reasoningMode: 'answer_first' }),
     });
 
     expect(result.status).toBe(200);
     expect(result.body.reasoningMode).toBe('answer_first');
-    expect(writePilotDeckConfig).toHaveBeenCalledWith(expect.objectContaining({
+    expect(writeRigoriumConfig).toHaveBeenCalledWith(expect.objectContaining({
       memory: expect.objectContaining({ reasoningMode: 'answer_first' }),
     }));
   });
 
   it('saves accuracy_first reasoning mode', async () => {
-    const { request, writePilotDeckConfig } = await createMemorySettingsApp({
+    const { request, writeRigoriumConfig } = await createMemorySettingsApp({
       memory: {
         reasoningMode: 'answer_first',
         autoIndexIntervalMinutes: 30,
@@ -97,20 +97,20 @@ describe('memory settings route', () => {
       },
     });
 
-    const result = await request('/api/memory/settings?projectPath=/tmp/pilotdeck-project', {
+    const result = await request('/api/memory/settings?projectPath=/tmp/rigorium-project', {
       method: 'POST',
       body: JSON.stringify({ reasoningMode: 'accuracy_first' }),
     });
 
     expect(result.status).toBe(200);
     expect(result.body.reasoningMode).toBe('accuracy_first');
-    expect(writePilotDeckConfig).toHaveBeenCalledWith(expect.objectContaining({
+    expect(writeRigoriumConfig).toHaveBeenCalledWith(expect.objectContaining({
       memory: expect.objectContaining({ reasoningMode: 'accuracy_first' }),
     }));
   });
 
   it('rejects invalid reasoning mode without saving config', async () => {
-    const { request, writePilotDeckConfig } = await createMemorySettingsApp({
+    const { request, writeRigoriumConfig } = await createMemorySettingsApp({
       memory: {
         reasoningMode: 'answer_first',
         autoIndexIntervalMinutes: 30,
@@ -118,14 +118,14 @@ describe('memory settings route', () => {
       },
     });
 
-    const result = await request('/api/memory/settings?projectPath=/tmp/pilotdeck-project', {
+    const result = await request('/api/memory/settings?projectPath=/tmp/rigorium-project', {
       method: 'POST',
       body: JSON.stringify({ reasoningMode: 'fast_mode' }),
     });
 
     expect(result.status).toBe(400);
     expect(result.body.error).toBe('memory.reasoningMode must be answer_first or accuracy_first');
-    expect(writePilotDeckConfig).not.toHaveBeenCalled();
+    expect(writeRigoriumConfig).not.toHaveBeenCalled();
   });
 });
 
@@ -143,7 +143,7 @@ async function createMemoryApp() {
 
   const store = {
     getWorkspaceMode: vi.fn(() => 'project'),
-    getRootDir: vi.fn(() => '/tmp/pilotdeck-memory-store'),
+    getRootDir: vi.fn(() => '/tmp/rigorium-memory-store'),
     getProjectMeta: vi.fn(() => null),
   };
   const repository = {
@@ -161,8 +161,8 @@ async function createMemoryApp() {
     listDreamTraces: vi.fn(() => []),
   };
   const getMemoryServiceForRequest = vi.fn(async () => ({
-    projectPath: '/tmp/pilotdeck-project',
-    dataDir: '/tmp/pilotdeck-data',
+    projectPath: '/tmp/rigorium-project',
+    dataDir: '/tmp/rigorium-data',
     service,
   }));
 
@@ -180,14 +180,14 @@ async function createMemoryApp() {
     runManualMemoryDream: vi.fn(),
     runManualMemoryFlush: vi.fn(),
   }));
-  vi.doMock('../services/pilotdeckConfig.js', () => ({
-    readPilotDeckConfigFile: vi.fn(() => ({ config: {} })),
-    writePilotDeckConfig: vi.fn(async (config) => ({ config })),
+  vi.doMock('../services/rigoriumConfig.js', () => ({
+    readRigoriumConfigFile: vi.fn(() => ({ config: {} })),
+    writeRigoriumConfig: vi.fn(async (config) => ({ config })),
   }));
-  vi.doMock('../services/pilotdeckConfigReloader.js', () => ({
-    reloadPilotDeckConfig: vi.fn(async () => undefined),
+  vi.doMock('../services/rigoriumConfigReloader.js', () => ({
+    reloadRigoriumConfig: vi.fn(async () => undefined),
   }));
-  vi.doMock('../services/pilotdeckConfigWatcher.js', () => ({
+  vi.doMock('../services/rigoriumConfigWatcher.js', () => ({
     suppressNextWatchEvent: vi.fn(),
   }));
 
@@ -205,7 +205,7 @@ async function createMemoryApp() {
 
 async function createMemorySettingsApp(initialConfig) {
   let config = structuredClone(initialConfig);
-  const writePilotDeckConfig = vi.fn(async (nextConfig) => {
+  const writeRigoriumConfig = vi.fn(async (nextConfig) => {
     config = structuredClone(nextConfig);
     return { config };
   });
@@ -214,8 +214,8 @@ async function createMemorySettingsApp(initialConfig) {
     clearAllMemoryData: vi.fn(),
     exportAllProjectsMemoryBundle: vi.fn(),
     getMemoryServiceForRequest: vi.fn(async () => ({
-      projectPath: '/tmp/pilotdeck-project',
-      dataDir: '/tmp/pilotdeck-data',
+      projectPath: '/tmp/rigorium-project',
+      dataDir: '/tmp/rigorium-data',
       service: { repository: {} },
     })),
     getMemorySchedulerStatus: vi.fn(() => ({
@@ -228,14 +228,14 @@ async function createMemorySettingsApp(initialConfig) {
     runManualMemoryDream: vi.fn(),
     runManualMemoryFlush: vi.fn(),
   }));
-  vi.doMock('../services/pilotdeckConfig.js', () => ({
-    readPilotDeckConfigFile: vi.fn(() => ({ config })),
-    writePilotDeckConfig,
+  vi.doMock('../services/rigoriumConfig.js', () => ({
+    readRigoriumConfigFile: vi.fn(() => ({ config })),
+    writeRigoriumConfig,
   }));
-  vi.doMock('../services/pilotdeckConfigReloader.js', () => ({
-    reloadPilotDeckConfig: vi.fn(async () => undefined),
+  vi.doMock('../services/rigoriumConfigReloader.js', () => ({
+    reloadRigoriumConfig: vi.fn(async () => undefined),
   }));
-  vi.doMock('../services/pilotdeckConfigWatcher.js', () => ({
+  vi.doMock('../services/rigoriumConfigWatcher.js', () => ({
     suppressNextWatchEvent: vi.fn(),
   }));
 
@@ -245,7 +245,7 @@ async function createMemorySettingsApp(initialConfig) {
   app.use('/api/memory', memoryRoutes);
 
   return {
-    writePilotDeckConfig,
+    writeRigoriumConfig,
     request: (path, init) => requestJson(app, path, init),
   };
 }

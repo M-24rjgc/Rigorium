@@ -31,7 +31,7 @@ router.get('/status', async (req, res) => {
 router.post('/register', async (req, res) => {
   try {
     if (DISABLE_LOCAL_AUTH) {
-      return res.status(403).json({ error: 'Registration is disabled (PILOTDECK_DISABLE_LOCAL_AUTH)' });
+      return res.status(403).json({ error: 'Registration is disabled (RIGORIUM_DISABLE_LOCAL_AUTH)' });
     }
     const { username, password } = req.body;
     
@@ -93,7 +93,7 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     if (DISABLE_LOCAL_AUTH) {
-      return res.status(403).json({ error: 'Login is disabled (PILOTDECK_DISABLE_LOCAL_AUTH)' });
+      return res.status(403).json({ error: 'Login is disabled (RIGORIUM_DISABLE_LOCAL_AUTH)' });
     }
     const { username, password } = req.body;
     

@@ -49,13 +49,13 @@ const asTimestamp = (value: unknown): number => {
 type ProjectSortOrder = 'name' | 'date';
 
 // The Settings dialog persists `projectSortOrder` into the same
-// `pilotdeck-settings` localStorage blob the chat surface uses. Up to
+// `rigorium-settings` localStorage blob the chat surface uses. Up to
 // this point nothing on the sidebar consumed it, so the dropdown
 // changed nothing. We read it here and re-render whenever the Settings
-// tab broadcasts a `pilotdeck-settings-changed` event.
+// tab broadcasts a `rigorium-settings-changed` event.
 const readProjectSortOrder = (): ProjectSortOrder => {
   if (typeof window === 'undefined') return 'name';
-  const raw = window.localStorage.getItem('pilotdeck-settings');
+  const raw = window.localStorage.getItem('rigorium-settings');
   if (!raw) return 'name';
   try {
     const parsed = JSON.parse(raw) as { projectSortOrder?: unknown };
@@ -70,12 +70,12 @@ const useProjectSortOrder = (): ProjectSortOrder => {
   useEffect(() => {
     const refresh = () => setOrder(readProjectSortOrder());
     const onStorage = (event: StorageEvent) => {
-      if (event.key === 'pilotdeck-settings') refresh();
+      if (event.key === 'rigorium-settings') refresh();
     };
-    window.addEventListener('pilotdeck-settings-changed', refresh);
+    window.addEventListener('rigorium-settings-changed', refresh);
     window.addEventListener('storage', onStorage);
     return () => {
-      window.removeEventListener('pilotdeck-settings-changed', refresh);
+      window.removeEventListener('rigorium-settings-changed', refresh);
       window.removeEventListener('storage', onStorage);
     };
   }, []);

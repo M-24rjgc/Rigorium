@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseHooksConfig } from "../../hooks/config/parseHooksConfig.js";
-import type { PilotDeckPluginManifest } from "../protocol/manifest.js";
-import type { PilotDeckLoadedPlugin, PilotDeckPluginSourceKind } from "../protocol/plugin.js";
+import type { RigoriumPluginManifest } from "../protocol/manifest.js";
+import type { RigoriumLoadedPlugin, RigoriumPluginSourceKind } from "../protocol/plugin.js";
 import { parsePluginManifest } from "../config/parsePluginManifest.js";
 import { loadPluginCommands, loadStandaloneSkill } from "./PluginCommandLoader.js";
 
@@ -12,8 +12,8 @@ import { loadPluginCommands, loadStandaloneSkill } from "./PluginCommandLoader.j
  */
 export async function loadSkillFromPath(
   skillDir: string,
-  source: PilotDeckPluginSourceKind,
-): Promise<PilotDeckLoadedPlugin> {
+  source: RigoriumPluginSourceKind,
+): Promise<RigoriumLoadedPlugin> {
   const name = skillDir.split(/[\\/]/u).at(-1) ?? "skill";
   const skill = await loadStandaloneSkill({ name, skillDir });
   return {
@@ -27,8 +27,8 @@ export async function loadSkillFromPath(
 
 export async function loadPluginFromPath(
   pluginPath: string,
-  source: PilotDeckPluginSourceKind,
-): Promise<PilotDeckLoadedPlugin> {
+  source: RigoriumPluginSourceKind,
+): Promise<RigoriumLoadedPlugin> {
   const manifestPath = join(pluginPath, "plugin.json");
   const manifest = parsePluginManifest(JSON.parse(await readFile(manifestPath, "utf8")) as unknown);
   const hooksConfig = await loadHooksConfig(pluginPath, manifest);
@@ -50,7 +50,7 @@ export async function loadPluginFromPath(
   };
 }
 
-async function loadHooksConfig(pluginPath: string, manifest: PilotDeckPluginManifest) {
+async function loadHooksConfig(pluginPath: string, manifest: RigoriumPluginManifest) {
   if (typeof manifest.hooks === "object" && manifest.hooks !== null) {
     return parseHooksConfig(manifest.hooks).settings;
   }

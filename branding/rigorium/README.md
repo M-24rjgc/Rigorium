@@ -31,4 +31,4 @@ The mark uses an `R` as a stable frame and a connected path as the research trac
 - `rigorium-mark-16.png`: minimum-size preview
 - `rigorium-lockup.png`: wordmark preview
 
-These are proposal assets only. Product code and existing PilotDeck branding remain unchanged until the proposal is approved.
+These are proposal assets only. Product code and existing Rigorium branding remain unchanged until the proposal is approved.

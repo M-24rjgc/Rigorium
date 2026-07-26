@@ -1,30 +1,30 @@
 import type {
-  PilotDeckToolAvailability,
-  PilotDeckToolAvailabilityContext,
-  PilotDeckToolDefinition,
+  RigoriumToolAvailability,
+  RigoriumToolAvailabilityContext,
+  RigoriumToolDefinition,
 } from "../protocol/types.js";
 import { ToolRegistry } from "./ToolRegistry.js";
 
-export type PilotDeckUnavailableToolDiagnostic = {
+export type RigoriumUnavailableToolDiagnostic = {
   toolName: string;
-  code: Exclude<PilotDeckToolAvailability, { ok: true }>["code"];
+  code: Exclude<RigoriumToolAvailability, { ok: true }>["code"];
   reason: string;
 };
 
 export type FilterAvailableToolsResult = {
   registry: ToolRegistry;
-  unavailable: PilotDeckUnavailableToolDiagnostic[];
+  unavailable: RigoriumUnavailableToolDiagnostic[];
 };
 
 export async function filterAvailableTools(
   registry: ToolRegistry,
-  context: PilotDeckToolAvailabilityContext,
+  context: RigoriumToolAvailabilityContext,
 ): Promise<FilterAvailableToolsResult> {
   const filtered = new ToolRegistry();
-  const unavailable: PilotDeckUnavailableToolDiagnostic[] = [];
+  const unavailable: RigoriumUnavailableToolDiagnostic[] = [];
   const checkCache = new Map<
-    NonNullable<PilotDeckToolDefinition["checkAvailability"]>,
-    Promise<PilotDeckToolAvailability>
+    NonNullable<RigoriumToolDefinition["checkAvailability"]>,
+    Promise<RigoriumToolAvailability>
   >();
 
   for (const tool of registry.list()) {
@@ -45,10 +45,10 @@ export async function filterAvailableTools(
 }
 
 async function resolveToolAvailability(
-  tool: PilotDeckToolDefinition,
-  context: PilotDeckToolAvailabilityContext,
-  cache: Map<NonNullable<PilotDeckToolDefinition["checkAvailability"]>, Promise<PilotDeckToolAvailability>>,
-): Promise<PilotDeckToolAvailability> {
+  tool: RigoriumToolDefinition,
+  context: RigoriumToolAvailabilityContext,
+  cache: Map<NonNullable<RigoriumToolDefinition["checkAvailability"]>, Promise<RigoriumToolAvailability>>,
+): Promise<RigoriumToolAvailability> {
   const check = tool.checkAvailability;
   if (!check) {
     return { ok: true };
@@ -58,7 +58,7 @@ async function resolveToolAvailability(
   if (!promise) {
     promise = Promise.resolve()
       .then(() => check(context))
-      .catch((error): PilotDeckToolAvailability => ({
+      .catch((error): RigoriumToolAvailability => ({
         ok: false,
         code: "failed_check",
         reason: error instanceof Error ? error.message : String(error),

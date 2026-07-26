@@ -12,7 +12,7 @@ Verified on 2026-07-25. This record concerns the Project-local Artifact reposito
 
 ## Persistence boundary
 
-Each Project owns `.pilotdeck/research/artifacts/manifest.json`. Artifact envelopes are append-only. Status changes are append-only events, so superseding or invalidating an Artifact never erases its original payload, producer, sources, parents, timestamps, or content hash.
+Each Project owns `.rigorium/research/artifacts/manifest.json`. Artifact envelopes are append-only. Status changes are append-only events, so superseding or invalidating an Artifact never erases its original payload, producer, sources, parents, timestamps, or content hash.
 
 Writes validate the complete parent graph and canonical hashes under a short-lived lock, write a randomized same-directory temporary file, synchronize it, and atomically replace the manifest. A restart always reopens and verifies the committed manifest; leftover uncommitted temporary files are ignored. Status-event IDs are derived from their canonical event bodies; replay also requires chronological events, adjacent same-Artifact replacements, and status-event or embedded-invalidation targets that are strict descendants of every declared root. Newly appended descendants of a non-active ancestor are immediately materialized as stale through the same append-only event log. Corrupt JSON, manifest-hash drift, Artifact-hash drift, missing parents, revision gaps, invalid event identities, and event replay inconsistencies fail closed.
 

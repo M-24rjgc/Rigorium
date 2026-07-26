@@ -4,21 +4,21 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { startPilotDeckServer } from "../../src/cli/pilotdeckServer.js";
+import { startRigoriumServer } from "../../src/cli/rigoriumServer.js";
 import type { ChannelAdapter } from "../../src/adapters/index.js";
 import type { Gateway } from "../../src/gateway/index.js";
 
-test("startPilotDeckServer listens before a background channel finishes starting", async (t) => {
-  const pilotHome = await mkdtemp(join(tmpdir(), "pilotdeck-channel-start-"));
-  const previousPilotHome = process.env.PILOT_HOME;
-  process.env.PILOT_HOME = pilotHome;
+test("startRigoriumServer listens before a background channel finishes starting", async (t) => {
+  const rigoriumHome = await mkdtemp(join(tmpdir(), "rigorium-channel-start-"));
+  const previousRigoriumHome = process.env.RIGORIUM_HOME;
+  process.env.RIGORIUM_HOME = rigoriumHome;
   t.after(async () => {
-    if (previousPilotHome === undefined) {
-      delete process.env.PILOT_HOME;
+    if (previousRigoriumHome === undefined) {
+      delete process.env.RIGORIUM_HOME;
     } else {
-      process.env.PILOT_HOME = previousPilotHome;
+      process.env.RIGORIUM_HOME = previousRigoriumHome;
     }
-    await rm(pilotHome, { recursive: true, force: true });
+    await rm(rigoriumHome, { recursive: true, force: true });
   });
 
   const stuckChannel: ChannelAdapter = {
@@ -26,7 +26,7 @@ test("startPilotDeckServer listens before a background channel finishes starting
     start: async () => new Promise(() => undefined),
   };
 
-  const server = await startPilotDeckServer({
+  const server = await startRigoriumServer({
     gateway: {} as Gateway,
     port: 0,
     channels: [stuckChannel],

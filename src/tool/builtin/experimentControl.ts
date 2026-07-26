@@ -28,9 +28,9 @@ import {
   type RunAttemptInput,
 } from "../../research/experimentation/index.js";
 import type { ResearchArtifactEnvelope } from "../../research/artifacts/index.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
-import type { PilotDeckToolDefinition, PilotDeckToolExecutionOutput } from "../protocol/types.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
+import type { RigoriumToolDefinition, RigoriumToolExecutionOutput } from "../protocol/types.js";
 
 export const EXPERIMENT_CONTROL_OPERATIONS = [
   "spec",
@@ -77,7 +77,7 @@ export type CreateExperimentControlToolOptions = Readonly<{
 
 export function createExperimentControlTool(
   options: CreateExperimentControlToolOptions = {},
-): PilotDeckToolDefinition<ExperimentControlInput, ExperimentControlOutput> {
+): RigoriumToolDefinition<ExperimentControlInput, ExperimentControlOutput> {
   return {
     name: "experiment_control",
     title: "Control Project Experiments",
@@ -94,7 +94,7 @@ Use spec to save a versioned experiment definition and, when it depends on upstr
       || input.operation === "record_cost"
       || (input.operation === "grant" && input.grant?.mode === "budget_auto"),
     isOpenWorld: (input) => input.operation === "submit",
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => validateInput(input),
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => validateInput(input),
     execute: async (input, context) => {
       let normalized: ExperimentControlInput;
       try {
@@ -112,7 +112,7 @@ async function executeOperation(
   projectRoot: string,
   now: Date | undefined,
   abortSignal: AbortSignal | undefined,
-): Promise<PilotDeckToolExecutionOutput<ExperimentControlOutput>> {
+): Promise<RigoriumToolExecutionOutput<ExperimentControlOutput>> {
   switch (input.operation) {
     case "list": {
       const manifest = await loadExperimentManifest({ projectRoot });
@@ -203,7 +203,7 @@ function formatOperationResult<T extends ExperimentSpec | ExecutionGrant | Basel
   operation: ExperimentControlOperation,
   projectRoot: string,
   result: ExperimentOperationResult<T>,
-): PilotDeckToolExecutionOutput<ExperimentControlOutput> {
+): RigoriumToolExecutionOutput<ExperimentControlOutput> {
   return formatOutput({
     operation,
     projectRoot,
@@ -214,7 +214,7 @@ function formatOperationResult<T extends ExperimentSpec | ExecutionGrant | Basel
   });
 }
 
-function formatOutput(data: ExperimentControlOutput): PilotDeckToolExecutionOutput<ExperimentControlOutput> {
+function formatOutput(data: ExperimentControlOutput): RigoriumToolExecutionOutput<ExperimentControlOutput> {
   const latestRuns = latestArtifacts(data.manifest?.runAttempts ?? []);
   const lines = [
     `Experiment operation: ${data.operation}`,
@@ -273,12 +273,12 @@ function experimentControlInputSchema() {
   };
 }
 
-function validateInput(input: unknown): PilotDeckToolValidationResult {
+function validateInput(input: unknown): RigoriumToolValidationResult {
   try {
     normalizeInput(input);
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = { path: "$", code: "invalid_schema", message: messageOf(error) };
+    const issue: RigoriumToolValidationIssue = { path: "$", code: "invalid_schema", message: messageOf(error) };
     return { ok: false, issues: [issue] };
   }
 }
@@ -332,22 +332,22 @@ function normalizeInput(value: unknown): ExperimentControlInput {
   return value as unknown as ExperimentControlInput;
 }
 
-function mapExperimentError(error: unknown): PilotDeckToolRuntimeError {
-  if (error instanceof PilotDeckToolRuntimeError) return error;
+function mapExperimentError(error: unknown): RigoriumToolRuntimeError {
+  if (error instanceof RigoriumToolRuntimeError) return error;
   if (error instanceof ExperimentServiceError) {
-    if (error.code === "permission_denied") return new PilotDeckToolRuntimeError("permission_denied", error.message);
-    if (error.code === "not_found" || error.code === "artifact_missing") return new PilotDeckToolRuntimeError("file_not_found", error.message);
-    if (error.code === "adapter_unavailable") return new PilotDeckToolRuntimeError("unsupported_tool", error.message);
-    if (error.code === "invalid_input" || error.code === "duplicate_submission") return new PilotDeckToolRuntimeError("invalid_tool_input", error.message);
-    return new PilotDeckToolRuntimeError("tool_execution_failed", error.message);
+    if (error.code === "permission_denied") return new RigoriumToolRuntimeError("permission_denied", error.message);
+    if (error.code === "not_found" || error.code === "artifact_missing") return new RigoriumToolRuntimeError("file_not_found", error.message);
+    if (error.code === "adapter_unavailable") return new RigoriumToolRuntimeError("unsupported_tool", error.message);
+    if (error.code === "invalid_input" || error.code === "duplicate_submission") return new RigoriumToolRuntimeError("invalid_tool_input", error.message);
+    return new RigoriumToolRuntimeError("tool_execution_failed", error.message);
   }
   if (error instanceof ExperimentRepositoryError) {
-    if (error.code === "path_violation") return new PilotDeckToolRuntimeError("path_not_allowed", error.message, { diagnostic: error.diagnostic });
-    if (error.code === "revision_conflict" || error.code === "repository_busy") return new PilotDeckToolRuntimeError("file_conflict", error.message, { diagnostic: error.diagnostic });
-    if (error.code === "invalid_input" || error.code === "invalid_project_root") return new PilotDeckToolRuntimeError("invalid_tool_input", error.message, { diagnostic: error.diagnostic });
-    return new PilotDeckToolRuntimeError("tool_execution_failed", error.message, { diagnostic: error.diagnostic });
+    if (error.code === "path_violation") return new RigoriumToolRuntimeError("path_not_allowed", error.message, { diagnostic: error.diagnostic });
+    if (error.code === "revision_conflict" || error.code === "repository_busy") return new RigoriumToolRuntimeError("file_conflict", error.message, { diagnostic: error.diagnostic });
+    if (error.code === "invalid_input" || error.code === "invalid_project_root") return new RigoriumToolRuntimeError("invalid_tool_input", error.message, { diagnostic: error.diagnostic });
+    return new RigoriumToolRuntimeError("tool_execution_failed", error.message, { diagnostic: error.diagnostic });
   }
-  return new PilotDeckToolRuntimeError("tool_execution_failed", `Experiment operation failed: ${messageOf(error)}`);
+  return new RigoriumToolRuntimeError("tool_execution_failed", `Experiment operation failed: ${messageOf(error)}`);
 }
 
 function requiredText(value: unknown, label: string): string {

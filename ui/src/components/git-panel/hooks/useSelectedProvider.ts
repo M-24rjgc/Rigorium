@@ -1,3 +1,3 @@
 export function useSelectedProvider() {
-  return 'pilotdeck';
+  return 'rigorium';
 }

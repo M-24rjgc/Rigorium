@@ -91,7 +91,7 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-test("project live maps are isolated beneath each project's .pilotdeck research directory", async () => {
+test("project live maps are isolated beneath each project's .rigorium research directory", async () => {
   const firstProject = await projectRoot("first");
   const secondProject = await projectRoot("second");
 
@@ -113,8 +113,8 @@ test("project live maps are isolated beneath each project's .pilotdeck research 
   assert.notEqual(first.path, second.path);
   assert.equal(first.path, firstPaths.liveMapPath);
   assert.equal(second.path, secondPaths.liveMapPath);
-  assert.match(first.path, /\.pilotdeck[\\/]research[\\/]live-map\.json$/u);
-  assert.match(second.path, /\.pilotdeck[\\/]research[\\/]live-map\.json$/u);
+  assert.match(first.path, /\.rigorium[\\/]research[\\/]live-map\.json$/u);
+  assert.match(second.path, /\.rigorium[\\/]research[\\/]live-map\.json$/u);
 
   const loadedFirst = await loadProjectLiveLiteratureMap({ projectRoot: firstProject });
   const loadedSecond = await loadProjectLiveLiteratureMap({ projectRoot: secondProject });
@@ -256,7 +256,7 @@ test("snapshot IDs cannot escape the project boundary", async () => {
     }),
     "path_violation",
   );
-  assert.equal(await exists(paths.pilotDeckDir), false);
+  assert.equal(await exists(paths.rigoriumDir), false);
 });
 
 test("corrupt, oversized, and over-limit map files return diagnostic errors without reset", async () => {

@@ -10,17 +10,17 @@ export type LoadMcpServerConfigResult = {
   diagnostics: { path: string; message: string }[];
 };
 
-export function getGlobalMcpConfigFilePath(pilotHome: string): string {
-  return resolve(pilotHome, MCP_CONFIG_FILE_NAME);
+export function getGlobalMcpConfigFilePath(rigoriumHome: string): string {
+  return resolve(rigoriumHome, MCP_CONFIG_FILE_NAME);
 }
 
 export function getProjectMcpConfigFilePath(projectRoot: string): string {
-  return resolve(projectRoot, ".pilotdeck", MCP_CONFIG_FILE_NAME);
+  return resolve(projectRoot, ".rigorium", MCP_CONFIG_FILE_NAME);
 }
 
-export function loadMcpServerConfig(projectRoot: string, pilotHome: string): LoadMcpServerConfigResult {
+export function loadMcpServerConfig(projectRoot: string, rigoriumHome: string): LoadMcpServerConfigResult {
   const diagnostics: LoadMcpServerConfigResult["diagnostics"] = [];
-  const global = readMcpConfig(getGlobalMcpConfigFilePath(pilotHome), diagnostics);
+  const global = readMcpConfig(getGlobalMcpConfigFilePath(rigoriumHome), diagnostics);
   const project = readMcpConfig(getProjectMcpConfigFilePath(projectRoot), diagnostics);
 
   return {

@@ -1,14 +1,14 @@
-import type { PilotDeckMarketplaceReference } from "./manifest.js";
+import type { RigoriumMarketplaceReference } from "./manifest.js";
 
-export type PilotDeckPluginMarketplaceStatus = "resolved" | "deferred";
+export type RigoriumPluginMarketplaceStatus = "resolved" | "deferred";
 
-export type PilotDeckMarketplaceResolution = {
-  status: PilotDeckPluginMarketplaceStatus;
-  reference: PilotDeckMarketplaceReference;
+export type RigoriumMarketplaceResolution = {
+  status: RigoriumPluginMarketplaceStatus;
+  reference: RigoriumMarketplaceReference;
   reason?: string;
 };
 
-export function resolveMarketplaceReference(reference: PilotDeckMarketplaceReference): PilotDeckMarketplaceResolution {
+export function resolveMarketplaceReference(reference: RigoriumMarketplaceReference): RigoriumMarketplaceResolution {
   if (reference.source === "git" || reference.source === "zip" || reference.source === "mcpb") {
     return {
       status: "deferred",

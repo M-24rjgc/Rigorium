@@ -6,16 +6,16 @@ const DEFAULT_MCP_CONFIG = {
   mcpServers: {},
 };
 
-function pilotHome() {
-  return process.env.PILOT_HOME || path.join(os.homedir(), '.pilotdeck');
+function rigoriumHome() {
+  return process.env.RIGORIUM_HOME || path.join(os.homedir(), '.rigorium');
 }
 
 export function getGlobalMcpConfigPath() {
-  return path.join(pilotHome(), 'mcp.json');
+  return path.join(rigoriumHome(), 'mcp.json');
 }
 
 export function getProjectMcpConfigPath(projectPath) {
-  return path.join(projectPath || process.cwd(), '.pilotdeck', 'mcp.json');
+  return path.join(projectPath || process.cwd(), '.rigorium', 'mcp.json');
 }
 
 export function normalizeMcpConfig(input) {

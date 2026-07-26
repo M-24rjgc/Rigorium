@@ -158,8 +158,11 @@ assets/result/ios_game_result.mp4
 # third-party
 third-party/
 
-# Project-local PilotDeck overrides (per-project .pilotdeck/pilotdeck.yaml etc)
-.pilotdeck/
+# Local runtime configuration and research artifacts.
+.rigorium/
+
+# Root-local validation and packaging scratch artifacts.
+/tmp/
 
 # Cursor IDE local rules, skills, and workspace metadata
 .cursor/

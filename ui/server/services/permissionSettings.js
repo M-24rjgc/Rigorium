@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { resolvePilotHome } from '../utils/pilotPaths.js';
+import { resolveRigoriumHome } from '../utils/rigoriumPaths.js';
 
 const DEFAULT_SETTINGS = {
   version: 1,
@@ -25,7 +25,7 @@ const TOOL_NAME_ALIASES = new Map([
 ]);
 
 export function getPermissionSettingsPath(env = process.env) {
-  return path.join(resolvePilotHome(env), 'permissions.json');
+  return path.join(resolveRigoriumHome(env), 'permissions.json');
 }
 
 export function normalizePermissionEntry(entry) {

@@ -1,5 +1,5 @@
 import type { ChannelAdapter } from "./protocol/ChannelAdapter.js";
-import type { PilotAdaptersConfig, PilotPlatformAdapterConfig } from "../../pilot/config/types.js";
+import type { RigoriumAdaptersConfig, RigoriumPlatformAdapterConfig } from "../../rigorium/config/types.js";
 
 /**
  * Lazily import + instantiate every channel whose config has `enabled: true`.
@@ -7,7 +7,7 @@ import type { PilotAdaptersConfig, PilotPlatformAdapterConfig } from "../../pilo
  */
 const CHANNEL_LOADERS: Record<
   string,
-  (cfg: PilotPlatformAdapterConfig) => Promise<ChannelAdapter>
+  (cfg: RigoriumPlatformAdapterConfig) => Promise<ChannelAdapter>
 > = {
   telegram: async (cfg) => {
     const { TelegramChannel } = await import("./telegram/TelegramChannel.js");
@@ -113,12 +113,12 @@ const CHANNEL_LOADERS: Record<
   },
 };
 
-export async function loadEnabledChannels(adapters: PilotAdaptersConfig | undefined): Promise<ChannelAdapter[]> {
+export async function loadEnabledChannels(adapters: RigoriumAdaptersConfig | undefined): Promise<ChannelAdapter[]> {
   if (!adapters) return [];
   const channels: ChannelAdapter[] = [];
 
   for (const [key, loader] of Object.entries(CHANNEL_LOADERS)) {
-    const cfg = (adapters as Record<string, unknown>)[key] as PilotPlatformAdapterConfig | undefined;
+    const cfg = (adapters as Record<string, unknown>)[key] as RigoriumPlatformAdapterConfig | undefined;
     if (!cfg?.enabled) continue;
 
     try {

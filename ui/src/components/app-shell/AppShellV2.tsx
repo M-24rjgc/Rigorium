@@ -330,7 +330,7 @@ export default function AppShellV2() {
       if (!message || message.type !== 'notification:navigate') return;
 
       // Provider hint from notifications is no longer stored; all sessions
-      // go through the unified pilotdeck gateway.
+      // go through the unified rigorium gateway.
 
       setActiveTab('chat');
       setSidebarOpen(false);

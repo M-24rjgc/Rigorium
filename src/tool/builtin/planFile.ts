@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { PILOT_PROJECT_DIR_NAME } from "../../pilot/index.js";
+import { RIGORIUM_PROJECT_DIR_NAME } from "../../rigorium/index.js";
 
 export type PlanFileManager = {
   getPlanDirectoryPath(): string;
@@ -11,7 +11,7 @@ export type PlanFileManager = {
 export function createPlanFileManager(options: {
   projectRoot: string;
 }): PlanFileManager {
-  const planDir = resolve(options.projectRoot, PILOT_PROJECT_DIR_NAME, "plans");
+  const planDir = resolve(options.projectRoot, RIGORIUM_PROJECT_DIR_NAME, "plans");
 
   function getPlanDirectoryPath(): string {
     mkdirSync(planDir, { recursive: true });

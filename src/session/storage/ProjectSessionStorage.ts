@@ -1,10 +1,10 @@
 import { resolve } from "node:path";
-import { getPilotProjectChatDir } from "../../pilot/index.js";
+import { getRigoriumProjectChatDir } from "../../rigorium/index.js";
 import { JsonlTranscriptWriter } from "../transcript/JsonlTranscriptWriter.js";
 
 export type AgentProjectSessionStorageOptions = {
   projectRoot: string;
-  pilotHome: string;
+  rigoriumHome: string;
   sessionId: string;
   now?: () => Date;
 };
@@ -55,14 +55,14 @@ export function sanitizeSessionIdForPath(sessionId: string): string {
 export function createAgentProjectSessionStorage(
   options: AgentProjectSessionStorageOptions,
 ): AgentProjectSessionStorage {
-  const chatDir = getPilotProjectChatDir(options.projectRoot, options.pilotHome);
+  const chatDir = getRigoriumProjectChatDir(options.projectRoot, options.rigoriumHome);
   const safeId = sanitizeSessionIdForPath(options.sessionId);
   const transcriptPath = resolve(chatDir, `${safeId}.jsonl`);
   // Keep large tool-result bodies inside the workspace so the agent can read
   // them back with read_file when the inline preview is insufficient. The
-  // project-local .pilotdeck directory is gitignored and already within the
+  // project-local .rigorium directory is gitignored and already within the
   // workspace path boundary enforced by read_file.
-  const toolResultsDir = resolve(options.projectRoot, ".pilotdeck", "tool-results", safeId);
+  const toolResultsDir = resolve(options.projectRoot, ".rigorium", "tool-results", safeId);
   const fileHistoryDir = resolve(chatDir, safeId, "file-history");
   const subagentsDir = resolve(chatDir, safeId, "subagents");
   const subagentTranscriptPath = (subagentId: string): string =>

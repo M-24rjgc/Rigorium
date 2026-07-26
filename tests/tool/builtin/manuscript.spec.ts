@@ -13,11 +13,11 @@ import {
   createManuscriptTool,
   type ManuscriptRenderInput,
 } from "../../../src/tool/builtin/manuscript.js";
-import { PilotDeckToolRuntimeError } from "../../../src/tool/protocol/errors.js";
-import type { PilotDeckToolRuntimeContext } from "../../../src/tool/protocol/types.js";
+import { RigoriumToolRuntimeError } from "../../../src/tool/protocol/errors.js";
+import type { RigoriumToolRuntimeContext } from "../../../src/tool/protocol/types.js";
 import { SYNTHETIC_NOW, minimalLatex } from "../../research/manuscript/fixtures.js";
 
-function context(projectRoot: string): PilotDeckToolRuntimeContext {
+function context(projectRoot: string): RigoriumToolRuntimeContext {
   return {
     sessionId: "manuscript-tool-test",
     turnId: "turn-1",
@@ -234,6 +234,6 @@ test("manuscript_latex rejects action-specific fields and maps path validation t
       manuscript: syntheticManuscript(),
       templateDirectory: "../outside-project",
     }, context(projectRoot)),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError && error.code === "invalid_tool_input",
+    (error: unknown) => error instanceof RigoriumToolRuntimeError && error.code === "invalid_tool_input",
   );
 });

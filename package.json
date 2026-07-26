@@ -1,6 +1,6 @@
 {
   "name": "rigorium",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Rigorium personal research workspace",
   "private": true,
   "repository": {
@@ -16,17 +16,16 @@
     "ui"
   ],
   "bin": {
-    "rigorium": "./dist/src/cli/pilotdeck.js",
-    "pilotdeck": "./dist/src/cli/pilotdeck.js"
+    "rigorium": "./dist/src/cli/rigorium.js"
   },
   "scripts": {
     "check:runtime": "node scripts/check-node-runtime.mjs",
     "install:browser": "npx @playwright/mcp install-browser chrome-for-testing",
-    "prebuild": "npm run check:runtime && node scripts/bootstrap-pilotdeck-config.mjs && cd src/context/memory/edgeclaw-memory-core && npm run build",
+    "prebuild": "npm run check:runtime && node scripts/bootstrap-rigorium-config.mjs && cd src/context/memory/edgeclaw-memory-core && npm run build",
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/extension/plugins/builtin','dist/src/extension/plugins/builtin',{recursive:true})\" && node scripts/write-release-metadata.mjs",
-    "server": "npm run check:runtime && tsx src/cli/pilotdeck.ts server",
-    "server:built": "npm run check:runtime && node dist/src/cli/pilotdeck.js server",
-    "skills:migrate": "tsx src/cli/pilotdeck.ts skills migrate",
+    "server": "npm run check:runtime && tsx src/cli/rigorium.ts server",
+    "server:built": "npm run check:runtime && node dist/src/cli/rigorium.js server",
+    "skills:migrate": "tsx src/cli/rigorium.ts skills migrate",
     "desktop:prepare-icon": "node desktop/build-icon.mjs",
     "desktop:start": "electron .",
     "desktop:smoke": "electron . --smoke-test",
@@ -34,14 +33,14 @@
     "desktop:verify-release-metadata": "node scripts/verify-packaged-release-metadata.mjs",
     "desktop:pack": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && electron-builder --dir --win --x64",
     "desktop:build": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && electron-builder --win nsis --x64 --publish never",
-    "predev": "npm run check:runtime && node scripts/bootstrap-pilotdeck-config.mjs",
+    "predev": "npm run check:runtime && node scripts/bootstrap-rigorium-config.mjs",
     "dev": "node scripts/dev-launcher.mjs",
     "test": "npm run build && node --test --test-force-exit --test-timeout 60000 \"dist/tests/**/*.test.js\" \"dist/tests/**/*.spec.js\"",
     "test:research-bridge": "node --test desktop/zotero-broker.test.mjs ui/server/routes/zoteroCloudTransport.node-test.mjs",
     "test:desktop-update": "node --test ui/server/services/desktopUpdateService.node-test.mjs",
     "release:verify-tag": "node scripts/verify-release-tag.mjs",
     "research:smoke-sources": "node scripts/smoke-literature-sources.mjs",
-    "e2e:real-agent-lifecycle-hooks": "npm run build && PILOTDECK_RUN_REAL_AGENT_LIFECYCLE_E2E=1 node dist/tests/agent/e2e/run-real-agent-lifecycle-hooks.js"
+    "e2e:real-agent-lifecycle-hooks": "npm run build && RIGORIUM_RUN_REAL_AGENT_LIFECYCLE_E2E=1 node dist/tests/agent/e2e/run-real-agent-lifecycle-hooks.js"
   },
   "devDependencies": {
     "@types/node": "^25.0.0",

@@ -49,8 +49,8 @@ def render_docx(
     for stale in out_dir.glob("page-*.png"):
         stale.unlink()
 
-    with tempfile.TemporaryDirectory(prefix="pilotdeck_soffice_profile_") as profile_dir:
-        with tempfile.TemporaryDirectory(prefix="pilotdeck_soffice_output_") as convert_dir:
+    with tempfile.TemporaryDirectory(prefix="rigorium_soffice_profile_") as profile_dir:
+        with tempfile.TemporaryDirectory(prefix="rigorium_soffice_output_") as convert_dir:
             profile_uri = Path(profile_dir).resolve().as_uri()
             env = os.environ.copy()
             env["HOME"] = profile_dir

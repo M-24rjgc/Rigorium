@@ -19,7 +19,7 @@ function renderToolMessage(
       message={message}
       prevMessage={null}
       createDiff={() => []}
-      provider="pilotdeck"
+      provider="rigorium"
       onShowSettings={() => {}}
       {...options}
     />,

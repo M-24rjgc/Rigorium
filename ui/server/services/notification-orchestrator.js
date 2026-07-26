@@ -9,7 +9,7 @@ const KIND_TO_PREF_KEY = {
 
 const PROVIDER_LABELS = {
   claude: 'Claude',
-  pilotdeck: 'PilotDeck',
+  rigorium: 'Rigorium',
   cursor: 'Cursor',
   codex: 'Codex',
   gemini: 'Gemini',

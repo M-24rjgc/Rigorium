@@ -56,8 +56,8 @@ import {
 
 const TEST_ROOT_PREFIX = "rigorium-remote-execution-";
 const testRoots = new Set<string>();
-const logicalWorkspaceRoot = "/srv/pilotdeck/workspaces";
-const logicalStateRoot = "/srv/pilotdeck/state";
+const logicalWorkspaceRoot = "/srv/rigorium/workspaces";
+const logicalStateRoot = "/srv/rigorium/state";
 
 after(async () => {
   for (const root of [...testRoots].reverse()) await removeValidatedTestRoot(root);
@@ -622,7 +622,7 @@ test("Slurm argv, recovery, cancellation, and terminal classifications stay stru
   });
   assert.deepEqual(args.slice(-2), [
     "--wrap",
-    "'/usr/bin/node' '/opt/rigorium/remoteAgentCli.js' '--run-job' '/srv/pilotdeck/state/jobs/abc/job.json'",
+    "'/usr/bin/node' '/opt/rigorium/remoteAgentCli.js' '--run-job' '/srv/rigorium/state/jobs/abc/job.json'",
   ]);
   assert.equal(args.includes("python train.py"), false);
 

@@ -6,7 +6,7 @@ Use one visual source only:
 
 1. A user-supplied PPTX or reference deck.
 2. Explicit user art direction.
-3. The PilotDeck core layout library when neither exists.
+3. The Rigorium core layout library when neither exists.
 
 Do not mix the default library into a supplied template.
 

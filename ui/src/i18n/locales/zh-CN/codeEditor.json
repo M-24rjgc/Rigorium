@@ -80,7 +80,7 @@
     "file": "文件"
   },
   "selection": {
-    "chatInPilotDeck": "在 Rigorium 中对话",
+    "chatInRigorium": "在 Rigorium 中对话",
     "noSelectableText": "当前预览不包含可选择文本。"
   }
 }

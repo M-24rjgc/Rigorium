@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { isRecord } from "../../model/config/schema.js";
-import type { PilotConfigDiagnostic } from "../../pilot/config/types.js";
+import type { RigoriumConfigDiagnostic } from "../../rigorium/config/types.js";
 
 export type AlwaysOnTriggerConfig = {
   enabled: boolean;
@@ -51,8 +51,8 @@ export type AlwaysOnConfig = {
 export const DEFAULT_IGNORE_GLOBS: string[] = [
   "**/.git/**",
   "**/node_modules/**",
-  "**/.pilotdeck/**",
-  "**/.pilotdeck-always-on/**",
+  "**/.rigorium/**",
+  "**/.rigorium-always-on/**",
   "**/dist/**",
   "**/.DS_Store",
 ];
@@ -134,7 +134,7 @@ const REMOVED_PROJECT_KEYS: Record<string, string> = {
 
 export function parseAlwaysOnConfig(
   raw: unknown,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): AlwaysOnConfig | undefined {
   if (raw === undefined) {
     return undefined;
@@ -210,7 +210,7 @@ export function parseAlwaysOnConfig(
 function parseTrigger(
   raw: unknown,
   target: AlwaysOnTriggerConfig,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): void {
   if (!isRecord(raw)) {
     diagnostics.push({
@@ -269,7 +269,7 @@ function parseTrigger(
 function parseDormancy(
   raw: unknown,
   target: AlwaysOnDormancyConfig,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): void {
   if (!isRecord(raw)) {
     diagnostics.push({
@@ -309,7 +309,7 @@ function parseDormancy(
 function parseWorkspace(
   raw: unknown,
   target: AlwaysOnWorkspaceConfig,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): void {
   if (!isRecord(raw)) {
     diagnostics.push({
@@ -353,7 +353,7 @@ function parseWorkspace(
 function parseExecution(
   raw: unknown,
   target: AlwaysOnExecutionConfig,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): void {
   if (!isRecord(raw)) {
     diagnostics.push({
@@ -399,7 +399,7 @@ function parseExecution(
 
 function parseProjects(
   raw: unknown,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): Record<string, AlwaysOnProjectConfig> {
   if (!isRecord(raw)) {
     diagnostics.push({
@@ -473,7 +473,7 @@ function positiveNumber(
   value: unknown,
   fallback: number,
   path: string,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): number {
   if (value === undefined) return fallback;
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
@@ -493,7 +493,7 @@ function nonNegativeNumber(
   value: unknown,
   fallback: number,
   path: string,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): number {
   if (value === undefined) return fallback;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -513,7 +513,7 @@ function positiveInteger(
   value: unknown,
   fallback: number,
   path: string,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): number {
   if (value === undefined) return fallback;
   if (
@@ -538,7 +538,7 @@ function nonNegativeInteger(
   value: unknown,
   fallback: number,
   path: string,
-  diagnostics: PilotConfigDiagnostic[],
+  diagnostics: RigoriumConfigDiagnostic[],
 ): number {
   if (value === undefined) return fallback;
   if (

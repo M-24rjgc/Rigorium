@@ -1,6 +1,6 @@
 import type { ChannelAttachment, Gateway, GatewayChannelKey } from "../../../gateway/index.js";
 import type { CronResultDelivery } from "../../../cron/index.js";
-import type { PilotConfig } from "../../../pilot/index.js";
+import type { RigoriumConfig } from "../../../rigorium/index.js";
 import type { ChannelRuntimeStatusReporter } from "./ChannelRuntimeStatus.js";
 
 export type ChannelLogger = {
@@ -11,7 +11,7 @@ export type ChannelLogger = {
 
 export type ChannelStartDeps = {
   gateway: Gateway;
-  config?: PilotConfig;
+  config?: RigoriumConfig;
   logger?: ChannelLogger;
   reportChannelStatus?: ChannelRuntimeStatusReporter;
 };

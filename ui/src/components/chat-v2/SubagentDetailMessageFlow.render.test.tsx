@@ -59,7 +59,7 @@ function renderFlow(messages: ChatMessage[], isRunning = true) {
   return render(
     <SubagentDetailMessageFlow
       messages={messages}
-      provider="pilotdeck"
+      provider="rigorium"
       selectedProject={null}
       createDiff={() => []}
       showThinking

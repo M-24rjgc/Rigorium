@@ -4,7 +4,7 @@
 
 Rigorium is a local-first workspace for long-term research work. It keeps projects, files, agent sessions, tasks, memory, tools, and automation together so research activity remains inspectable and reusable over time.
 
-This initial version establishes the independent Rigorium name and visual identity while preserving the existing runtime behavior. Research-specific workflows will be added incrementally on top of the shared workspace foundation.
+Rigorium has its own repository, release channel, and desktop application identity. Research-specific workflows are added incrementally on top of the shared workspace foundation.
 
 ## Current Capabilities
 
@@ -38,19 +38,16 @@ corepack pnpm install --frozen-lockfile
 corepack pnpm dev
 ```
 
-After a production build, both command names are available during the compatibility period:
+After a production build, launch the command-line application with:
 
 ```powershell
 rigorium
-pilotdeck
 ```
 
-Internal paths such as `~/.pilotdeck`, `pilotdeck.yaml`, and `PILOTDECK_*` environment variables are intentionally retained in this first version so existing integrations continue to work.
+## Repository And License
 
-## Origin And License
+Rigorium is built, released, and updated independently through [M-24rjgc/Rigorium](https://github.com/M-24rjgc/Rigorium). Licensing and required third-party notices are recorded in [NOTICE.md](NOTICE.md).
 
-Rigorium is an independent project with its own repository and release channel. Its initial codebase incorporated modified source from [OpenBMB/PilotDeck](https://github.com/OpenBMB/PilotDeck) at commit `15cb4c2de37f5efd8d2f97feea4e40ab787f3cf3`; there is no runtime, release, or repository dependency on that upstream project.
-
-The project is distributed under the [GNU Affero General Public License v3.0](LICENSE). See [NOTICE.md](NOTICE.md) for modification and attribution details.
+The project is distributed under the [GNU Affero General Public License v3.0](LICENSE).
 
 Chinese documentation: [README.zh.md](README.zh.md)

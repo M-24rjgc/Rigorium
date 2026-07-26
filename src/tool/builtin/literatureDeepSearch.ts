@@ -37,13 +37,13 @@ import {
   type CreateLiteratureExpandToolOptions,
   type LiteratureExpandInput,
 } from "./literatureExpand.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 300_000;
@@ -144,7 +144,7 @@ export type LiteratureDeepSearchArtifact = LiteratureSearchSessionResult & {
  */
 export function createLiteratureDeepSearchTool(
   options: CreateLiteratureDeepSearchToolOptions = {},
-): PilotDeckToolDefinition<LiteratureDeepSearchInput, LiteratureDeepSearchArtifact> {
+): RigoriumToolDefinition<LiteratureDeepSearchInput, LiteratureDeepSearchArtifact> {
   const searchTool = createLiteratureSearchTool(options.search);
   const expansionTool = createLiteratureExpandTool(options.expansion);
   const maxTimeoutMs = boundedOption(options.maxTimeoutMs, MAX_TIMEOUT_MS, 1, MAX_TIMEOUT_MS);
@@ -337,7 +337,7 @@ Use this when a natural-language research goal needs several coordinated queries
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
     isOpenWorld: () => true,
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => {
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => {
       const issues = validateDeepSearchInput(input, validationLimits);
       return issues.length === 0 ? { ok: true, input } : { ok: false, issues };
     },
@@ -366,7 +366,7 @@ Use this when a natural-language research goal needs several coordinated queries
     execute: async (input, context) => {
       const issues = validateDeepSearchInput(input, validationLimits);
       if (issues.length > 0) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           issues.map((issue) => `${issue.path}: ${issue.message}`).join(" "),
           { issues },
@@ -374,18 +374,18 @@ Use this when a natural-language research goal needs several coordinated queries
       }
 
       const settingsSnapshot = await readResearchSettings({
-        pilotHome: context.env?.PILOT_HOME,
+        rigoriumHome: context.env?.RIGORIUM_HOME,
         projectRoot: context.cwd,
       });
       const settings = settingsSnapshot.effective;
       if (!settings.literature.enabled) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "setup_required",
           "Academic literature search is disabled in Research Settings.",
         );
       }
       if (!settings.privacy.allowRemoteMetadataSearch) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "permission_denied",
           "Remote metadata search is disabled by Research Settings privacy controls.",
         );
@@ -422,8 +422,8 @@ Use this when a natural-language research goal needs several coordinated queries
             now: context.now,
           });
         } catch (error) {
-          if (error instanceof PilotDeckToolRuntimeError) throw error;
-          throw new PilotDeckToolRuntimeError(
+          if (error instanceof RigoriumToolRuntimeError) throw error;
+          throw new RigoriumToolRuntimeError(
             "invalid_tool_input",
             `Invalid literature search session plan: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -467,19 +467,19 @@ function buildSessionPlan(
   const maxConcurrent = input.maxConcurrentTasks ?? limits.defaultMaxConcurrentTasks;
   const timeoutMs = input.timeoutMs ?? limits.defaultTimeoutMs;
   if (totalResultBudget > limits.maxTotalResultBudget) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       `totalResultBudget must be between 0 and ${limits.maxTotalResultBudget}.`,
     );
   }
   if (maxConcurrent < 1 || maxConcurrent > limits.maxConcurrentTasks) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       `maxConcurrentTasks must be between 1 and ${limits.maxConcurrentTasks}.`,
     );
   }
   if (timeoutMs < 1 || timeoutMs > limits.maxTimeoutMs) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       `timeoutMs must be between 1 and ${limits.maxTimeoutMs}.`,
     );
@@ -502,7 +502,7 @@ function buildSearchTask(
   const mode = input.mode ?? (input.queryKind === "question" ? "specific" : input.queryKind ?? "broad");
   const legacyMode = input.queryKind === "question" ? "specific" : input.queryKind;
   if (input.mode && legacyMode && input.mode !== legacyMode) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "mode and queryKind must describe the same search mode.");
+    throw new RigoriumToolRuntimeError("invalid_tool_input", "mode and queryKind must describe the same search mode.");
   }
   const specificity = input.specificity ?? (input.queryKind === "question"
     ? { focus: input.intent.trim() }
@@ -519,7 +519,7 @@ function buildSearchTask(
   try {
     classifications = normalizeArxivClassifications(input.classifications);
   } catch (error) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       "Invalid arXiv classifications: " + (error instanceof Error ? error.message : String(error)),
     );
@@ -528,7 +528,7 @@ function buildSearchTask(
   try {
     venueSet = normalizeVenueSet(input.venueSet);
   } catch (error) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       "Invalid venue set: " + (error instanceof Error ? error.message : String(error)),
     );
@@ -539,7 +539,7 @@ function buildSearchTask(
   const fromYear = boundedSearchYear(input.fromYear, settings.literature.search.fromYear);
   const toYear = boundedSearchYear(input.toYear, settings.literature.search.toYear);
   if (fromYear !== undefined && toYear !== undefined && fromYear > toYear) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "fromYear cannot be after toYear.");
+    throw new RigoriumToolRuntimeError("invalid_tool_input", "fromYear cannot be after toYear.");
   }
   return {
     id: input.id.trim(),
@@ -619,10 +619,10 @@ function expansionInputFromPlan(plan: LiteratureExpansionPlan): LiteratureExpand
 }
 
 function childContext(
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
   signal: AbortSignal | undefined,
   now: () => Date,
-): PilotDeckToolRuntimeContext {
+): RigoriumToolRuntimeContext {
   return {
     ...context,
     ...(signal ? { abortSignal: signal } : { abortSignal: undefined }),
@@ -640,7 +640,7 @@ function requireArtifact<T extends { kind: string }>(value: unknown, kind: T["ki
 function formatToolOutput(
   session: LiteratureSearchSessionResult,
   details: { timeoutMs: number; timedOut: boolean },
-): PilotDeckToolExecutionOutput<LiteratureDeepSearchArtifact> {
+): RigoriumToolExecutionOutput<LiteratureDeepSearchArtifact> {
   const artifact: LiteratureDeepSearchArtifact = {
     ...session,
     execution: details,
@@ -708,8 +708,8 @@ function validateDeepSearchInput(
     maxConcurrentTasks: MAX_MAX_CONCURRENT_TASKS,
     maxTimeoutMs: MAX_TIMEOUT_MS,
   },
-): PilotDeckToolValidationIssue[] {
-  const issues: PilotDeckToolValidationIssue[] = [];
+): RigoriumToolValidationIssue[] {
+  const issues: RigoriumToolValidationIssue[] = [];
   if (!isRecord(value)) {
     return [{ path: "$", code: "invalid_type", message: "must be an object." }];
   }
@@ -839,7 +839,7 @@ function validateDeepSearchInput(
 function validateTaskGraph(
   tasks: DeepSearchInputGraphTask[],
   taskIds: Set<string>,
-  issues: PilotDeckToolValidationIssue[],
+  issues: RigoriumToolValidationIssue[],
 ): void {
   for (const task of tasks) {
     for (const dependency of task.dependencies) {
@@ -871,7 +871,7 @@ function validateTaskGraph(
   for (const task of tasks) visit(task.id);
 }
 
-function issue(path: string, message: string): PilotDeckToolValidationIssue {
+function issue(path: string, message: string): RigoriumToolValidationIssue {
   return { path, code: "invalid_schema", message };
 }
 
@@ -930,13 +930,13 @@ function normalizeSeed(value: LiteratureExpansionSeed): LiteratureExpansionSeed 
   const openAlexId = normalizeOpenAlexWorkId(value.openAlexId);
   const doi = normalizeDoi(value.doi);
   if (value.openAlexId !== undefined && !openAlexId) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "seed.openAlexId must be an OpenAlex W identifier or canonical OpenAlex work URL.");
+    throw new RigoriumToolRuntimeError("invalid_tool_input", "seed.openAlexId must be an OpenAlex W identifier or canonical OpenAlex work URL.");
   }
   if (value.doi !== undefined && !doi) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "seed.doi must be a valid DOI.");
+    throw new RigoriumToolRuntimeError("invalid_tool_input", "seed.doi must be a valid DOI.");
   }
   if (!openAlexId && !doi) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "Expansion tasks require seed.openAlexId or seed.doi as a valid strong identifier.");
+    throw new RigoriumToolRuntimeError("invalid_tool_input", "Expansion tasks require seed.openAlexId or seed.doi as a valid strong identifier.");
   }
   return {
     ...(openAlexId ? { openAlexId } : {}),
@@ -952,7 +952,7 @@ function normalizeDirections(value: LiteratureExpansionDirection[] | undefined):
     ? ["references", "citations"]
     : [...new Set(value)];
   if (directions.length === 0 || directions.some((direction) => direction !== "references" && direction !== "citations")) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "Expansion directions must contain references and/or citations.");
+    throw new RigoriumToolRuntimeError("invalid_tool_input", "Expansion directions must contain references and/or citations.");
   }
   return directions;
 }

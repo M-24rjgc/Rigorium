@@ -1,11 +1,11 @@
-import type { PilotDeckHooksSettings } from "../../hooks/protocol/settings.js";
-import type { PilotDeckLoadedPlugin } from "../protocol/plugin.js";
+import type { RigoriumHooksSettings } from "../../hooks/protocol/settings.js";
+import type { RigoriumLoadedPlugin } from "../protocol/plugin.js";
 
-export function loadPluginHooks(plugins: PilotDeckLoadedPlugin[]): PilotDeckHooksSettings {
-  const settings: PilotDeckHooksSettings = {};
+export function loadPluginHooks(plugins: RigoriumLoadedPlugin[]): RigoriumHooksSettings {
+  const settings: RigoriumHooksSettings = {};
   for (const plugin of plugins) {
     for (const [event, matchers] of Object.entries(plugin.hooksConfig ?? {}) as Array<
-      [keyof PilotDeckHooksSettings, NonNullable<PilotDeckHooksSettings[keyof PilotDeckHooksSettings]>]
+      [keyof RigoriumHooksSettings, NonNullable<RigoriumHooksSettings[keyof RigoriumHooksSettings]>]
     >) {
       settings[event] = [
         ...(settings[event] ?? []),

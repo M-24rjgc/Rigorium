@@ -1,5 +1,5 @@
 /**
- * Build an `EdgeClawMemoryProvider` from `PilotMemoryConfig` + project root.
+ * Build an `EdgeClawMemoryProvider` from `RigoriumMemoryConfig` + project root.
  * The factory is intentionally small — it just constructs the underlying
  * `EdgeClawMemoryService` with a sensible default rootDir and forwards the
  * relevant config fields.
@@ -12,18 +12,18 @@
  *     we anchor it under the project root so memory data lives next to the
  *     code it was captured from (matches legacy default).
  *   - `apiKey` for the LLM extractor is **lazily forwarded** — the user is
- *     expected to set it through env or pilotdeck.yaml; we never default
+ *     expected to set it through env or rigorium.yaml; we never default
  *     credentials to anything other than what the user supplied.
  */
 
 import { EdgeClawMemoryService, type EdgeClawMemoryLlmOptions } from "edgeclaw-memory-core";
 import { EdgeClawMemoryProvider } from "./EdgeClawMemoryProvider.js";
 import type { ModelConfig, ModelProtocol } from "../../model/protocol/canonical.js";
-import type { PilotMemoryConfig } from "../../pilot/config/types.js";
+import type { RigoriumMemoryConfig } from "../../rigorium/config/types.js";
 import type { TelemetryClient } from "../../telemetry/index.js";
 
 export type CreateEdgeClawMemoryProviderOptions = {
-  config: PilotMemoryConfig | undefined;
+  config: RigoriumMemoryConfig | undefined;
   modelConfig?: ModelConfig;
   /** Fallback model ref ("provider/model") when memory.model is not set. */
   agentModel?: string;
@@ -59,7 +59,7 @@ export function createEdgeClawMemoryProviderFromConfig(
     maxMessageChars: cfg.maxMessageChars,
     heartbeatBatchSize: cfg.heartbeatBatchSize,
     defaultIndexingSettings: cfg.schedule,
-    source: "pilotdeck",
+    source: "rigorium",
     logger: options.logger,
     llm,
     runtime: options.telemetry ? { telemetry: options.telemetry } : undefined,
@@ -67,7 +67,7 @@ export function createEdgeClawMemoryProviderFromConfig(
 
   const provider = new EdgeClawMemoryProvider({
     service,
-    source: "pilotdeck",
+    source: "rigorium",
     now: options.now,
     telemetry: options.telemetry,
   });
@@ -76,7 +76,7 @@ export function createEdgeClawMemoryProviderFromConfig(
 }
 
 function resolveMemoryLlm(
-  cfg: PilotMemoryConfig,
+  cfg: RigoriumMemoryConfig,
   modelConfig?: ModelConfig,
   agentModel?: string,
 ): EdgeClawMemoryLlmOptions | undefined {
@@ -103,7 +103,7 @@ function resolveMemoryLlm(
   return llm;
 }
 
-function memoryApiTypeForProtocol(protocol: ModelProtocol | undefined): PilotMemoryConfig["apiType"] | "openai-completions" | undefined {
+function memoryApiTypeForProtocol(protocol: ModelProtocol | undefined): RigoriumMemoryConfig["apiType"] | "openai-completions" | undefined {
   if (protocol === "anthropic" || protocol === "google") return protocol;
   if (protocol === "openai-responses") return "openai-responses";
   if (protocol === "openai") return "openai-completions";

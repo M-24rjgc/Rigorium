@@ -10,9 +10,9 @@ import {
   type ResearchBriefArtifact,
   type ResearchBriefBuildInput,
 } from "../../research/design/index.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
-import type { PilotDeckToolDefinition, PilotDeckToolExecutionOutput } from "../protocol/types.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
+import type { RigoriumToolDefinition, RigoriumToolExecutionOutput } from "../protocol/types.js";
 
 export type ResearchBriefToolInput = Readonly<{
   portfolio: CandidatePortfolioArtifact;
@@ -31,7 +31,7 @@ export type CreateResearchBriefToolOptions = Readonly<{
 
 export function createResearchBriefTool(
   options: CreateResearchBriefToolOptions = {},
-): PilotDeckToolDefinition<ResearchBriefToolInput, ResearchBriefArtifact> {
+): RigoriumToolDefinition<ResearchBriefToolInput, ResearchBriefArtifact> {
   return {
     name: "research_brief",
     title: "Create or Revise a Research Brief",
@@ -58,13 +58,13 @@ Use this after research_design when the question, selected mechanism, evidence r
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
     isOpenWorld: () => false,
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => validateInput(input),
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => validateInput(input),
     execute: async (input, context) => {
       try {
         const artifact = buildBrief(input, context.now?.());
         return formatOutput(artifact);
       } catch (error) {
-        throw new PilotDeckToolRuntimeError("invalid_tool_input", `Invalid research brief: ${messageOf(error)}`);
+        throw new RigoriumToolRuntimeError("invalid_tool_input", `Invalid research brief: ${messageOf(error)}`);
       }
     },
   };
@@ -105,18 +105,18 @@ function buildBrief(input: ResearchBriefToolInput, now: Date | undefined): Resea
   });
 }
 
-function validateInput(input: unknown): PilotDeckToolValidationResult {
+function validateInput(input: unknown): RigoriumToolValidationResult {
   try {
     if (!isRecord(input)) throw new TypeError("research_brief input must be an object.");
     buildBrief(input as unknown as ResearchBriefToolInput, new Date("2000-01-01T00:00:00.000Z"));
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = { path: "$", code: "invalid_schema", message: messageOf(error) };
+    const issue: RigoriumToolValidationIssue = { path: "$", code: "invalid_schema", message: messageOf(error) };
     return { ok: false, issues: [issue] };
   }
 }
 
-function formatOutput(artifact: ResearchBriefArtifact): PilotDeckToolExecutionOutput<ResearchBriefArtifact> {
+function formatOutput(artifact: ResearchBriefArtifact): RigoriumToolExecutionOutput<ResearchBriefArtifact> {
   return {
     content: [
       {

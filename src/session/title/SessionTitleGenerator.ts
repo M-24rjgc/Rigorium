@@ -1,5 +1,5 @@
 import type { ModelRuntime } from "../../model/index.js";
-import type { PilotAgentModelSelection } from "../../pilot/config/types.js";
+import type { RigoriumAgentModelSelection } from "../../rigorium/config/types.js";
 
 export const SESSION_TITLE_MAX_INPUT_CHARS = 1200;
 export const SESSION_TITLE_MAX_OUTPUT_CHARS = 80;
@@ -32,7 +32,7 @@ export type SessionTitleGenerator = (input: SessionTitleGeneratorInput) => Promi
 
 export type CreateSessionTitleGeneratorOptions = {
   modelRuntime: Pick<ModelRuntime, "complete">;
-  agentModel: PilotAgentModelSelection;
+  agentModel: RigoriumAgentModelSelection;
   timeoutMs?: number;
 };
 

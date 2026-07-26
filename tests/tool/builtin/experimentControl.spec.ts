@@ -10,7 +10,7 @@ import {
 } from "../../../src/research/artifacts/index.js";
 import { getProjectExperimentPaths, loadExperimentManifest } from "../../../src/research/experimentation/index.js";
 import { createExperimentControlTool } from "../../../src/tool/builtin/experimentControl.js";
-import { PilotDeckToolRuntimeError } from "../../../src/tool/protocol/errors.js";
+import { RigoriumToolRuntimeError } from "../../../src/tool/protocol/errors.js";
 
 const TEST_ROOT_PREFIX = "rigorium-experiment-tool-";
 const testRoots = new Set<string>();
@@ -107,7 +107,7 @@ test("experiment_control preserves explicit upstream source closures on specs", 
         parents: [{ relation: "uses", artifact: toResearchArtifactRef(missingMethod) }],
       },
     }, runtime),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError
+    (error: unknown) => error instanceof RigoriumToolRuntimeError
       && error.code === "invalid_tool_input"
       && /is not resolved/u.test(error.message),
   );
@@ -309,7 +309,7 @@ test("experiment_control recovery records interruption without launching another
     spec: {
       experimentId: "experiment-recovery",
       title: "Recoverable experiment",
-      localWorker: { kind: "mock", delayMs: 250, result: { metrics: [{ name: "score", value: 1 }] } },
+      localWorker: { kind: "mock", delayMs: 1_000, result: { metrics: [{ name: "score", value: 1 }] } },
     },
   }, runtime);
   await tool.execute({
@@ -329,10 +329,19 @@ test("experiment_control recovery records interruption without launching another
     grantId: "grant-recovery",
     jobId: "job-recovery",
   }, runtime);
-  await new Promise((resolvePromise) => setTimeout(resolvePromise, 60));
+  const runningDeadline = Date.now() + 5_000;
+  while (true) {
+    const manifest = await loadExperimentManifest({ projectRoot: root });
+    const attempt = manifest?.runAttempts
+      .filter((entry) => entry.payload.jobId === "job-recovery")
+      .sort((left, right) => right.revision - left.revision)[0];
+    if (attempt?.payload.status === "running") break;
+    if (Date.now() >= runningDeadline) throw new Error("Run attempt did not reach running state.");
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
+  }
   const recovered = await tool.execute({ operation: "recover", jobId: "job-recovery" }, runtime);
-  assert.equal((recovered.data?.artifact?.payload as { status?: string }).status, "recovery_required");
   await running;
+  assert.equal((recovered.data?.artifact?.payload as { status?: string }).status, "recovery_required");
   const listed = await tool.execute({ operation: "list" }, runtime);
   const latest = listed.data?.manifest?.runAttempts
     .filter((attempt) => attempt.payload.jobId === "job-recovery")
@@ -366,7 +375,7 @@ function context(root: string) {
 }
 
 function isPermissionDenied(error: unknown): boolean {
-  return error instanceof PilotDeckToolRuntimeError && error.code === "permission_denied";
+  return error instanceof RigoriumToolRuntimeError && error.code === "permission_denied";
 }
 
 async function projectRoot(label: string): Promise<string> {

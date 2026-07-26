@@ -11,7 +11,7 @@ type UseSettingsControllerArgs = {
   initialTab: string;
 };
 
-type PilotDeckSettingsStorage = {
+type RigoriumSettingsStorage = {
   projectSortOrder?: ProjectSortOrder;
 };
 
@@ -64,8 +64,8 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
     if (!isOpen) return;
     setActiveTab(normalizeMainTab(initialTab));
 
-    const stored = parseJson<PilotDeckSettingsStorage>(
-      localStorage.getItem('pilotdeck-settings'),
+    const stored = parseJson<RigoriumSettingsStorage>(
+      localStorage.getItem('rigorium-settings'),
       {},
     );
     setProjectSortOrderState(stored.projectSortOrder === 'date' ? 'date' : 'name');
@@ -86,11 +86,11 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
     setProjectSortOrderState(value);
     try {
       const existing = parseJson<Record<string, unknown>>(
-        localStorage.getItem('pilotdeck-settings'),
+        localStorage.getItem('rigorium-settings'),
         {},
       );
       localStorage.setItem(
-        'pilotdeck-settings',
+        'rigorium-settings',
         JSON.stringify({
           ...existing,
           projectSortOrder: value,
@@ -98,7 +98,7 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
         }),
       );
       // Sidebar listens for this event to live-resort the project list.
-      window.dispatchEvent(new Event('pilotdeck-settings-changed'));
+      window.dispatchEvent(new Event('rigorium-settings-changed'));
       setSaveStatus(null);
     } catch (err) {
       console.error('Failed to persist Appearance settings:', err);

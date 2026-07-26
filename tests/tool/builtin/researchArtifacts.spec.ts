@@ -17,8 +17,8 @@ import {
 import {
   createResearchArtifactsTool,
 } from "../../../src/tool/builtin/researchArtifacts.js";
-import { PilotDeckToolRuntimeError } from "../../../src/tool/protocol/errors.js";
-import type { PilotDeckToolRuntimeContext } from "../../../src/tool/protocol/types.js";
+import { RigoriumToolRuntimeError } from "../../../src/tool/protocol/errors.js";
+import type { RigoriumToolRuntimeContext } from "../../../src/tool/protocol/types.js";
 
 const T0 = new Date("2026-07-25T12:00:00.000Z");
 const T1 = new Date("2026-07-25T12:01:00.000Z");
@@ -114,7 +114,7 @@ test("research_artifacts rejects caller-supplied roots and malformed immutable e
 
   await assert.rejects(
     tool.execute({ operation: "append_batch", artifacts: [tampered] }, context(root, T0)),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError
+    (error: unknown) => error instanceof RigoriumToolRuntimeError
       && error.code === "invalid_tool_input"
       && /contentHash does not match/u.test(error.message),
   );
@@ -133,7 +133,7 @@ test("research_artifacts maps expected revisions and repository locks to file co
       artifacts: [conflictingRevision],
       expectedRepositoryRevision: 0,
     }, context(root, T1)),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError
+    (error: unknown) => error instanceof RigoriumToolRuntimeError
       && error.code === "file_conflict"
       && /Expected repository revision/u.test(error.message),
   );
@@ -144,7 +144,7 @@ test("research_artifacts maps expected revisions and repository locks to file co
   await assert.rejects(
     tool.execute({ operation: "append_batch", artifacts: [lockBlocked] }, context(root, T1)),
     (error: unknown) => {
-      if (!(error instanceof PilotDeckToolRuntimeError) || error.code !== "file_conflict") return false;
+      if (!(error instanceof RigoriumToolRuntimeError) || error.code !== "file_conflict") return false;
       const diagnostic = error.details?.diagnostic;
       return typeof diagnostic === "object"
         && diagnostic !== null
@@ -169,7 +169,7 @@ function artifact(
   });
 }
 
-function context(cwd: string, now: Date): PilotDeckToolRuntimeContext {
+function context(cwd: string, now: Date): RigoriumToolRuntimeContext {
   return {
     sessionId: "research-artifacts-tool-test",
     turnId: `turn-${now.toISOString()}`,

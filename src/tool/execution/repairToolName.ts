@@ -1,4 +1,4 @@
-import type { PilotDeckToolDefinition } from "../protocol/types.js";
+import type { RigoriumToolDefinition } from "../protocol/types.js";
 
 export type ToolNameRepairResult = {
   name: string;
@@ -90,7 +90,7 @@ const BUILTIN_ALIASES: Record<string, string[]> = {
 
 export function repairToolName(
   rawName: string,
-  tools: PilotDeckToolDefinition[],
+  tools: RigoriumToolDefinition[],
   configuredAliases?: Record<string, string>,
 ): ToolNameRepairResult | undefined {
   const index = buildToolNameIndex(tools);
@@ -133,7 +133,7 @@ type ToolNameIndex = {
   spellings: { normalized: string; canonicalName: string }[];
 };
 
-function buildToolNameIndex(tools: PilotDeckToolDefinition[]): ToolNameIndex {
+function buildToolNameIndex(tools: RigoriumToolDefinition[]): ToolNameIndex {
   const byNormalizedName = new Map<string, Set<string>>();
   const spellings: { normalized: string; canonicalName: string }[] = [];
 
@@ -277,7 +277,7 @@ function stripToolAffixes(normalizedName: string): string {
   let changed = true;
   while (changed) {
     changed = false;
-    for (const prefix of ["tool_", "tools_", "function_", "functions_", "pilotdeck_", "builtin_"]) {
+    for (const prefix of ["tool_", "tools_", "function_", "functions_", "rigorium_", "builtin_"]) {
       if (current.startsWith(prefix) && current.length > prefix.length) {
         current = current.slice(prefix.length);
         changed = true;

@@ -37,7 +37,7 @@ bash "$PPTX" build --builder deck.mjs --out deck.pptx
 ## Toolkit members
 
 - `createDeck(options)`: create a themed wide-screen presentation.
-- `layouts`: the 12 PilotDeck core layout functions.
+- `layouts`: the 12 Rigorium core layout functions.
 - `tokens`: canvas, palette, typography, and spacing values.
 - `pptxgenjs`: the PptxGenJS constructor and enum holder; access `pptx.ShapeType` and `pptx.ChartType` from the created instance when possible.
 - `imageSizingCrop(path, x, y, w, h)`: prepare a centered crop.

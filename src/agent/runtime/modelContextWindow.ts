@@ -1,9 +1,9 @@
 import type { ModelRuntime } from "../../model/index.js";
-import type { PilotAgentModelSelection } from "../../pilot/config/types.js";
+import type { RigoriumAgentModelSelection } from "../../rigorium/config/types.js";
 
 export type ResolveRoutedModelMaxContextTokensInput = {
   modelRuntime: Pick<ModelRuntime, "getCapabilities">;
-  agentModel: PilotAgentModelSelection;
+  agentModel: RigoriumAgentModelSelection;
   agentMaxContextTokens?: number;
   provider: string;
   model: string;

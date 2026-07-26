@@ -75,7 +75,7 @@ export const METHOD_IMPLEMENTATION_CANDIDATE_SURVEY: MethodImplementationCandida
     excludedComponents: Object.freeze([
       Object.freeze({
         component: "PaperBench agent and judge orchestration",
-        reason: "PilotDeck already owns agent execution and research artifact provenance.",
+        reason: "Rigorium already owns agent execution and research artifact provenance.",
       }),
       Object.freeze({
         component: "PaperBench Docker execution layer",

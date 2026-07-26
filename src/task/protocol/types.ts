@@ -3,22 +3,22 @@
  * Mirrors the legacy upstream LocalShellTask behaviour (T1-T11).
  */
 
-export type PilotDeckBackgroundTaskStatus =
+export type RigoriumBackgroundTaskStatus =
   | "pending"
   | "running"
   | "completed"
   | "failed"
   | "cancelled";
 
-export type PilotDeckBackgroundTaskKind = "bash" | "monitor";
+export type RigoriumBackgroundTaskKind = "bash" | "monitor";
 
 /**
  * State envelope for a single background bash task. The shape is a strict
- * superset of legacy `LocalShellTaskState` for the fields PilotDeck actually
+ * superset of legacy `LocalShellTaskState` for the fields Rigorium actually
  * uses; legacy-only "task" classes (`local_agent`, `remote`) are not part of
  * this PR (D-tier).
  */
-export type PilotDeckBackgroundBashTask = {
+export type RigoriumBackgroundBashTask = {
   taskId: string;
   type: "local_bash";
   /** T4 — owning agent; agent exit triggers `killForAgent(agentId)`. */
@@ -26,12 +26,12 @@ export type PilotDeckBackgroundBashTask = {
   /** Owning gateway/agent session for best-effort completion notifications. */
   sessionId?: string;
   /** T5 — UI badge variant (`bash` plain task vs. long-running `monitor`). */
-  kind: PilotDeckBackgroundTaskKind;
+  kind: RigoriumBackgroundTaskKind;
   command: string;
   cwd: string;
   /** Set once the child process has been spawned. */
   pid?: number;
-  status: PilotDeckBackgroundTaskStatus;
+  status: RigoriumBackgroundTaskStatus;
   exitCode?: number | null;
   /** T6 — flipped to `true` once the runtime has dispatched a completion attachment. */
   completionStatusSentInAttachment: boolean;
@@ -47,7 +47,7 @@ export type PilotDeckBackgroundBashTask = {
   outputBytes: number;
 };
 
-export type PilotDeckTaskOutputSlice = {
+export type RigoriumTaskOutputSlice = {
   content: string;
   /** Offset into the combined byte stream from which the next read may resume. */
   nextOffset: number;
@@ -57,8 +57,8 @@ export type PilotDeckTaskOutputSlice = {
   truncated: boolean;
 };
 
-export type PilotDeckBackgroundTaskListFilter = {
+export type RigoriumBackgroundTaskListFilter = {
   agentId?: string;
-  status?: PilotDeckBackgroundTaskStatus | PilotDeckBackgroundTaskStatus[];
-  kind?: PilotDeckBackgroundTaskKind;
+  status?: RigoriumBackgroundTaskStatus | RigoriumBackgroundTaskStatus[];
+  kind?: RigoriumBackgroundTaskKind;
 };

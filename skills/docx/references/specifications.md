@@ -34,7 +34,7 @@ Read this file before writing JSON for `create`, `edit`, or `review`. Use only d
     "comments": "Prepared for review"
   },
   "header": "INTERNAL",
-  "footer": "PilotDeck",
+  "footer": "Rigorium",
   "content": []
 }
 ```
@@ -258,14 +258,14 @@ Inspect operation results. An `affected` value of zero means the target was not 
     {
       "match": "The program is ready",
       "text": "Add the evidence source for this conclusion.",
-      "author": "PilotDeck"
+      "author": "Rigorium"
     }
   ],
   "tracked_replacements": [
     {
       "match": "launch in May",
       "replacement": "launch in June",
-      "author": "PilotDeck"
+      "author": "Rigorium"
     }
   ]
 }

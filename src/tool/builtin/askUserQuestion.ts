@@ -1,15 +1,15 @@
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
-import type { PilotDeckToolValidationResult } from "../protocol/schema.js";
+import type { RigoriumToolValidationResult } from "../protocol/schema.js";
 import { validateHtmlPreview } from "../elicitation/validateHtmlPreview.js";
 import type {
-  PilotDeckElicitationChannel,
-  PilotDeckElicitationRequest,
-} from "../elicitation/PilotDeckElicitationChannel.js";
+  RigoriumElicitationChannel,
+  RigoriumElicitationRequest,
+} from "../elicitation/RigoriumElicitationChannel.js";
 
 export const ASK_USER_QUESTION_TOOL_NAME = "ask_user_question";
 /**
@@ -75,7 +75,7 @@ export type AskUserQuestionOutput = {
  *   E10 cancellation surfaces as `unsupported_tool` so the agent recovery
  *       loop can route back to the user via a fresh elicitation.
  */
-export function createAskUserQuestionTool(): PilotDeckToolDefinition<
+export function createAskUserQuestionTool(): RigoriumToolDefinition<
   AskUserQuestionInput,
   AskUserQuestionOutput
 > {
@@ -181,7 +181,7 @@ export function createAskUserQuestionTool(): PilotDeckToolDefinition<
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
     requiresUserInteraction: () => true,
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => {
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => {
       // E1: 1 ≤ questions ≤ 4. The JSON-Schema validator currently does not
       // enforce minItems/maxItems, so we double-check here.
       if (!Array.isArray(input.questions) || input.questions.length < 1) {
@@ -283,15 +283,15 @@ export function createAskUserQuestionTool(): PilotDeckToolDefinition<
     // No `checkPermissions` override: the elicitation channel itself IS the
     // user-consent gate (legacy behaviour — ask_user_question's `checkPermissions`
     // returns `behavior: "ask"` and the host renders the question UI directly).
-    // PilotDeck would otherwise add a redundant "approve to ask" step in front
+    // Rigorium would otherwise add a redundant "approve to ask" step in front
     // of the actual question dialog. The tool is read-only, so the runtime's
     // default mode allows it through.
-    execute: async (input, context): Promise<PilotDeckToolExecutionOutput<AskUserQuestionOutput>> => {
-      const channel = (context as PilotDeckToolRuntimeContext & {
-        elicitation?: PilotDeckElicitationChannel;
+    execute: async (input, context): Promise<RigoriumToolExecutionOutput<AskUserQuestionOutput>> => {
+      const channel = (context as RigoriumToolRuntimeContext & {
+        elicitation?: RigoriumElicitationChannel;
       }).elicitation;
       if (!channel) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "unsupported_tool",
           "ask_user_question requires a host elicitation channel (none registered).",
         );
@@ -313,7 +313,7 @@ export function createAskUserQuestionTool(): PilotDeckToolDefinition<
         };
       }
 
-      const request: PilotDeckElicitationRequest = {
+      const request: RigoriumElicitationRequest = {
         toolCallId: context.turnId,
         toolName: ASK_USER_QUESTION_TOOL_NAME,
         questions: input.questions,
@@ -323,7 +323,7 @@ export function createAskUserQuestionTool(): PilotDeckToolDefinition<
       const answer = await channel.askUser(request);
 
       if (answer.type === "cancelled") {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "unsupported_tool",
           `User declined to answer questions${answer.reason ? ` (${answer.reason})` : ""}`,
         );

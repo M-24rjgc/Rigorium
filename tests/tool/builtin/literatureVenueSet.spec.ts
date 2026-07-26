@@ -10,8 +10,8 @@ const acceptedVenueId = "ICLR.cc/2024/Conference/Accept (Poster)";
 
 test("literature_search keeps metadata matches while preserving official OpenReview acceptance evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-venue-set-"));
-  const pilotHome = join(root, "pilot-home");
-  await writeVenueSettings(pilotHome);
+  const rigoriumHome = join(root, "rigorium-home");
+  await writeVenueSettings(rigoriumHome);
   let openReviewRequests = 0;
   const tool = createLiteratureSearchTool({
     endpoint: "https://openalex.test/works",
@@ -61,7 +61,7 @@ test("literature_search keeps metadata matches while preserving official OpenRev
     },
   }, {
     cwd: join(root, "project"),
-    env: { PILOT_HOME: pilotHome },
+    env: { RIGORIUM_HOME: rigoriumHome },
     now: () => new Date("2026-07-23T00:00:00.000Z"),
   } as any);
 
@@ -103,8 +103,8 @@ test("literature_search keeps metadata matches while preserving official OpenRev
 
 test("literature_search retains non-official venue metadata if OpenReview fails", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-venue-set-openreview-failure-"));
-  const pilotHome = join(root, "pilot-home");
-  await writeVenueSettings(pilotHome);
+  const rigoriumHome = join(root, "rigorium-home");
+  await writeVenueSettings(rigoriumHome);
   const tool = createLiteratureSearchTool({
     endpoint: "https://openalex.test/works",
     openReviewEndpoint: "https://openreview.test/notes",
@@ -132,7 +132,7 @@ test("literature_search retains non-official venue metadata if OpenReview fails"
     },
   }, {
     cwd: join(root, "project"),
-    env: { PILOT_HOME: pilotHome },
+    env: { RIGORIUM_HOME: rigoriumHome },
     now: () => new Date("2026-07-23T00:00:00.000Z"),
   } as any);
 
@@ -145,8 +145,8 @@ test("literature_search retains non-official venue metadata if OpenReview fails"
 
 test("literature_search never uses an arXiv preprint to claim an accepted venue decision", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-venue-set-arxiv-"));
-  const pilotHome = join(root, "pilot-home");
-  await writeArxivOnlyVenueSettings(pilotHome);
+  const rigoriumHome = join(root, "rigorium-home");
+  await writeArxivOnlyVenueSettings(rigoriumHome);
   const tool = createLiteratureSearchTool({
     arxivEndpoint: "https://arxiv.test/api/query",
     arxivMinimumIntervalMs: 1,
@@ -162,7 +162,7 @@ test("literature_search never uses an arXiv preprint to claim an accepted venue 
     },
   }, {
     cwd: join(root, "project"),
-    env: { PILOT_HOME: pilotHome },
+    env: { RIGORIUM_HOME: rigoriumHome },
     now: () => new Date("2026-07-23T00:00:00.000Z"),
   } as any);
 
@@ -216,10 +216,10 @@ test("literature_search rejects conflicting or unsafe venue-set state before sou
   );
 });
 
-async function writeVenueSettings(pilotHome: string): Promise<void> {
+async function writeVenueSettings(rigoriumHome: string): Promise<void> {
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -235,10 +235,10 @@ async function writeVenueSettings(pilotHome: string): Promise<void> {
   });
 }
 
-async function writeArxivOnlyVenueSettings(pilotHome: string): Promise<void> {
+async function writeArxivOnlyVenueSettings(rigoriumHome: string): Promise<void> {
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {

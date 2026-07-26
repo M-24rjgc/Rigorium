@@ -7,12 +7,12 @@ import {
   type ResearchDirectorDecisionRecord,
   type ResearchDirectorPlanRecord,
 } from "../../research/director/index.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 
 export type ResearchDirectorToolInput =
@@ -35,7 +35,7 @@ export type CreateResearchDirectorToolOptions = Readonly<{
 
 export function createResearchDirectorTool(
   options: CreateResearchDirectorToolOptions = {},
-): PilotDeckToolDefinition<ResearchDirectorToolInput, ResearchDirectorToolResult> {
+): RigoriumToolDefinition<ResearchDirectorToolInput, ResearchDirectorToolResult> {
   return {
     name: "research_director",
     title: "Plan and Reconcile Research Actions",
@@ -65,7 +65,7 @@ The planner reads a goal, the latest artifact DAG, stale descendants, unresolved
         assertNoFixedStageFields(result);
         return formatOutput(result);
       } catch (error) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           `Invalid research director action: ${messageOf(error)}`,
         );
@@ -74,7 +74,7 @@ The planner reads a goal, the latest artifact DAG, stale descendants, unresolved
   };
 }
 
-async function validateInput(input: ResearchDirectorToolInput): Promise<PilotDeckToolValidationResult> {
+async function validateInput(input: ResearchDirectorToolInput): Promise<RigoriumToolValidationResult> {
   try {
     requireActionInput(input);
     const validationDate = new Date("2000-01-01T00:00:00.000Z");
@@ -84,7 +84,7 @@ async function validateInput(input: ResearchDirectorToolInput): Promise<PilotDec
     assertNoFixedStageFields(result);
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = {
+    const issue: RigoriumToolValidationIssue = {
       path: "$",
       code: "invalid_schema",
       message: messageOf(error),
@@ -116,7 +116,7 @@ function researchDirectorInputSchema() {
 
 function formatOutput(
   result: ResearchDirectorToolResult,
-): PilotDeckToolExecutionOutput<ResearchDirectorToolResult> {
+): RigoriumToolExecutionOutput<ResearchDirectorToolResult> {
   const lines = result.action === "plan"
     ? [
         "Research Director plan",

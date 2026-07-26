@@ -14,39 +14,39 @@
 
 import type { BackgroundTaskRuntime } from "../../task/runtime/BackgroundTaskRuntime.js";
 import type {
-  PilotDeckBackgroundBashTask,
-  PilotDeckBackgroundTaskKind,
-  PilotDeckBackgroundTaskListFilter,
-  PilotDeckBackgroundTaskStatus,
+  RigoriumBackgroundBashTask,
+  RigoriumBackgroundTaskKind,
+  RigoriumBackgroundTaskListFilter,
+  RigoriumBackgroundTaskStatus,
 } from "../../task/protocol/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
 } from "../protocol/types.js";
 
 export type TaskCreateInput = {
   command: string;
   agentId?: string;
-  kind?: PilotDeckBackgroundTaskKind;
+  kind?: RigoriumBackgroundTaskKind;
 };
 
 export type TaskCreateOutput = {
   taskId: string;
-  status: PilotDeckBackgroundTaskStatus;
+  status: RigoriumBackgroundTaskStatus;
   pid?: number;
 };
 
 export type TaskListInput = {
   agentId?: string;
-  status?: PilotDeckBackgroundTaskStatus | PilotDeckBackgroundTaskStatus[];
-  kind?: PilotDeckBackgroundTaskKind;
+  status?: RigoriumBackgroundTaskStatus | RigoriumBackgroundTaskStatus[];
+  kind?: RigoriumBackgroundTaskKind;
 };
 
 export type TaskListOutput = {
   tasks: Array<
     Pick<
-      PilotDeckBackgroundBashTask,
+      RigoriumBackgroundBashTask,
       | "taskId"
       | "agentId"
       | "kind"
@@ -72,7 +72,7 @@ export type TaskOutputResult = {
   nextOffset: number;
   totalBytes: number;
   truncated: boolean;
-  status: PilotDeckBackgroundTaskStatus;
+  status: RigoriumBackgroundTaskStatus;
   exitCode?: number | null;
 };
 
@@ -95,10 +95,10 @@ export type TaskStopInput = {
 
 export type TaskStopResult = {
   taskId: string;
-  status: PilotDeckBackgroundTaskStatus;
+  status: RigoriumBackgroundTaskStatus;
 };
 
-const TERMINAL_TASK_STATUSES = new Set<PilotDeckBackgroundTaskStatus>([
+const TERMINAL_TASK_STATUSES = new Set<RigoriumBackgroundTaskStatus>([
   "completed",
   "failed",
   "cancelled",
@@ -108,7 +108,7 @@ const MAX_TASK_WAIT_TIMEOUT_MS = 600_000;
 
 function ensureRuntime(runtime: BackgroundTaskRuntime | undefined): BackgroundTaskRuntime {
   if (!runtime) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "unsupported_tool",
       "task_* tools require a BackgroundTaskRuntime. Configure one via createBuiltinRegistry({ backgroundTasks: { runtime } }).",
     );
@@ -116,7 +116,7 @@ function ensureRuntime(runtime: BackgroundTaskRuntime | undefined): BackgroundTa
   return runtime;
 }
 
-function isTerminalTaskStatus(status: PilotDeckBackgroundTaskStatus): boolean {
+function isTerminalTaskStatus(status: RigoriumBackgroundTaskStatus): boolean {
   return TERMINAL_TASK_STATUSES.has(status);
 }
 
@@ -158,7 +158,7 @@ function formatTaskWaitText(data: TaskWaitResult, requestedOffset: number): stri
 
 export function createTaskCreateTool(
   runtime?: BackgroundTaskRuntime,
-): PilotDeckToolDefinition<TaskCreateInput, TaskCreateOutput> {
+): RigoriumToolDefinition<TaskCreateInput, TaskCreateOutput> {
   return {
     name: "task_create",
     aliases: ["TaskCreate"],
@@ -188,7 +188,7 @@ export function createTaskCreateTool(
     isReadOnly: () => false,
     isConcurrencySafe: () => true,
     isDestructive: () => true,
-    execute: async (input, context): Promise<PilotDeckToolExecutionOutput<TaskCreateOutput>> => {
+    execute: async (input, context): Promise<RigoriumToolExecutionOutput<TaskCreateOutput>> => {
       const rt = ensureRuntime(runtime);
       const task = await rt.start({
         command: input.command,
@@ -210,7 +210,7 @@ export function createTaskCreateTool(
 
 export function createTaskListTool(
   runtime?: BackgroundTaskRuntime,
-): PilotDeckToolDefinition<TaskListInput, TaskListOutput> {
+): RigoriumToolDefinition<TaskListInput, TaskListOutput> {
   return {
     name: "task_list",
     aliases: ["TaskList"],
@@ -237,9 +237,9 @@ export function createTaskListTool(
     },
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
-    execute: async (input): Promise<PilotDeckToolExecutionOutput<TaskListOutput>> => {
+    execute: async (input): Promise<RigoriumToolExecutionOutput<TaskListOutput>> => {
       const rt = ensureRuntime(runtime);
-      const filter: PilotDeckBackgroundTaskListFilter = {
+      const filter: RigoriumBackgroundTaskListFilter = {
         agentId: input.agentId,
         status: input.status,
         kind: input.kind,
@@ -288,7 +288,7 @@ function formatTaskListText(tasks: TaskListOutput["tasks"]): string {
 
 export function createTaskOutputTool(
   runtime?: BackgroundTaskRuntime,
-): PilotDeckToolDefinition<TaskOutputInput, TaskOutputResult> {
+): RigoriumToolDefinition<TaskOutputInput, TaskOutputResult> {
   return {
     name: "task_output",
     aliases: ["TaskOutput"],
@@ -317,11 +317,11 @@ export function createTaskOutputTool(
     maxResultBytes: 200_000,
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
-    execute: async (input): Promise<PilotDeckToolExecutionOutput<TaskOutputResult>> => {
+    execute: async (input): Promise<RigoriumToolExecutionOutput<TaskOutputResult>> => {
       const rt = ensureRuntime(runtime);
       const task = rt.get(input.taskId);
       if (!task) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           `Unknown taskId: ${input.taskId}`,
         );
@@ -347,7 +347,7 @@ export function createTaskOutputTool(
 
 export function createTaskWaitTool(
   runtime?: BackgroundTaskRuntime,
-): PilotDeckToolDefinition<TaskWaitInput, TaskWaitResult> {
+): RigoriumToolDefinition<TaskWaitInput, TaskWaitResult> {
   return {
     name: "task_wait",
     aliases: ["TaskWait"],
@@ -401,11 +401,11 @@ export function createTaskWaitTool(
       }
       return { ok: true, input };
     },
-    execute: async (input, context): Promise<PilotDeckToolExecutionOutput<TaskWaitResult>> => {
+    execute: async (input, context): Promise<RigoriumToolExecutionOutput<TaskWaitResult>> => {
       const rt = ensureRuntime(runtime);
       const task = rt.get(input.taskId);
       if (!task) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           `Unknown taskId: ${input.taskId}`,
         );
@@ -416,13 +416,13 @@ export function createTaskWaitTool(
         abortSignal: context.abortSignal,
       });
       if (!waited) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           `Unknown taskId: ${input.taskId}`,
         );
       }
       if (waited.outcome === "aborted") {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "tool_aborted",
           `task_wait aborted before task ${input.taskId} finished.`,
         );
@@ -449,7 +449,7 @@ export function createTaskWaitTool(
 
 export function createTaskStopTool(
   runtime?: BackgroundTaskRuntime,
-): PilotDeckToolDefinition<TaskStopInput, TaskStopResult> {
+): RigoriumToolDefinition<TaskStopInput, TaskStopResult> {
   return {
     name: "task_stop",
     aliases: ["TaskStop"],
@@ -473,11 +473,11 @@ export function createTaskStopTool(
     isReadOnly: () => false,
     isConcurrencySafe: () => true,
     isDestructive: () => true,
-    execute: async (input): Promise<PilotDeckToolExecutionOutput<TaskStopResult>> => {
+    execute: async (input): Promise<RigoriumToolExecutionOutput<TaskStopResult>> => {
       const rt = ensureRuntime(runtime);
       const task = rt.get(input.taskId);
       if (!task) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           `Unknown taskId: ${input.taskId}`,
         );

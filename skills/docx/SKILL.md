@@ -1,6 +1,6 @@
 ---
 name: docx
-description: Create, inspect, edit, restyle, review, compare, sanitize, render, audit, and finalize professional Microsoft Word .docx documents. Use this skill whenever PilotDeck must produce or modify a Word document, preserve an existing document while making targeted changes, add comments or tracked replacements, analyze document structure or metadata, verify accessibility and layout quality, compare revisions, remove review data, or deliver a visually checked DOCX. Use only for .docx files, not legacy .doc, macro-enabled .docm, or Google Docs operations.
+description: Create, inspect, edit, restyle, review, compare, sanitize, render, audit, and finalize professional Microsoft Word .docx documents. Use this skill whenever Rigorium must produce or modify a Word document, preserve an existing document while making targeted changes, add comments or tracked replacements, analyze document structure or metadata, verify accessibility and layout quality, compare revisions, remove review data, or deliver a visually checked DOCX. Use only for .docx files, not legacy .doc, macro-enabled .docm, or Google Docs operations.
 ---
 
 # Professional Word DOCX
@@ -12,7 +12,7 @@ Treat a Word document as both structured content and a paginated visual artifact
 Resolve the directory containing this `SKILL.md` as `DOCX_SKILL_ROOT`. Common locations are:
 
 ```bash
-DOCX_SKILL_ROOT="${PILOT_HOME:-$HOME/.pilotdeck}/skills/docx"
+DOCX_SKILL_ROOT="${RIGORIUM_HOME:-$HOME/.rigorium}/skills/docx"
 # In a source checkout: <repo>/skills/docx
 ```
 

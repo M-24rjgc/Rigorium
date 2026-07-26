@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { getPilotProjectChatDir } from "../../pilot/paths.js";
+import { getRigoriumProjectChatDir } from "../../rigorium/paths.js";
 import { sanitizeSessionIdForPath } from "../storage/ProjectSessionStorage.js";
 import { parseSessionInfoFromLite, type SessionInfo } from "../storage/SessionList.js";
 import { readSessionLite } from "../storage/SessionLiteReader.js";
@@ -26,8 +26,8 @@ export type ChatHistorySearchMatch = {
 };
 
 export type SearchChatHistoryOptions = {
-  pilotHome: string;
-  /** When omitted, searches all projects under pilotHome. */
+  rigoriumHome: string;
+  /** When omitted, searches all projects under rigoriumHome. */
   projectRoot?: string;
   query: string;
   limit?: number;
@@ -132,7 +132,7 @@ export async function searchChatHistory(options: SearchChatHistoryOptions): Prom
   const includeInternal = options.includeInternal ?? false;
 
   const sessionFiles = await collectSessionFiles({
-    pilotHome: options.pilotHome,
+    rigoriumHome: options.rigoriumHome,
     projectRoot: options.projectRoot,
     sessionId: options.sessionId,
     includeInternal,
@@ -214,14 +214,14 @@ function buildMatcher(
 }
 
 async function collectSessionFiles(options: {
-  pilotHome: string;
+  rigoriumHome: string;
   projectRoot?: string;
   sessionId?: string;
   includeInternal: boolean;
 }): Promise<SessionFileTarget[]> {
   if (options.sessionId) {
     const projectRoot = options.projectRoot ?? process.cwd();
-    const chatDir = getPilotProjectChatDir(projectRoot, options.pilotHome);
+    const chatDir = getRigoriumProjectChatDir(projectRoot, options.rigoriumHome);
     if (!options.includeInternal && isInternalSession(options.sessionId)) {
       return [];
     }
@@ -232,11 +232,11 @@ async function collectSessionFiles(options: {
   }
 
   if (options.projectRoot) {
-    const chatDir = getPilotProjectChatDir(options.projectRoot, options.pilotHome);
+    const chatDir = getRigoriumProjectChatDir(options.projectRoot, options.rigoriumHome);
     return listJsonlFiles(chatDir, options.projectRoot, options.includeInternal);
   }
 
-  const projectsDir = resolve(options.pilotHome, "projects");
+  const projectsDir = resolve(options.rigoriumHome, "projects");
   let projectIds: string[];
   try {
     projectIds = await readdir(projectsDir);

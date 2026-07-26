@@ -100,8 +100,8 @@ async function generateSnapshotCopyDiff(
     "--exclude=.git",
     "--exclude=node_modules",
     "--exclude=dist",
-    "--exclude=.pilotdeck",
-    "--exclude=.pilotdeck-always-on",
+    "--exclude=.rigorium",
+    "--exclude=.rigorium-always-on",
     projectRoot,
     workspaceCwd,
   ]);

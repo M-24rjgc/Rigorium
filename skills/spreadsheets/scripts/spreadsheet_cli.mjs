@@ -113,8 +113,8 @@ function assertSupportedInput(filePath) {
 
 function createWorkbook() {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "PilotDeck";
-  workbook.lastModifiedBy = "PilotDeck";
+  workbook.creator = "Rigorium";
+  workbook.lastModifiedBy = "Rigorium";
   workbook.created = new Date();
   workbook.modified = new Date();
   workbook.calcProperties.fullCalcOnLoad = true;
@@ -669,7 +669,7 @@ async function prepareWorkbookForRecalculation(inputPath, outputPath) {
 }
 
 async function recalculateWorkbook(inputPath, outputPath) {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pilotdeck-spreadsheet-recalc-"));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "rigorium-spreadsheet-recalc-"));
   try {
     const sourceDir = path.join(tempRoot, "source");
     const convertedDir = path.join(tempRoot, "converted");
@@ -757,7 +757,7 @@ function createToolkit(inputPath) {
 }
 
 async function buildFromBuilder(builderPath, inputPath) {
-  const builderUrl = `${pathToFileURL(path.resolve(builderPath)).href}?pilotdeck=${Date.now()}`;
+  const builderUrl = `${pathToFileURL(path.resolve(builderPath)).href}?rigorium=${Date.now()}`;
   const module = await import(builderUrl);
   if (typeof module.default !== "function") throw new Error("The builder must export a default async function");
   const product = await module.default(createToolkit(inputPath));
@@ -808,7 +808,7 @@ async function commandBuild(options) {
     return;
   }
 
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pilotdeck-spreadsheet-build-"));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "rigorium-spreadsheet-build-"));
   try {
     const rawPath = path.join(tempRoot, "raw.xlsx");
     await workbook.xlsx.writeFile(rawPath);
@@ -925,7 +925,7 @@ async function convertToXlsxForRender(inputPath, tempRoot) {
 async function renderWorkbook(inputPath, outputDir, { pdfPath, montagePath } = {}) {
   const renderer = findRenderer();
   if (!renderer) throw new Error("No PDF renderer was found. Install pdftoppm, mutool, or ImageMagick.");
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pilotdeck-spreadsheet-render-"));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "rigorium-spreadsheet-render-"));
   try {
     const sourceDir = path.join(tempRoot, "source");
     const pdfDir = path.join(tempRoot, "pdf");
@@ -1008,7 +1008,7 @@ async function createSelfTestWorkbook() {
     pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
   });
   summary.mergeCells("A1:D1");
-  summary.getCell("A1").value = "PilotDeck Spreadsheet Self-Test";
+  summary.getCell("A1").value = "Rigorium Spreadsheet Self-Test";
   summary.getCell("A1").font = { name: "Arial", size: 18, bold: true, color: { argb: "FF0F172A" } };
   summary.getRow(1).height = 28;
   summary.addTable({
@@ -1045,7 +1045,7 @@ async function createSelfTestWorkbook() {
 }
 
 async function commandSelfTest(options) {
-  const outputDir = options.out ? String(options.out) : path.join(os.tmpdir(), `pilotdeck-spreadsheets-self-test-${Date.now()}`);
+  const outputDir = options.out ? String(options.out) : path.join(os.tmpdir(), `rigorium-spreadsheets-self-test-${Date.now()}`);
   await fs.mkdir(outputDir, { recursive: true });
   const steps = [];
 
@@ -1103,7 +1103,7 @@ async function commandSelfTest(options) {
   await recalculateWorkbook(editedRawPath, editedPath);
   const sourceAfterEdit = await loadXlsx(finalPath);
   const editedWorkbook = await loadXlsx(editedPath);
-  if (sourceAfterEdit.getWorksheet("Summary").getCell("A1").value !== "PilotDeck Spreadsheet Self-Test") {
+  if (sourceAfterEdit.getWorksheet("Summary").getCell("A1").value !== "Rigorium Spreadsheet Self-Test") {
     throw new Error("Existing-workbook edit overwrote the source file");
   }
   if (editedWorkbook.getWorksheet("Summary").getCell("A1").value !== "Edited workbook") {
@@ -1154,7 +1154,7 @@ async function commandSelfTest(options) {
 }
 
 function printHelp() {
-  process.stdout.write(`PilotDeck spreadsheets skill\n\nCommands:\n  scaffold --out builder.mjs\n  build --builder builder.mjs --out result.xlsx [--input source.xlsx]\n  inspect --input book.xlsx [--sheet Sheet1 --range A1:H20 --styles --out report.json]\n  recalculate --input source.xlsx --out recalculated.xlsx\n  audit --input book.xlsx [--out audit.json]\n  render --input book.xlsx --out-dir render [--pdf render.pdf --montage montage.png]\n  self-test [--out directory]\n`);
+  process.stdout.write(`Rigorium spreadsheets skill\n\nCommands:\n  scaffold --out builder.mjs\n  build --builder builder.mjs --out result.xlsx [--input source.xlsx]\n  inspect --input book.xlsx [--sheet Sheet1 --range A1:H20 --styles --out report.json]\n  recalculate --input source.xlsx --out recalculated.xlsx\n  audit --input book.xlsx [--out audit.json]\n  render --input book.xlsx --out-dir render [--pdf render.pdf --montage montage.png]\n  self-test [--out directory]\n`);
 }
 
 async function main() {

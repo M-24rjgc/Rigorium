@@ -99,7 +99,7 @@ test("literature_search normalizes OpenAlex papers and real citation edges", asy
     { query: "research agents", limit: 2, fromYear: 2023, toYear: 2025 },
     {
       cwd: join(tmpdir(), "rigorium-literature-project"),
-      env: { PILOT_HOME: join(tmpdir(), "rigorium-literature-home") },
+      env: { RIGORIUM_HOME: join(tmpdir(), "rigorium-literature-home") },
       now: () => new Date("2026-07-22T00:00:00.000Z"),
     } as any,
   );
@@ -140,10 +140,10 @@ test("literature_search normalizes OpenAlex papers and real citation edges", asy
 
 test("literature_search preserves specific multilingual semantics through query and paper audits", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-literature-variants-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -198,7 +198,7 @@ test("literature_search preserves specific multilingual semantics through query 
     },
     {
       cwd: join(root, "project"),
-      env: { PILOT_HOME: pilotHome },
+      env: { RIGORIUM_HOME: rigoriumHome },
       now: () => new Date("2026-07-22T00:00:00.000Z"),
     } as any,
   );
@@ -258,10 +258,10 @@ test("literature_search preserves specific multilingual semantics through query 
 
 test("literature_search keeps successful variants when an alternate query fails", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-literature-variant-failure-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -291,7 +291,7 @@ test("literature_search keeps successful variants when an alternate query fails"
     },
     {
       cwd: join(root, "project"),
-      env: { PILOT_HOME: pilotHome },
+      env: { RIGORIUM_HOME: rigoriumHome },
       now: () => new Date("2026-07-22T00:00:00.000Z"),
     } as any,
   );
@@ -317,10 +317,10 @@ test("literature_search keeps successful variants when an alternate query fails"
 
 test("literature_search never allocates more query requests than the total result budget", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-literature-variant-budget-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -354,7 +354,7 @@ test("literature_search never allocates more query requests than the total resul
     },
     {
       cwd: join(root, "project"),
-      env: { PILOT_HOME: pilotHome },
+      env: { RIGORIUM_HOME: rigoriumHome },
       now: () => new Date("2026-07-22T00:00:00.000Z"),
     } as any,
   );
@@ -369,10 +369,10 @@ test("literature_search never allocates more query requests than the total resul
 
 test("literature_search preserves agent-selected query categories and rejects primary as an alternative", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-literature-variant-categories-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -390,7 +390,7 @@ test("literature_search preserves agent-selected query categories and rejects pr
   });
   const context = {
     cwd: join(root, "project"),
-    env: { PILOT_HOME: pilotHome },
+    env: { RIGORIUM_HOME: rigoriumHome },
     now: () => new Date("2026-07-22T00:00:00.000Z"),
   } as any;
 
@@ -433,7 +433,7 @@ test("literature_search preserves a structured failed-source artifact", async ()
     { query: "rate limited research" },
     {
       cwd: join(tmpdir(), "rigorium-literature-project-failed"),
-      env: { PILOT_HOME: join(tmpdir(), "rigorium-literature-home-failed") },
+      env: { RIGORIUM_HOME: join(tmpdir(), "rigorium-literature-home-failed") },
     } as any,
   );
 
@@ -455,7 +455,7 @@ test("literature_search retains OpenAlex results when Crossref returns a malform
     { query: "partial source coverage" },
     {
       cwd: join(tmpdir(), "rigorium-literature-project-partial"),
-      env: { PILOT_HOME: join(tmpdir(), "rigorium-literature-home-partial") },
+      env: { RIGORIUM_HOME: join(tmpdir(), "rigorium-literature-home-partial") },
       now: () => new Date("2026-07-22T00:00:00.000Z"),
     } as any,
   );
@@ -479,7 +479,7 @@ test("literature_search retains Crossref results when OpenAlex fails", async () 
     { query: "symmetric partial source coverage" },
     {
       cwd: join(tmpdir(), "rigorium-literature-project-crossref-only"),
-      env: { PILOT_HOME: join(tmpdir(), "rigorium-literature-home-crossref-only") },
+      env: { RIGORIUM_HOME: join(tmpdir(), "rigorium-literature-home-crossref-only") },
       now: () => new Date("2026-07-22T00:00:00.000Z"),
     } as any,
   );
@@ -494,10 +494,10 @@ test("literature_search retains Crossref results when OpenAlex fails", async () 
 
 test("literature_search rejects execution when every configured source is disabled", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-literature-disabled-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -521,7 +521,7 @@ test("literature_search rejects execution when every configured source is disabl
   await assert.rejects(
     tool.execute(
       { query: "disabled sources" },
-      { cwd: join(root, "project"), env: { PILOT_HOME: pilotHome } } as any,
+      { cwd: join(root, "project"), env: { RIGORIUM_HOME: rigoriumHome } } as any,
     ),
     /No academic metadata source is enabled/,
   );
@@ -529,10 +529,10 @@ test("literature_search rejects execution when every configured source is disabl
 
 test("literature_search records partial coverage when requested arXiv classifications cannot run", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-literature-classification-disabled-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -559,7 +559,7 @@ test("literature_search records partial coverage when requested arXiv classifica
     },
     {
       cwd: join(root, "project"),
-      env: { PILOT_HOME: pilotHome },
+      env: { RIGORIUM_HOME: rigoriumHome },
       now: () => new Date("2026-07-22T00:00:00.000Z"),
     } as any,
   );
@@ -602,7 +602,7 @@ test("literature_search bounds explicit year input to the Research Settings rang
     { query: "bounded years", fromYear: 1400, toYear: currentMax + 100 },
     {
       cwd: join(tmpdir(), "rigorium-literature-bounded-years"),
-      env: { PILOT_HOME: join(tmpdir(), "rigorium-literature-bounded-years-home") },
+      env: { RIGORIUM_HOME: join(tmpdir(), "rigorium-literature-bounded-years-home") },
     } as any,
   );
 

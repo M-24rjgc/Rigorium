@@ -30,7 +30,7 @@ const LOCK_STALE_MS = 60_000;
 
 export type ProjectExperimentPaths = Readonly<{
   projectRoot: string;
-  pilotDeckDir: string;
+  rigoriumDir: string;
   researchDir: string;
   experimentationDir: string;
   manifestPath: string;
@@ -85,16 +85,16 @@ export function getProjectExperimentPaths(input: { projectRoot: string }): Proje
     throw repositoryError("invalid_input", "projectRoot must be a non-empty path.", { operation: "resolve_paths" });
   }
   const projectRoot = resolve(input.projectRoot);
-  const pilotDeckDir = join(projectRoot, ".pilotdeck");
-  const researchDir = join(pilotDeckDir, "research");
+  const rigoriumDir = join(projectRoot, ".rigorium");
+  const researchDir = join(rigoriumDir, "research");
   const experimentationDir = join(researchDir, "experimentation");
   const manifestPath = join(experimentationDir, "manifest.json");
   const lockPath = join(experimentationDir, ".manifest.lock");
   const runsDir = join(experimentationDir, "runs");
-  for (const candidate of [pilotDeckDir, researchDir, experimentationDir, manifestPath, lockPath, runsDir]) {
+  for (const candidate of [rigoriumDir, researchDir, experimentationDir, manifestPath, lockPath, runsDir]) {
     assertWithinProject(projectRoot, candidate);
   }
-  return Object.freeze({ projectRoot, pilotDeckDir, researchDir, experimentationDir, manifestPath, lockPath, runsDir });
+  return Object.freeze({ projectRoot, rigoriumDir, researchDir, experimentationDir, manifestPath, lockPath, runsDir });
 }
 
 export function createEmptyExperimentManifest(now = new Date()): ExperimentManifest {
@@ -368,7 +368,7 @@ async function assertProjectRoot(paths: ProjectExperimentPaths, operation: strin
 
 async function assertExistingDirectoryChain(paths: ProjectExperimentPaths, operation: string): Promise<void> {
   await assertProjectRoot(paths, operation);
-  for (const directory of [paths.pilotDeckDir, paths.researchDir, paths.experimentationDir, paths.runsDir]) {
+  for (const directory of [paths.rigoriumDir, paths.researchDir, paths.experimentationDir, paths.runsDir]) {
     const stats = await lstatIfExists(directory, operation);
     if (stats && (!stats.isDirectory() || stats.isSymbolicLink())) {
       throw repositoryError("path_violation", "Experiment storage directories must not be files or symbolic links.", {
@@ -382,7 +382,7 @@ async function assertExistingDirectoryChain(paths: ProjectExperimentPaths, opera
 async function ensureDirectories(paths: ProjectExperimentPaths): Promise<void> {
   try {
     await assertProjectRoot(paths, "ensure_directories");
-    for (const directory of [paths.pilotDeckDir, paths.researchDir, paths.experimentationDir, paths.runsDir]) {
+    for (const directory of [paths.rigoriumDir, paths.researchDir, paths.experimentationDir, paths.runsDir]) {
       try {
         await mkdir(directory);
       } catch (error) {

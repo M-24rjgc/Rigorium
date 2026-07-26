@@ -1,15 +1,15 @@
 import type { PermissionResult } from "../../permission/index.js";
 import { NetworkFetchError, networkFetch } from "../../network/fetch.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
 import type {
-  PilotDeckToolAvailabilityContext,
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolAvailabilityContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 
 /**
- * `web_search` is a local PilotDeck tool backed by exactly one configured
+ * `web_search` is a local Rigorium tool backed by exactly one configured
  * provider. The model still sees one stable tool surface; provider-specific
  * request/response shapes stay behind this adapter.
  */
@@ -77,7 +77,7 @@ const DEFAULT_ORGANIC_LIMIT = 8;
 
 export function createWebSearchTool(
   options: CreateWebSearchToolOptions = {},
-): PilotDeckToolDefinition<WebSearchInput, WebSearchOutput> {
+): RigoriumToolDefinition<WebSearchInput, WebSearchOutput> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const organicLimit = options.organicLimit ?? DEFAULT_ORGANIC_LIMIT;
@@ -92,7 +92,7 @@ export function createWebSearchTool(
 - Use this tool when API/SDK/framework usage is unknown, version-sensitive, or likely changed since training. Search with package/service name, version, framework, and the specific method/option/error.
 
 Usage notes:
-  - Configure \`tools.webSearch.provider\` as \`glm\`, \`tavily\`, or \`custom\` in \`pilotdeck.yaml\`
+  - Configure \`tools.webSearch.provider\` as \`glm\`, \`tavily\`, or \`custom\` in \`rigorium.yaml\`
   - Requires \`tools.webSearch.apiKey\`, \`GLM_WEB_SEARCH_API_KEY\`/\`ZAI_API_KEY\`, \`TAVILY_API_KEY\`, or \`CUSTOM_WEB_SEARCH_API_KEY\` unless custom auth is \`none\`
   - The optional \`gl\` parameter is forwarded only by providers that support localization
   - This tool is read-only and does not modify files`,
@@ -144,7 +144,7 @@ Usage notes:
       const apiKey = resolveApiKey(options.apiKey, provider, context);
       const custom = normalizeCustomProviderConfig(options.customProvider);
       if (!apiKey && !(provider === "custom" && custom.auth === "none")) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "setup_required",
           "web_search requires an API key. Please configure it in Settings → Search.",
           { tool: "web_search" },
@@ -152,7 +152,7 @@ Usage notes:
       }
       if (provider === "custom") {
         if (!options.endpoint?.trim()) {
-          throw new PilotDeckToolRuntimeError(
+          throw new RigoriumToolRuntimeError(
             "setup_required",
             "web_search custom provider requires an endpoint URL. Please configure it in Settings → Search.",
             { tool: "web_search" },
@@ -195,12 +195,12 @@ Usage notes:
 
 function checkWebSearchAvailability(
   options: CreateWebSearchToolOptions,
-  context: PilotDeckToolAvailabilityContext,
+  context: RigoriumToolAvailabilityContext,
 ) {
   const runtimeContext = {
     cwd: context.cwd,
     env: context.env,
-  } as PilotDeckToolRuntimeContext;
+  } as RigoriumToolRuntimeContext;
   const provider = resolveProvider(options.provider, options.apiKey, runtimeContext);
   const apiKey = resolveApiKey(options.apiKey, provider, runtimeContext);
   const custom = normalizeCustomProviderConfig(options.customProvider);
@@ -226,7 +226,7 @@ function checkWebSearchAvailability(
 function resolveProvider(
   optionProvider: WebSearchProvider | undefined,
   optionApiKey: string | undefined,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
 ): WebSearchProvider {
   if (optionProvider) return optionProvider;
   if (optionApiKey?.trim()) return "glm";
@@ -237,7 +237,7 @@ function resolveProvider(
 function resolveApiKey(
   optionApiKey: string | undefined,
   provider: WebSearchProvider,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
 ): string | undefined {
   const fromOption = optionApiKey?.trim();
   if (fromOption) {
@@ -266,14 +266,14 @@ function normalizeCustomProviderConfig(
   };
 }
 
-function readEnv(context: PilotDeckToolRuntimeContext, name: string): string | undefined {
+function readEnv(context: RigoriumToolRuntimeContext, name: string): string | undefined {
   const value = (context.env ?? process.env)[name]?.trim();
   return value && value.length > 0 ? value : undefined;
 }
 
 type PerformTavilySearchInput = {
   input: WebSearchInput;
-  context: PilotDeckToolRuntimeContext;
+  context: RigoriumToolRuntimeContext;
   apiKey: string;
   endpoint: string;
   fetchImpl: typeof fetch;
@@ -283,11 +283,11 @@ type PerformTavilySearchInput = {
 
 async function performTavilySearch(
   args: PerformTavilySearchInput,
-): Promise<PilotDeckToolExecutionOutput<WebSearchOutput>> {
+): Promise<RigoriumToolExecutionOutput<WebSearchOutput>> {
   const { input, context, apiKey, endpoint, fetchImpl, timeoutMs, organicLimit } = args;
   const query = input.query.trim();
   if (!query) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       "web_search requires a non-empty `query`.",
     );
@@ -323,12 +323,12 @@ async function performTavilySearch(
     });
   } catch (error) {
     if (isLocalTimeout(error, controller.signal, context.abortSignal)) {
-      throw new PilotDeckToolRuntimeError(
+      throw new RigoriumToolRuntimeError(
         "tool_timeout",
         `web_search (tavily) timed out after ${timeoutMs}ms.`,
       );
     }
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `web_search (tavily) request failed: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -339,7 +339,7 @@ async function performTavilySearch(
 
   if (!response.ok) {
     const detail = await response.text().catch(() => response.statusText);
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `Tavily API error (${response.status}): ${truncate(detail, 500)}`,
     );
@@ -381,7 +381,7 @@ async function performTavilySearch(
 
 type PerformGlmSearchInput = {
   input: WebSearchInput;
-  context: PilotDeckToolRuntimeContext;
+  context: RigoriumToolRuntimeContext;
   apiKey: string;
   endpoint: string;
   fetchImpl: typeof fetch;
@@ -391,7 +391,7 @@ type PerformGlmSearchInput = {
 
 async function performGlmSearch(
   args: PerformGlmSearchInput,
-): Promise<PilotDeckToolExecutionOutput<WebSearchOutput>> {
+): Promise<RigoriumToolExecutionOutput<WebSearchOutput>> {
   const {
     input,
     context,
@@ -403,7 +403,7 @@ async function performGlmSearch(
   } = args;
   const query = input.query.trim();
   if (!query) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       "web_search requires a non-empty `query`.",
     );
@@ -439,12 +439,12 @@ async function performGlmSearch(
     });
   } catch (error) {
     if (isLocalTimeout(error, controller.signal, context.abortSignal)) {
-      throw new PilotDeckToolRuntimeError(
+      throw new RigoriumToolRuntimeError(
         "tool_timeout",
         `web_search timed out after ${timeoutMs}ms.`,
       );
     }
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `web_search (glm) request failed: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -455,7 +455,7 @@ async function performGlmSearch(
 
   if (!response.ok) {
     const detail = await response.text().catch(() => response.statusText);
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `GLM web search error (${response.status}): ${truncate(detail, 500)}`,
     );
@@ -463,7 +463,7 @@ async function performGlmSearch(
 
   const raw = (await response.json()) as Record<string, unknown>;
   if (typeof raw.error === "string" && raw.error.length > 0) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `GLM web search error: ${raw.error}`,
     );
@@ -471,7 +471,7 @@ async function performGlmSearch(
   const proxyCode = raw.code;
   if (typeof proxyCode === "number" && proxyCode !== 0) {
     const message = typeof raw.msg === "string" ? raw.msg : "search proxy error";
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `GLM web search error code=${proxyCode}: ${message}`,
     );
@@ -495,7 +495,7 @@ async function performGlmSearch(
 
 type PerformCustomSearchInput = {
   input: WebSearchInput;
-  context: PilotDeckToolRuntimeContext;
+  context: RigoriumToolRuntimeContext;
   apiKey: string | undefined;
   endpoint: string;
   fetchImpl: typeof fetch;
@@ -506,11 +506,11 @@ type PerformCustomSearchInput = {
 
 async function performCustomSearch(
   args: PerformCustomSearchInput,
-): Promise<PilotDeckToolExecutionOutput<WebSearchOutput>> {
+): Promise<RigoriumToolExecutionOutput<WebSearchOutput>> {
   const { input, context, apiKey, endpoint, fetchImpl, timeoutMs, organicLimit, custom } = args;
   const query = input.query.trim();
   if (!query) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       "web_search requires a non-empty `query`.",
     );
@@ -520,7 +520,7 @@ async function performCustomSearch(
   try {
     url = new URL(endpoint);
   } catch {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       `web_search custom provider endpoint is not a valid URL: ${endpoint}`,
     );
@@ -569,12 +569,12 @@ async function performCustomSearch(
     });
   } catch (error) {
     if (isLocalTimeout(error, controller.signal, context.abortSignal)) {
-      throw new PilotDeckToolRuntimeError(
+      throw new RigoriumToolRuntimeError(
         "tool_timeout",
         `web_search (custom) timed out after ${timeoutMs}ms.`,
       );
     }
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `web_search (custom) request failed: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -585,7 +585,7 @@ async function performCustomSearch(
 
   if (!response.ok) {
     const detail = await response.text().catch(() => response.statusText);
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `Custom web search error (${response.status}): ${truncate(detail, 500)}`,
     );
@@ -593,7 +593,7 @@ async function performCustomSearch(
 
   const raw = (await response.json()) as Record<string, unknown>;
   if (typeof raw.error === "string" && raw.error.length > 0) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `Custom web search error: ${raw.error}`,
     );
@@ -601,7 +601,7 @@ async function performCustomSearch(
   const proxyCode = raw.code;
   if (typeof proxyCode === "number" && proxyCode !== 0) {
     const message = typeof raw.msg === "string" ? raw.msg : "search provider error";
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `Custom web search error code=${proxyCode}: ${message}`,
     );

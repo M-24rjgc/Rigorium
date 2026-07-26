@@ -26,7 +26,7 @@ function _caller() {
 const LOCK_FILE_NAME = 'chrome-cdp.lock';
 
 function getUserDataDir() {
-  const configDir = process.env.PILOTDECK_CONFIG_DIR ?? join(homedir(), '.pilotdeck');
+  const configDir = process.env.RIGORIUM_CONFIG_DIR ?? join(homedir(), '.rigorium');
   return join(configDir, 'browser-use-profile');
 }
 

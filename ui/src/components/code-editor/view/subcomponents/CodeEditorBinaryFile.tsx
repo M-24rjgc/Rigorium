@@ -300,13 +300,13 @@ function useOfficeAutoRefresh(
       }
     };
 
-    window.addEventListener('pilotdeck:file-updated', handleRefreshEvent);
-    window.addEventListener('pilotdeck:files-changed', handleRefreshEvent);
-    window.addEventListener('pilotdeck:agent-turn-complete', handleRefreshEvent);
+    window.addEventListener('rigorium:file-updated', handleRefreshEvent);
+    window.addEventListener('rigorium:files-changed', handleRefreshEvent);
+    window.addEventListener('rigorium:agent-turn-complete', handleRefreshEvent);
     return () => {
-      window.removeEventListener('pilotdeck:file-updated', handleRefreshEvent);
-      window.removeEventListener('pilotdeck:files-changed', handleRefreshEvent);
-      window.removeEventListener('pilotdeck:agent-turn-complete', handleRefreshEvent);
+      window.removeEventListener('rigorium:file-updated', handleRefreshEvent);
+      window.removeEventListener('rigorium:files-changed', handleRefreshEvent);
+      window.removeEventListener('rigorium:agent-turn-complete', handleRefreshEvent);
     };
   }, [filePath, projectName, reload]);
 }
@@ -637,7 +637,7 @@ export default function CodeEditorBinaryFile({
         {isOffice && (
           <RefreshButton
             onRefresh={() => {
-              window.dispatchEvent(new CustomEvent('pilotdeck:file-updated', {
+              window.dispatchEvent(new CustomEvent('rigorium:file-updated', {
                 detail: { projectName, filePath: file.path, force: true },
               }));
             }}

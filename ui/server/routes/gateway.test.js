@@ -12,15 +12,15 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
-  delete process.env.PILOT_HOME;
-  delete process.env.PILOTDECK_CONFIG_PATH;
+  delete process.env.RIGORIUM_HOME;
+  delete process.env.RIGORIUM_CONFIG_PATH;
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 describe('gateway WeCom routes', () => {
-  it('returns WeCom status from pilotdeck.yaml', async () => {
+  it('returns WeCom status from rigorium.yaml', async () => {
     const { request } = await createGatewayApp({
       adapters: {
         wecom: {
@@ -52,7 +52,7 @@ describe('gateway WeCom routes', () => {
     });
   });
 
-  it('saves manual WeCom config to pilotdeck.yaml', async () => {
+  it('saves manual WeCom config to rigorium.yaml', async () => {
     const { request, configPath } = await createGatewayApp({});
 
     const result = await request('/api/gateway/wecom/save', {
@@ -186,25 +186,25 @@ describe('gateway WeCom routes', () => {
 });
 
 async function createGatewayApp(initialConfig) {
-  const pilotHome = mkdtempSync(join(tmpdir(), 'pilotdeck-wecom-gateway-'));
-  tempDirs.push(pilotHome);
-  const configPath = join(pilotHome, 'pilotdeck.yaml');
+  const rigoriumHome = mkdtempSync(join(tmpdir(), 'rigorium-wecom-gateway-'));
+  tempDirs.push(rigoriumHome);
+  const configPath = join(rigoriumHome, 'rigorium.yaml');
   writeFileSync(configPath, stringifyYaml(initialConfig), 'utf-8');
 
-  process.env.PILOT_HOME = pilotHome;
-  process.env.PILOTDECK_CONFIG_PATH = configPath;
+  process.env.RIGORIUM_HOME = rigoriumHome;
+  process.env.RIGORIUM_CONFIG_PATH = configPath;
   vi.resetModules();
-  vi.doMock('../services/pilotdeckConfigWatcher.js', () => ({
+  vi.doMock('../services/rigoriumConfigWatcher.js', () => ({
     suppressNextWatchEvent: vi.fn(),
   }));
-  vi.doMock('../services/pilotdeckConfigReloader.js', () => ({
-    reloadPilotDeckConfig: vi.fn(async () => undefined),
+  vi.doMock('../services/rigoriumConfigReloader.js', () => ({
+    reloadRigoriumConfig: vi.fn(async () => undefined),
   }));
-  vi.doMock('../services/pilotdeckConfig.js', () => ({
-    readPilotDeckConfigFile: vi.fn(() => ({ config: {} })),
+  vi.doMock('../services/rigoriumConfig.js', () => ({
+    readRigoriumConfigFile: vi.fn(() => ({ config: {} })),
   }));
-  vi.doMock('../pilotdeck-bridge.js', () => ({
-    getPilotDeckGateway: vi.fn(async () => ({ reloadConfig: vi.fn(async () => undefined) })),
+  vi.doMock('../rigorium-bridge.js', () => ({
+    getRigoriumGateway: vi.fn(async () => ({ reloadConfig: vi.fn(async () => undefined) })),
   }));
 
   const { default: gatewayRoutes } = await import('./gateway.js');

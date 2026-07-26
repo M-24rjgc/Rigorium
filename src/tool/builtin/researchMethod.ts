@@ -12,12 +12,12 @@ import {
   type ObservedConclusion,
   type VerificationRecord,
 } from "../../research/method/index.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 
 export type ResearchMethodToolInput =
@@ -74,7 +74,7 @@ export type CreateResearchMethodToolOptions = Readonly<{
 
 export function createResearchMethodTool(
   options: CreateResearchMethodToolOptions = {},
-): PilotDeckToolDefinition<ResearchMethodToolInput, ResearchMethodToolResult> {
+): RigoriumToolDefinition<ResearchMethodToolInput, ResearchMethodToolResult> {
   return {
     name: "research_method",
     title: "Specify and Verify a Research Method",
@@ -93,7 +93,7 @@ Use action=create_spec or revise_spec to materialize mathematical definitions, a
         const result = await executeAction(input, context);
         return formatOutput(result);
       } catch (error) {
-        throw new PilotDeckToolRuntimeError("invalid_tool_input", `Invalid research method action: ${messageOf(error)}`);
+        throw new RigoriumToolRuntimeError("invalid_tool_input", `Invalid research method action: ${messageOf(error)}`);
       }
     },
   };
@@ -101,7 +101,7 @@ Use action=create_spec or revise_spec to materialize mathematical definitions, a
 
 async function executeAction(
   input: ResearchMethodToolInput,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
 ): Promise<ResearchMethodToolResult> {
   requireActionInput(input);
   const now = context.now?.();
@@ -167,8 +167,8 @@ async function executeAction(
 
 async function validateInput(
   input: ResearchMethodToolInput,
-  context: PilotDeckToolRuntimeContext,
-): Promise<PilotDeckToolValidationResult> {
+  context: RigoriumToolRuntimeContext,
+): Promise<RigoriumToolValidationResult> {
   try {
     requireActionInput(input);
     const validationDate = new Date("2000-01-01T00:00:00.000Z");
@@ -195,7 +195,7 @@ async function validateInput(
     }
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = { path: "$", code: "invalid_schema", message: messageOf(error) };
+    const issue: RigoriumToolValidationIssue = { path: "$", code: "invalid_schema", message: messageOf(error) };
     return { ok: false, issues: [issue] };
   }
 }
@@ -249,7 +249,7 @@ function researchMethodInputSchema() {
   };
 }
 
-function formatOutput(result: ResearchMethodToolResult): PilotDeckToolExecutionOutput<ResearchMethodToolResult> {
+function formatOutput(result: ResearchMethodToolResult): RigoriumToolExecutionOutput<ResearchMethodToolResult> {
   let lines: string[];
   let metadata: Record<string, unknown>;
   if (result.action === "create_spec" || result.action === "revise_spec") {

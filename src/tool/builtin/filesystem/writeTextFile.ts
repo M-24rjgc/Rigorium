@@ -1,6 +1,6 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { PilotDeckToolRuntimeError } from "../../protocol/errors.js";
+import { RigoriumToolRuntimeError } from "../../protocol/errors.js";
 
 export async function writeTextFile(
   filePath: string,
@@ -15,11 +15,11 @@ export async function writeTextFile(
   });
 
   if (existing && !existing.isFile()) {
-    throw new PilotDeckToolRuntimeError("file_conflict", `${filePath} exists and is not a regular file.`);
+    throw new RigoriumToolRuntimeError("file_conflict", `${filePath} exists and is not a regular file.`);
   }
 
   if (existing && !options?.allowOverwrite) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "file_conflict",
       `${filePath} already exists. Set allow_overwrite to true to overwrite it.`,
     );

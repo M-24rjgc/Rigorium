@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { ToolResultBudget } from "../../src/context/budget/ToolResultBudget.js";
 import { createAgentProjectSessionStorage } from "../../src/session/storage/ProjectSessionStorage.js";
 import { createReadFileTool } from "../../src/tool/builtin/readFile.js";
-import { resolvePilotDeckWorkspacePath } from "../../src/tool/builtin/filesystem/pathSafety.js";
+import { resolveRigoriumWorkspacePath } from "../../src/tool/builtin/filesystem/pathSafety.js";
 
 function context(
   cwd: string,
@@ -30,17 +30,17 @@ function context(
   };
 }
 
-test("large tool results are persisted under workspace .pilotdeck and readable by read_file", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-readable-tool-result-"));
-  const pilotHome = await mkdtemp(join(tmpdir(), "pilotdeck-home-"));
+test("large tool results are persisted under workspace .rigorium and readable by read_file", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-readable-tool-result-"));
+  const rigoriumHome = await mkdtemp(join(tmpdir(), "rigorium-home-"));
   try {
     const storage = createAgentProjectSessionStorage({
       projectRoot,
-      pilotHome,
+      rigoriumHome,
       sessionId: "web:s_test",
       now: () => new Date("2026-07-09T00:00:00.000Z"),
     });
-    assert.match(relative(projectRoot, storage.toolResultsDir), /^\.pilotdeck[\/\\]tool-results[\/\\]/);
+    assert.match(relative(projectRoot, storage.toolResultsDir), /^\.rigorium[\/\\]tool-results[\/\\]/);
 
     const budget = new ToolResultBudget({
       toolResultsDir: storage.toolResultsDir,
@@ -59,9 +59,9 @@ test("large tool results are persisted under workspace .pilotdeck and readable b
 
     const ref = message.content.find((block) => block.type === "tool_result_reference");
     assert.ok(ref, "expected a persisted tool_result_reference");
-    assert.match(relative(projectRoot, ref.path), /^\.pilotdeck[\/\\]tool-results[\/\\]/);
+    assert.match(relative(projectRoot, ref.path), /^\.rigorium[\/\\]tool-results[\/\\]/);
     assert.equal(ref.path.includes(String.fromCharCode(92)), false, "protocol paths use forward slashes");
-    assert.equal(ref.readFilePath, ".pilotdeck/tool-results/refs/result-0001.txt");
+    assert.equal(ref.readFilePath, ".rigorium/tool-results/refs/result-0001.txt");
     assert.equal(ref.readFilePath.includes(String.fromCharCode(92)), false, "read_file aliases use forward slashes");
     assert.equal(await readFile(join(projectRoot, ref.readFilePath), "utf8"), `alpha\n${"x".repeat(200)}\nomega`);
 
@@ -80,20 +80,20 @@ test("large tool results are persisted under workspace .pilotdeck and readable b
     assert.match(backslashText, /2\|x+/);
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
-    await rm(pilotHome, { recursive: true, force: true });
+    await rm(rigoriumHome, { recursive: true, force: true });
   }
 });
 
 test("workspace paths accept both separator styles, emit protocol paths, and reject escapes", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-path-boundary-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-path-boundary-"));
   try {
     const secureContext = context(projectRoot, "default");
-    const forward = resolvePilotDeckWorkspacePath("nested/file.txt", secureContext);
-    const backslash = resolvePilotDeckWorkspacePath(
+    const forward = resolveRigoriumWorkspacePath("nested/file.txt", secureContext);
+    const backslash = resolveRigoriumWorkspacePath(
       ["nested", "file.txt"].join(win32.sep),
       secureContext,
     );
-    const escaped = resolvePilotDeckWorkspacePath(
+    const escaped = resolveRigoriumWorkspacePath(
       ["..", "outside.txt"].join(win32.sep),
       secureContext,
     );
@@ -114,12 +114,12 @@ test("workspace paths accept both separator styles, emit protocol paths, and rej
 });
 
 test("large tool result read_file aliases are short and sequential", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-readable-tool-result-seq-"));
-  const pilotHome = await mkdtemp(join(tmpdir(), "pilotdeck-home-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-readable-tool-result-seq-"));
+  const rigoriumHome = await mkdtemp(join(tmpdir(), "rigorium-home-"));
   try {
     const storage = createAgentProjectSessionStorage({
       projectRoot,
-      pilotHome,
+      rigoriumHome,
       sessionId: "web:s_test",
       now: () => new Date("2026-07-09T00:00:00.000Z"),
     });
@@ -143,10 +143,10 @@ test("large tool result read_file aliases are short and sequential", async () =>
     const secondRef = second.content.find((block) => block.type === "tool_result_reference");
     assert.ok(firstRef);
     assert.ok(secondRef);
-    assert.equal(firstRef.readFilePath, ".pilotdeck/tool-results/refs/result-0001.txt");
-    assert.equal(secondRef.readFilePath, ".pilotdeck/tool-results/refs/result-0002.txt");
+    assert.equal(firstRef.readFilePath, ".rigorium/tool-results/refs/result-0001.txt");
+    assert.equal(secondRef.readFilePath, ".rigorium/tool-results/refs/result-0002.txt");
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
-    await rm(pilotHome, { recursive: true, force: true });
+    await rm(rigoriumHome, { recursive: true, force: true });
   }
 });

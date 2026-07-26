@@ -1,1 +1,1 @@
-export type CliProvider = 'claude' | 'cursor' | 'codex' | 'gemini' | 'pilotdeck';
+export type CliProvider = 'claude' | 'cursor' | 'codex' | 'gemini' | 'rigorium';

@@ -14,7 +14,7 @@ export function buildReconnectStatusMessage(sessionId: string) {
   return {
     type: 'check-session-status',
     sessionId,
-    provider: 'pilotdeck',
+    provider: 'rigorium',
     includeActiveTurnMessages: true,
   };
 }

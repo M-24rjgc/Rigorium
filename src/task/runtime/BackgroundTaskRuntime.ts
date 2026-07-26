@@ -6,7 +6,7 @@
  * Process model:
  *   - `start(spec)` spawns a *detached* child via `spawn(command, { shell:
  *     true, detached: true })` and immediately calls `child.unref()` so the
- *     PilotDeck process can exit without waiting for the child. (T11)
+ *     Rigorium process can exit without waiting for the child. (T11)
  *   - stdout / stderr are piped into a `TaskOutputStore` (1 MB ring buffer
  *     + optional disk spill). The runtime never blocks on the stream — the
  *     child runs free until either it exits or `stop` is called.
@@ -25,17 +25,17 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { TaskOutputStore } from "../storage/TaskOutputStore.js";
 import type {
-  PilotDeckBackgroundBashTask,
-  PilotDeckBackgroundTaskStatus,
-  PilotDeckBackgroundTaskKind,
-  PilotDeckBackgroundTaskListFilter,
-  PilotDeckTaskOutputSlice,
+  RigoriumBackgroundBashTask,
+  RigoriumBackgroundTaskStatus,
+  RigoriumBackgroundTaskKind,
+  RigoriumBackgroundTaskListFilter,
+  RigoriumTaskOutputSlice,
 } from "../protocol/types.js";
 
 export type BackgroundTaskCompletionEvent = {
   sessionId?: string;
   taskId: string;
-  status: Extract<PilotDeckBackgroundTaskStatus, "completed" | "failed" | "cancelled">;
+  status: Extract<RigoriumBackgroundTaskStatus, "completed" | "failed" | "cancelled">;
   exitCode?: number | null;
   outputPreview: string;
   totalBytes: number;
@@ -66,7 +66,7 @@ export type StartTaskSpec = {
   env?: NodeJS.ProcessEnv;
   sessionId?: string;
   agentId?: string;
-  kind?: PilotDeckBackgroundTaskKind;
+  kind?: RigoriumBackgroundTaskKind;
 };
 
 export type StopTaskOptions = {
@@ -79,14 +79,14 @@ export type WaitTaskOptions = {
 };
 
 export type WaitTaskResult = {
-  task: PilotDeckBackgroundBashTask;
+  task: RigoriumBackgroundBashTask;
   timedOut: boolean;
   outcome: "completed" | "timeout" | "aborted";
   waitedMs: number;
 };
 
 type RuntimeEntry = {
-  task: PilotDeckBackgroundBashTask;
+  task: RigoriumBackgroundBashTask;
   child?: ChildProcess;
   output: TaskOutputStore;
   /** Resolved when the child has fully exited (success, failure, or kill). */
@@ -115,8 +115,8 @@ export class BackgroundTaskRuntime {
     };
   }
 
-  list(filter: PilotDeckBackgroundTaskListFilter = {}): PilotDeckBackgroundBashTask[] {
-    const result: PilotDeckBackgroundBashTask[] = [];
+  list(filter: RigoriumBackgroundTaskListFilter = {}): RigoriumBackgroundBashTask[] {
+    const result: RigoriumBackgroundBashTask[] = [];
     for (const entry of this.entries.values()) {
       if (filter.agentId && entry.task.agentId !== filter.agentId) continue;
       if (filter.kind && entry.task.kind !== filter.kind) continue;
@@ -129,7 +129,7 @@ export class BackgroundTaskRuntime {
     return result;
   }
 
-  get(taskId: string): PilotDeckBackgroundBashTask | undefined {
+  get(taskId: string): RigoriumBackgroundBashTask | undefined {
     return this.entries.get(taskId)?.task;
   }
 
@@ -182,7 +182,7 @@ export class BackgroundTaskRuntime {
    * forked (typically <10 ms). `task.status` flips to `running` on spawn
    * and `completed` / `failed` / `cancelled` later via the `exit` listener.
    */
-  async start(spec: StartTaskSpec): Promise<PilotDeckBackgroundBashTask> {
+  async start(spec: StartTaskSpec): Promise<RigoriumBackgroundBashTask> {
     if (this.entries.size >= this.options.maxTasks) {
       throw new Error(
         `BackgroundTaskRuntime: max tasks (${this.options.maxTasks}) exceeded.`,
@@ -191,7 +191,7 @@ export class BackgroundTaskRuntime {
 
     const taskId = randomUUID();
     const startedAt = this.options.now();
-    const task: PilotDeckBackgroundBashTask = {
+    const task: RigoriumBackgroundBashTask = {
       taskId,
       type: "local_bash",
       agentId: spec.agentId,
@@ -325,21 +325,21 @@ export class BackgroundTaskRuntime {
     await Promise.all(targets.map((e) => this.stop(e.task.taskId)));
   }
 
-  getOutput(taskId: string, offset: number, maxBytes?: number): PilotDeckTaskOutputSlice {
+  getOutput(taskId: string, offset: number, maxBytes?: number): RigoriumTaskOutputSlice {
     const entry = this.entries.get(taskId);
     if (!entry) throw new Error(`Unknown taskId: ${taskId}`);
     return entry.output.readSlice(offset, maxBytes);
   }
 
   /** Convenience used in tests: `await runtime.waitFor(taskId)`. */
-  async waitFor(taskId: string): Promise<PilotDeckBackgroundBashTask> {
+  async waitFor(taskId: string): Promise<RigoriumBackgroundBashTask> {
     const entry = this.entries.get(taskId);
     if (!entry) throw new Error(`Unknown taskId: ${taskId}`);
     await entry.done;
     return entry.task;
   }
 
-  private notifyCompletion(task: PilotDeckBackgroundBashTask, output: TaskOutputStore): void {
+  private notifyCompletion(task: RigoriumBackgroundBashTask, output: TaskOutputStore): void {
     if (!this.options.onCompletion || !task.endedAt) {
       return;
     }

@@ -37,7 +37,7 @@ export type PromptAssemblerResult = {
 /**
  * Build the system prompt for a turn. Mirrors legacy `fetchSystemPromptParts`
  * information slots (tool catalog / cwd / git / env / mcp instructions /
- * commands / skills) but uses PilotDeck-authored copy.
+ * commands / skills) but uses Rigorium-authored copy.
  *
  * Sections (review decision 2026-05):
  *   1 default_system_prompt   — product identity + tool catalog + permission mode

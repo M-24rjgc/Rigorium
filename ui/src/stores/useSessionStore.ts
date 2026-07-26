@@ -85,10 +85,10 @@ export interface NormalizedMessage {
   toolResultImages?: Array<{ data: string; mimeType?: string; name?: string }>;
   isError?: boolean;
   /**
-   * `PilotDeckToolErrorCode` from the gateway when `kind === 'tool_result'`
+   * `RigoriumToolErrorCode` from the gateway when `kind === 'tool_result'`
    * and `isError === true` — flat on the frame because the bridge merges
    * `tool_call_finished.errorCode` here verbatim. See
-   * `pilotdeck-bridge.js#tool_call_finished` and `chatPermissions.ts`.
+   * `rigorium-bridge.js#tool_call_finished` and `chatPermissions.ts`.
    */
   errorCode?: string;
   resultPath?: string;

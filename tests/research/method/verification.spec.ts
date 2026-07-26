@@ -148,7 +148,7 @@ test("pre-cancelled and timed-out checks preserve their distinct failure states"
 
 test("verification exposes only an allowlisted runtime environment", async () => {
   const roots = await isolatedRoots("environment");
-  const secretName = "PILOTDECK_TEST_API_SECRET";
+  const secretName = "RIGORIUM_TEST_API_SECRET";
   const previous = process.env[secretName];
   process.env[secretName] = "must-not-reach-the-check";
   try {

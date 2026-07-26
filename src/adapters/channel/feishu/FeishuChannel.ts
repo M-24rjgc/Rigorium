@@ -155,7 +155,7 @@ export class FeishuChannel implements ChannelAdapter {
   private readonly elicitation = new ImElicitationHelper();
   private readonly permissions = new ImPermissionHelper();
   private readonly attachmentStore = new ImAttachmentStore({
-    rootDir: join(homedir(), ".pilotdeck", "im-attachments"),
+    rootDir: join(homedir(), ".rigorium", "im-attachments"),
     channelKey: "feishu",
     maxBytes: FEISHU_MAX_ATTACHMENT_BYTES,
     fetchTimeoutMs: FEISHU_ATTACHMENT_FETCH_TIMEOUT_MS,
@@ -191,7 +191,7 @@ export class FeishuChannel implements ChannelAdapter {
     if (!this.explicitSend && (!this.appId || !this.appSecret)) {
       this.logger?.warn?.(
         "feishu: appId/appSecret not configured; outbound replies will not be sent. " +
-          "Configure adapters.feishu.appId/appSecret in pilotdeck.yaml.",
+          "Configure adapters.feishu.appId/appSecret in rigorium.yaml.",
       );
       return { stop: async () => undefined };
     }
@@ -201,7 +201,7 @@ export class FeishuChannel implements ChannelAdapter {
       if (!ok) {
         this.logger?.warn?.(
           "feishu: stream mode failed to start; falling back to webhook-only " +
-            "(set adapters.feishu.connectionMode: webhook in pilotdeck.yaml to silence this).",
+            "(set adapters.feishu.connectionMode: webhook in rigorium.yaml to silence this).",
         );
       }
     } else {

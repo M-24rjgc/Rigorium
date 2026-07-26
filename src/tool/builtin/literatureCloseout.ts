@@ -27,12 +27,12 @@ import { createOpenAlexSource } from "../../research/literature/openAlexSource.j
 import { createZoteroLibraryProvider } from "../../research/library/zoteroProvider.js";
 import { readResearchSettings } from "../../research/settings.js";
 import type { ResearchSettings } from "../../research/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 import {
   createLiteratureSearchTool,
@@ -130,7 +130,7 @@ export type CreateLiteratureCloseoutToolOptions = Readonly<{
  */
 export function createLiteratureCloseoutTool(
   options: CreateLiteratureCloseoutToolOptions = {},
-): PilotDeckToolDefinition<LiteratureCloseoutInput, LiteratureCloseoutResult> {
+): RigoriumToolDefinition<LiteratureCloseoutInput, LiteratureCloseoutResult> {
   const searchTool = createLiteratureSearchTool(options.search);
   return {
     name: TOOL_NAME,
@@ -147,7 +147,7 @@ Use action=evidence_pack only with an exact source snapshot and a page, paragrap
     isOpenWorld: (input) => input?.action === "novelty_rescan"
       || (input?.action === "candidate_monitor_poll"
         && (input.monitorSourceIds === undefined || input.monitorSourceIds.includes("arxiv"))),
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => validateInput(input),
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => validateInput(input),
     checkPermissions: async (input, context): Promise<PermissionResult> => {
       let normalized: LiteratureCloseoutInput;
       try {
@@ -186,9 +186,9 @@ Use action=evidence_pack only with an exact source snapshot and a page, paragrap
 
 async function executeEvidencePack(
   input: LiteratureCloseoutEvidenceInput,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
   options: CreateLiteratureCloseoutToolOptions,
-): Promise<PilotDeckToolExecutionOutput<LiteratureCloseoutResult>> {
+): Promise<RigoriumToolExecutionOutput<LiteratureCloseoutResult>> {
   const now = context.now?.() ?? new Date();
   let artifact: EvidencePackArtifact;
   if (input.entries) {
@@ -206,7 +206,7 @@ async function executeEvidencePack(
     const attachment = input.zoteroAttachment!;
     const settings = (await readSettings(context)).effective;
     if (!settings.zotero.enabled) {
-      throw new PilotDeckToolRuntimeError("setup_required", "Zotero is disabled in Research Settings.");
+      throw new RigoriumToolRuntimeError("setup_required", "Zotero is disabled in Research Settings.");
     }
     const provider = createZoteroLibraryProvider({
       baseUrl: settings.zotero.baseUrl,
@@ -228,7 +228,7 @@ async function executeEvidencePack(
         now,
       });
     } catch (error) {
-      throw new PilotDeckToolRuntimeError(
+      throw new RigoriumToolRuntimeError(
         "tool_execution_failed",
         `Zotero evidence capture failed: ${errorMessage(error)}`,
       );
@@ -246,15 +246,15 @@ async function executeEvidencePack(
 
 async function executeNoveltyRescan(
   input: LiteratureCloseoutNoveltyInput,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
   options: CreateLiteratureCloseoutToolOptions,
-): Promise<PilotDeckToolExecutionOutput<LiteratureCloseoutResult>> {
+): Promise<RigoriumToolExecutionOutput<LiteratureCloseoutResult>> {
   const settings = (await readSettings(context)).effective;
   if (!settings.literature.enabled) {
-    throw new PilotDeckToolRuntimeError("setup_required", "Academic literature search is disabled in Research Settings.");
+    throw new RigoriumToolRuntimeError("setup_required", "Academic literature search is disabled in Research Settings.");
   }
   if (!settings.privacy.allowRemoteMetadataSearch) {
-    throw new PilotDeckToolRuntimeError("permission_denied", "Remote metadata search is disabled by Research Settings privacy controls.");
+    throw new RigoriumToolRuntimeError("permission_denied", "Remote metadata search is disabled by Research Settings privacy controls.");
   }
   const requestedLimit = input.limitPerSource ?? settings.literature.search.defaultLimit;
   const limitPerSource = Math.min(requestedLimit, settings.literature.budget.maxResultsPerSearch);
@@ -288,13 +288,13 @@ async function executeNoveltyRescan(
 
 async function executeCandidateMonitor(
   input: LiteratureCloseoutMonitorInput,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
   options: CreateLiteratureCloseoutToolOptions,
-): Promise<PilotDeckToolExecutionOutput<LiteratureCloseoutResult>> {
+): Promise<RigoriumToolExecutionOutput<LiteratureCloseoutResult>> {
   await requireProjectDirectory(context.cwd);
   const settings = (await readSettings(context)).effective;
   if (!settings.literature.enabled) {
-    throw new PilotDeckToolRuntimeError("setup_required", "Academic literature monitoring is disabled in Research Settings.");
+    throw new RigoriumToolRuntimeError("setup_required", "Academic literature monitoring is disabled in Research Settings.");
   }
   const sources = monitorSources(input, settings, context, options);
   let monitor: MonitorResult;
@@ -306,7 +306,7 @@ async function executeCandidateMonitor(
       now: context.now,
     });
   } catch (error) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `Candidate monitor poll failed: ${errorMessage(error)}`,
     );
@@ -363,7 +363,7 @@ function noveltySources(
 function monitorSources(
   input: LiteratureCloseoutMonitorInput,
   settings: ResearchSettings,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
   options: CreateLiteratureCloseoutToolOptions,
 ): LiteratureCandidateMonitorSource[] {
   const search = options.search ?? {};
@@ -429,7 +429,7 @@ function disabledMonitorSource(
   id: string,
   name: string,
   reason: string,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
 ): LiteratureCandidateMonitorSource {
   return {
     id,
@@ -580,11 +580,11 @@ function normalizeMonitorInput(value: Record<string, unknown>): LiteratureCloseo
   };
 }
 
-function validateInput(input: unknown): PilotDeckToolValidationResult {
+function validateInput(input: unknown): RigoriumToolValidationResult {
   try {
     return { ok: true, input: normalizeInput(input) };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = {
+    const issue: RigoriumToolValidationIssue = {
       path: "$",
       code: "invalid_schema",
       message: errorMessage(error),
@@ -702,7 +702,7 @@ function inputSchema() {
   };
 }
 
-function formatOutput(result: LiteratureCloseoutResult): PilotDeckToolExecutionOutput<LiteratureCloseoutResult> {
+function formatOutput(result: LiteratureCloseoutResult): RigoriumToolExecutionOutput<LiteratureCloseoutResult> {
   const lines = [
     `Literature closeout: ${result.action}`,
     "Zotero write: no",
@@ -759,9 +759,9 @@ function safety(candidateOnly: boolean): CloseoutSafety {
   };
 }
 
-async function readSettings(context: PilotDeckToolRuntimeContext) {
+async function readSettings(context: RigoriumToolRuntimeContext) {
   return readResearchSettings({
-    pilotHome: context.env?.PILOT_HOME,
+    rigoriumHome: context.env?.RIGORIUM_HOME,
     projectRoot: context.cwd,
   });
 }
@@ -771,7 +771,7 @@ async function requireProjectDirectory(path: string): Promise<void> {
     const info = await stat(path);
     if (!info.isDirectory()) throw new Error("not a directory");
   } catch {
-    throw new PilotDeckToolRuntimeError("path_not_allowed", "Candidate monitoring requires an existing current Project directory.");
+    throw new RigoriumToolRuntimeError("path_not_allowed", "Candidate monitoring requires an existing current Project directory.");
   }
 }
 
@@ -829,10 +829,10 @@ function assertAllowedKeys(value: Record<string, unknown>, allowed: readonly str
   if (unknown) throw new TypeError(`${label}.${unknown} is not supported for this action.`);
 }
 
-function invalidInput(error: unknown): PilotDeckToolRuntimeError {
-  return error instanceof PilotDeckToolRuntimeError
+function invalidInput(error: unknown): RigoriumToolRuntimeError {
+  return error instanceof RigoriumToolRuntimeError
     ? error
-    : new PilotDeckToolRuntimeError("invalid_tool_input", errorMessage(error));
+    : new RigoriumToolRuntimeError("invalid_tool_input", errorMessage(error));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

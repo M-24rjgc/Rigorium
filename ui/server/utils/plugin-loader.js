@@ -4,8 +4,8 @@ import os from 'os';
 import { spawn } from 'child_process';
 import { prepareCliSpawn } from './processSpawn.js';
 
-const PLUGINS_DIR = path.join(os.homedir(), '.pilotdeck', 'plugins');
-const PLUGINS_CONFIG_PATH = path.join(os.homedir(), '.pilotdeck', 'plugins.json');
+const PLUGINS_DIR = path.join(os.homedir(), '.rigorium', 'plugins');
+const PLUGINS_CONFIG_PATH = path.join(os.homedir(), '.rigorium', 'plugins.json');
 
 const REQUIRED_MANIFEST_FIELDS = ['name', 'displayName', 'entry'];
 

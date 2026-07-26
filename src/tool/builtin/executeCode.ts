@@ -5,9 +5,9 @@ import path from "node:path";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import type { Readable } from "node:stream";
-import type { PilotDeckToolDefinition, PilotDeckToolRuntimeContext } from "../protocol/types.js";
-import { contentToText, type PilotDeckToolResult } from "../protocol/result.js";
-import type { PilotDeckToolValidationIssue } from "../protocol/schema.js";
+import type { RigoriumToolDefinition, RigoriumToolRuntimeContext } from "../protocol/types.js";
+import { contentToText, type RigoriumToolResult } from "../protocol/result.js";
+import type { RigoriumToolValidationIssue } from "../protocol/schema.js";
 import { isReadOnlyShellCommand } from "./bash/permissions.js";
 import { collectPythonSyntaxDiagnostics } from "./filesystem/syntaxDiagnostics.js";
 
@@ -65,7 +65,7 @@ export async function handleExecuteCodeRpcLineForTests(
   line: string,
   options: {
     expectedToken?: string;
-    executeTool?: NonNullable<PilotDeckToolRuntimeContext["executeTool"]>;
+    executeTool?: NonNullable<RigoriumToolRuntimeContext["executeTool"]>;
   } = {},
 ): Promise<RpcResponse> {
   return handleRpcLine(line, {
@@ -110,11 +110,11 @@ const EXECUTE_CODE_ALLOWED_TOOLS = new Set([
   "bash",
 ]);
 
-export function createExecuteCodeTool(): PilotDeckToolDefinition<ExecuteCodeInput, ExecuteCodeOutput> {
+export function createExecuteCodeTool(): RigoriumToolDefinition<ExecuteCodeInput, ExecuteCodeOutput> {
   return {
     name: "execute_code",
     description:
-      "Run a local Python 3 script that can call a small allow-list of Rigorium tools via `import pilotdeck_tools`. " +
+      "Run a local Python 3 script that can call a small allow-list of Rigorium tools via `import rigorium_tools`. " +
       "The script runs from the workspace cwd and inherits the same runtime environment as normal tools such as bash, including configured API, proxy, PATH, virtualenv, and conda variables; do not print secrets or dump the full environment. " +
       "Only the script's final stdout/stderr summary is returned to the model; intermediate tool results stay inside the script. " +
       "Available helper functions: web_search, deepseek_native_search, web_fetch, read_file, write_file, edit_file, grep, glob, bash. " +
@@ -129,7 +129,7 @@ export function createExecuteCodeTool(): PilotDeckToolDefinition<ExecuteCodeInpu
       properties: {
         code: {
           type: "string",
-          description: "Python 3 source code to execute. Use `from pilotdeck_tools import ...` to call allowed Rigorium tools.",
+          description: "Python 3 source code to execute. Use `from rigorium_tools import ...` to call allowed Rigorium tools.",
         },
         description: {
           type: "string",
@@ -179,7 +179,7 @@ export function createExecuteCodeTool(): PilotDeckToolDefinition<ExecuteCodeInpu
 }
 
 async function validateExecuteCodeInput(input: ExecuteCodeInput) {
-  const issues: PilotDeckToolValidationIssue[] = [];
+  const issues: RigoriumToolValidationIssue[] = [];
   if (!input.code.trim()) {
     issues.push({ path: "$.code", code: "invalid_schema", message: "$.code must not be empty." });
   }
@@ -313,14 +313,14 @@ function createRpcTransport(): RpcTransport {
     kind: "uds",
     socketPath: path.join(
       process.platform === "darwin" ? "/tmp" : tmpdir(),
-      `pilotdeck_rpc_${process.pid}_${Date.now()}_${Math.random().toString(16).slice(2)}.sock`,
+      `rigorium_rpc_${process.pid}_${Date.now()}_${Math.random().toString(16).slice(2)}.sock`,
     ),
   };
 }
 
 async function runExecuteCode(
   input: ExecuteCodeInput,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
   startedAt: number,
 ): Promise<ExecuteCodeOutput> {
   const timeoutSeconds = input.timeout_seconds ?? DEFAULT_TIMEOUT_SECONDS;
@@ -345,7 +345,7 @@ async function runExecuteCode(
     return buildOutput("unsupported", "", "execute_code requires python3 on PATH.", startedAt, toolCallsMade, toolCallLog);
   }
 
-  const tempRoot = await mkdtemp(path.join(tmpdir(), "pilotdeck_execute_code_"));
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "rigorium_execute_code_"));
   let transport = createRpcTransport();
   let server: Server | undefined;
   let child: ChildProcessByStdio<null, Readable, Readable> | undefined;
@@ -362,7 +362,7 @@ async function runExecuteCode(
   };
 
   try {
-    await writeFile(path.join(tempRoot, "pilotdeck_tools.py"), generatePilotDeckToolsModule(transport.kind), "utf8");
+    await writeFile(path.join(tempRoot, "rigorium_tools.py"), generateRigoriumToolsModule(transport.kind), "utf8");
     await writeFile(path.join(tempRoot, "script.py"), input.code, "utf8");
 
     server = createRpcServer({
@@ -429,8 +429,8 @@ async function runExecuteCode(
 }
 
 function createRpcServer(options: {
-  context: PilotDeckToolRuntimeContext;
-  executeTool: NonNullable<PilotDeckToolRuntimeContext["executeTool"]>;
+  context: RigoriumToolRuntimeContext;
+  executeTool: NonNullable<RigoriumToolRuntimeContext["executeTool"]>;
   maxToolCalls: number;
   toolCallLog: ExecuteCodeToolCallLogEntry[];
   nextToolCall: () => number;
@@ -461,8 +461,8 @@ async function processBufferedRequests(
   socket: Socket,
   takeLines: () => string[],
   options: {
-    context: PilotDeckToolRuntimeContext;
-    executeTool: NonNullable<PilotDeckToolRuntimeContext["executeTool"]>;
+    context: RigoriumToolRuntimeContext;
+    executeTool: NonNullable<RigoriumToolRuntimeContext["executeTool"]>;
     maxToolCalls: number;
     toolCallLog: ExecuteCodeToolCallLogEntry[];
     nextToolCall: () => number;
@@ -481,8 +481,8 @@ async function processBufferedRequests(
 async function handleRpcLine(
   line: string,
   options: {
-    context: PilotDeckToolRuntimeContext;
-    executeTool: NonNullable<PilotDeckToolRuntimeContext["executeTool"]>;
+    context: RigoriumToolRuntimeContext;
+    executeTool: NonNullable<RigoriumToolRuntimeContext["executeTool"]>;
     maxToolCalls: number;
     toolCallLog: ExecuteCodeToolCallLogEntry[];
     nextToolCall: () => number;
@@ -524,7 +524,7 @@ async function handleRpcLine(
   return toolResultToRpcResponse(result);
 }
 
-function toolResultToRpcResponse(result: PilotDeckToolResult): RpcResponse {
+function toolResultToRpcResponse(result: RigoriumToolResult): RpcResponse {
   const content = result.content.map(contentToText).join("\n");
   if (result.type === "error") {
     const details = formatToolErrorDetails(result);
@@ -542,7 +542,7 @@ function toolResultToRpcResponse(result: PilotDeckToolResult): RpcResponse {
   };
 }
 
-function formatToolErrorDetails(result: Extract<PilotDeckToolResult, { type: "error" }>): string | undefined {
+function formatToolErrorDetails(result: Extract<RigoriumToolResult, { type: "error" }>): string | undefined {
   const issues = result.error.details?.issues;
   if (!Array.isArray(issues)) return undefined;
   const messages = issues
@@ -551,7 +551,7 @@ function formatToolErrorDetails(result: Extract<PilotDeckToolResult, { type: "er
   return messages.length > 0 ? messages.join("\n") : undefined;
 }
 
-function generatePilotDeckToolsModule(kind: RpcTransport["kind"]): string {
+function generateRigoriumToolsModule(kind: RpcTransport["kind"]): string {
   const transportHeader = kind === "tcp" ? TCP_PYTHON_TRANSPORT_HEADER : UDS_PYTHON_TRANSPORT_HEADER;
   return `${transportHeader}
 
@@ -636,7 +636,7 @@ def _connect():
     global _sock
     if _sock is None:
         _sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        _sock.connect(os.environ["PILOTDECK_RPC_SOCKET"])
+        _sock.connect(os.environ["RIGORIUM_RPC_SOCKET"])
         _sock.settimeout(300)
     return _sock
 
@@ -665,14 +665,14 @@ import shlex
 import socket
 
 _sock = None
-_token = os.environ["PILOTDECK_RPC_TOKEN"]
+_token = os.environ["RIGORIUM_RPC_TOKEN"]
 
 
 def _connect():
     global _sock
     if _sock is None:
-        host = os.environ.get("PILOTDECK_RPC_HOST", "127.0.0.1")
-        port = int(os.environ["PILOTDECK_RPC_PORT"])
+        host = os.environ.get("RIGORIUM_RPC_HOST", "127.0.0.1")
+        port = int(os.environ["RIGORIUM_RPC_PORT"])
         _sock = socket.create_connection((host, port), timeout=300)
         _sock.settimeout(300)
     return _sock
@@ -716,14 +716,14 @@ function buildChildEnv(
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...source };
   env.PYTHONPATH = source.PYTHONPATH ? `${tempRoot}${path.delimiter}${source.PYTHONPATH}` : tempRoot;
-  env.PILOTDECK_WORKSPACE_CWD = workspaceCwd;
-  env.PILOTDECK_EXECUTE_CODE_TEMP_ROOT = tempRoot;
+  env.RIGORIUM_WORKSPACE_CWD = workspaceCwd;
+  env.RIGORIUM_EXECUTE_CODE_TEMP_ROOT = tempRoot;
   if (transport.kind === "uds") {
-    env.PILOTDECK_RPC_SOCKET = transport.socketPath;
+    env.RIGORIUM_RPC_SOCKET = transport.socketPath;
   } else {
-    env.PILOTDECK_RPC_HOST = transport.host;
-    env.PILOTDECK_RPC_PORT = String(transport.port);
-    env.PILOTDECK_RPC_TOKEN = transport.token;
+    env.RIGORIUM_RPC_HOST = transport.host;
+    env.RIGORIUM_RPC_PORT = String(transport.port);
+    env.RIGORIUM_RPC_TOKEN = transport.token;
   }
   env.PYTHONDONTWRITEBYTECODE = "1";
   return env;

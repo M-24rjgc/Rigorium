@@ -4,7 +4,7 @@
 
 Rigorium 是一个本地优先的长期科研工作空间。它把项目、文件、智能体会话、任务、记忆、工具和自动化放在同一工作区中，使研究活动能够持续积累、检查和复用。
 
-当前初始版本先建立独立的 Rigorium 名称和视觉身份，同时保持现有运行能力不变。科研专用工作流将在共享工作区基础上逐步增加。
+Rigorium 拥有独立的仓库、发布通道和桌面应用身份；科研专用工作流将在共享工作区基础上逐步增加。
 
 ## 当前能力
 
@@ -38,19 +38,16 @@ corepack pnpm install --frozen-lockfile
 corepack pnpm dev
 ```
 
-生产构建后，兼容阶段同时提供两个命令：
+生产构建后，可通过以下命令启动命令行应用：
 
 ```powershell
 rigorium
-pilotdeck
 ```
 
-首个版本暂时保留 `~/.pilotdeck`、`pilotdeck.yaml` 和 `PILOTDECK_*` 等内部路径与环境变量，避免破坏现有配置和第三方接入。
+## 仓库与许可证
 
-## 来源与许可证
+Rigorium 通过 [M-24rjgc/Rigorium](https://github.com/M-24rjgc/Rigorium) 独立构建、发布和更新。许可证及必须保留的第三方声明见 [NOTICE.md](NOTICE.md)。
 
-Rigorium 是拥有独立仓库和发布通道的独立项目。初始代码包含对 [OpenBMB/PilotDeck](https://github.com/OpenBMB/PilotDeck) 提交 `15cb4c2de37f5efd8d2f97feea4e40ab787f3cf3` 的修改；当前运行、发布与仓库均不依赖该上游项目。
-
-本项目按照 [GNU Affero General Public License v3.0](LICENSE) 发布。修改说明和上游署名见 [NOTICE.md](NOTICE.md)。
+本项目按照 [GNU Affero General Public License v3.0](LICENSE) 发布。
 
 English documentation: [README.md](README.md)

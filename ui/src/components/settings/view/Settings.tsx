@@ -27,7 +27,7 @@ import { Button } from '../../../shared/view/ui';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { languages } from '../../../i18n/languages';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
-import { usePilotDeckConfig } from '../../../hooks/usePilotDeckConfig';
+import { useRigoriumConfig } from '../../../hooks/useRigoriumConfig';
 import { useSettingsController } from '../hooks/useSettingsController';
 import { useGitVersion } from '../../../hooks/useGitVersion';
 import { useDesktopVersion } from '../../../hooks/useDesktopVersion';
@@ -41,7 +41,7 @@ import SettingsCard from './SettingsCard';
 import SettingsRow from './SettingsRow';
 import SettingsSection from './SettingsSection';
 import SettingsToggle from './SettingsToggle';
-import PilotDeckConfigTab from './tabs/PilotDeckConfigTab';
+import RigoriumConfigTab from './tabs/RigoriumConfigTab';
 import McpServersTab from './tabs/McpServersTab';
 import PermissionsSettingsTab from './tabs/PermissionsSettingsTab';
 import GatewaySettingsTab from './tabs/GatewaySettingsTab';
@@ -159,7 +159,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
               />
             )}
 
-            {page === 'config' && <PilotDeckConfigTab projects={projects} initialSection={configInitialSection} />}
+            {page === 'config' && <RigoriumConfigTab projects={projects} initialSection={configInitialSection} />}
             {page === 'mcp' && <McpServersTab projects={projects} />}
             {page === 'permissions' && <PermissionsSettingsTab />}
             {page === 'gateway' && <GatewaySettingsTab />}
@@ -194,7 +194,7 @@ function SettingsHome({ projectSortOrder, onProjectSortOrderChange, onOpenPage, 
     themeMode?: ThemeMode;
     setThemeMode?: (mode: ThemeMode) => void;
   };
-  const { raw, setRaw, save, loading } = usePilotDeckConfig();
+  const { raw, setRaw, save, loading } = useRigoriumConfig();
 
   const telemetryEnabled = useMemo(() => {
     try {
@@ -605,7 +605,7 @@ function SelectControl({
   );
 }
 
-const isDesktopApp = () => typeof window !== 'undefined' && !!(window as any).pilotdeckDesktop;
+const isDesktopApp = () => typeof window !== 'undefined' && !!(window as any).rigoriumDesktop;
 
 function VersionUpdateSection() {
   return isDesktopApp() ? <DesktopVersionUpdateSection /> : <GitVersionUpdateSection />;

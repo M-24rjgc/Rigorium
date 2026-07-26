@@ -17,7 +17,7 @@ def _dump(path: Path, value: Any) -> None:
 
 def run_smoke_test() -> dict[str, Any]:
     steps: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="pilotdeck_docx_smoke_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="rigorium_docx_smoke_") as temp_dir:
         root = Path(temp_dir)
         create_spec = root / "create.json"
         _dump(
@@ -25,9 +25,9 @@ def run_smoke_test() -> dict[str, Any]:
             {
                 "preset": "business-report",
                 "locale": "en-US",
-                "metadata": {"title": "2025 Program Report", "author": "PilotDeck Test"},
+                "metadata": {"title": "2025 Program Report", "author": "Rigorium Test"},
                 "header": "INTERNAL",
-                "footer": "PilotDeck",
+                "footer": "Rigorium",
                 "content": [
                     {"type": "title", "text": "2025 Program Report"},
                     {"type": "heading", "level": 1, "text": "Program Overview"},
@@ -90,13 +90,13 @@ def run_smoke_test() -> dict[str, Any]:
             review_spec,
             {
                 "comments": [
-                    {"match": "20% growth", "text": "Add the supporting data source.", "author": "PilotDeck"}
+                    {"match": "20% growth", "text": "Add the supporting data source.", "author": "Rigorium"}
                 ],
                 "tracked_replacements": [
                     {
                         "match": "Launch is planned for May",
                         "replacement": "Launch is planned for June",
-                        "author": "PilotDeck",
+                        "author": "Rigorium",
                     }
                 ],
             },

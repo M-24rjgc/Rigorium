@@ -12,7 +12,7 @@ import { chmod, cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/pr
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { platform } from "node:process";
 import type { CanonicalContentBlock, CanonicalMessage } from "../../model/index.js";
-import { getPilotProjectChatDir } from "../../pilot/index.js";
+import { getRigoriumProjectChatDir } from "../../rigorium/index.js";
 import { readTranscript } from "../../session/transcript/TranscriptReader.js";
 import {
   sanitizeSessionIdForPath,
@@ -26,7 +26,7 @@ import type { WebAgentRunMode, WebGatewayMode, WebForkSessionInput, WebForkSessi
 
 export type ForkWebSessionOptions = {
   projectRoot: string;
-  pilotHome: string;
+  rigoriumHome: string;
   now?: () => Date;
 };
 
@@ -449,7 +449,7 @@ export async function forkWebSession(
   options: ForkWebSessionOptions,
 ): Promise<WebForkSessionResult> {
   const effectiveProjectRoot = input.projectKey ?? options.projectRoot;
-  const chatDir = getPilotProjectChatDir(effectiveProjectRoot, options.pilotHome);
+  const chatDir = getRigoriumProjectChatDir(effectiveProjectRoot, options.rigoriumHome);
   const sourceSafeId = sanitizeSessionIdForPath(input.sessionKey);
   const sourceTranscriptPath = resolve(chatDir, `${sourceSafeId}.jsonl`);
   const sourceSessionDir = resolve(chatDir, sourceSafeId);

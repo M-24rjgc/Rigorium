@@ -12,7 +12,7 @@ const playwrightPath = process.argv[3]
   || join(process.cwd(), 'node_modules', '.pnpm', 'playwright@1.60.0', 'node_modules', 'playwright', 'index.mjs');
 const { _electron: electron } = await import(pathToFileURL(playwrightPath).href);
 const userData = await mkdtemp(join(tmpdir(), 'rigorium-packaged-research-'));
-const pilotHome = join(userData, 'pilot-home');
+const rigoriumHome = join(userData, 'rigorium-home');
 const executableName = executable.split(/[\\/]/u).at(-1)?.replace(/\.exe$/iu, '') || 'Rigorium';
 const verificationCredential = 'x'.repeat(32);
 const credentialsPath = join(userData, 'research', 'credentials.v1.json');
@@ -24,7 +24,7 @@ const verifyLiveOpenAlexExpansion = process.env.RIGORIUM_VERIFY_OPENALEX_EXPANSI
 
 let browserProcessCountBefore = await countBrowserProcesses();
 const mockBroker = await startVerificationZoteroBroker();
-await writeVerificationSettings(pilotHome, mockBroker.origin);
+await writeVerificationSettings(rigoriumHome, mockBroker.origin);
 let app;
 try {
   app = await electron.launch({
@@ -32,7 +32,7 @@ try {
     args: ['--verify-research', `--user-data-dir=${userData}`],
     env: {
       ...process.env,
-      PILOT_HOME: pilotHome,
+      RIGORIUM_HOME: rigoriumHome,
       RIGORIUM_VERIFY_ZOTERO_BROKER_URL: mockBroker.url,
       RIGORIUM_VERIFY_ZOTERO_BROKER_TOKEN: mockBroker.token,
     },
@@ -822,6 +822,12 @@ try {
     localZoteroRequests: mockBroker.localRequests.map((request) => `${request.method} ${request.path}`),
     title: await page.title(),
   }, null, 2));
+} catch (error) {
+  const desktopLog = await readOptionalText(join(userData, 'desktop.log'));
+  if (desktopLog.trim()) {
+    console.error(`Packaged Rigorium desktop log:\n${desktopLog.trimEnd()}`);
+  }
+  throw error;
 } finally {
   await app?.close().catch(() => undefined);
   await mockBroker.close();
@@ -938,10 +944,10 @@ function writeVerificationJson(response, status, payload) {
   response.end(body);
 }
 
-async function writeVerificationSettings(pilotHome, baseUrl) {
-  const settingsDirectory = join(pilotHome, 'research');
+async function writeVerificationSettings(rigoriumHome, baseUrl) {
+  const settingsDirectory = join(rigoriumHome, 'research');
   await mkdir(settingsDirectory, { recursive: true });
-  await writeFile(join(pilotHome, 'pilotdeck.yaml'), `schemaVersion: 1
+  await writeFile(join(rigoriumHome, 'rigorium.yaml'), `schemaVersion: 1
 agent:
   model: verification/verification
 model:

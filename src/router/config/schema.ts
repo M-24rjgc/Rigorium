@@ -56,7 +56,7 @@ export type RouterAutoOrchestrateConfig = {
 export type RouterStatsConfig = {
   enabled: boolean;
   modelPricing?: RouterModelPricingMap;
-  /** Override the default ~/.pilotdeck/router/stats.json path (useful for tests). */
+  /** Override the default ~/.rigorium/router/stats.json path (useful for tests). */
   filePath?: string;
   /** Provider/model ref used as the "no-router" baseline for savedCost calculation. */
   baselineModel?: { provider: string; model: string };
@@ -221,7 +221,7 @@ export type ResolveProviderRefIssue = {
 /**
  * Parse "provider/model" string into a structured ref and verify it exists in
  * the supplied ModelConfig. Returns either a valid ref or a list of issues
- * (caller is responsible for emitting them as PilotConfigDiagnostic).
+ * (caller is responsible for emitting them as RigoriumConfigDiagnostic).
  */
 export function resolveProviderRef(
   raw: unknown,

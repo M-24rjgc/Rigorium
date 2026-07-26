@@ -1,3 +1,3 @@
-"""PilotDeck DOCX skill implementation."""
+"""Rigorium DOCX skill implementation."""
 
 __version__ = "0.1.0"

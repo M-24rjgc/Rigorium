@@ -9,7 +9,7 @@
  * `tests/web-ui-client/protocol-sync.test.ts`.
  */
 
-export const PILOTDECK_GATEWAY_PROTOCOL_VERSION_WEB = "1.0";
+export const RIGORIUM_GATEWAY_PROTOCOL_VERSION_WEB = "1.0";
 
 export type WebGatewayMode =
   | "default"

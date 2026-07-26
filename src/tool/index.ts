@@ -1,68 +1,68 @@
 export type {
-  PilotDeckPermissionAuditRecord,
-  PilotDeckToolAuditRecord,
-  PilotDeckToolAuditRecorder,
+  RigoriumPermissionAuditRecord,
+  RigoriumToolAuditRecord,
+  RigoriumToolAuditRecorder,
 } from "./audit/ToolAuditRecorder.js";
 export { ToolRuntime } from "./execution/ToolRuntime.js";
 export { validateToolInput } from "./execution/validateToolInput.js";
 export {
   normalizeToolError,
-  PilotDeckToolRuntimeError,
+  RigoriumToolRuntimeError,
   toolError,
-  type PilotDeckToolError,
-  type PilotDeckToolErrorCode,
+  type RigoriumToolError,
+  type RigoriumToolErrorCode,
 } from "./protocol/errors.js";
 export {
   applyResultSizeLimit,
   contentToText,
   estimateResultContentBytes,
   toCanonicalToolResultBlock,
-  type PilotDeckToolErrorResult,
-  type PilotDeckToolResult,
-  type PilotDeckToolResultSizeMetadata,
-  type PilotDeckToolSuccessResult,
+  type RigoriumToolErrorResult,
+  type RigoriumToolResult,
+  type RigoriumToolResultSizeMetadata,
+  type RigoriumToolSuccessResult,
 } from "./protocol/result.js";
 export type {
-  PilotDeckJsonSchema,
-  PilotDeckToolInputSchema,
-  PilotDeckToolValidationIssue,
-  PilotDeckToolValidationResult,
+  RigoriumJsonSchema,
+  RigoriumToolInputSchema,
+  RigoriumToolValidationIssue,
+  RigoriumToolValidationResult,
 } from "./protocol/schema.js";
 export type {
-  PilotDeckToolCall,
-  PilotDeckToolAvailability,
-  PilotDeckToolAvailabilityContext,
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolSupplementalMessage,
-  PilotDeckFileUpdateNotification,
-  PilotDeckFileUpdateNotifier,
-  PilotDeckPlanTodoStateHandle,
-  PilotDeckPlanTodoStateSnapshot,
-  PilotDeckToolFileHistorySink,
-  PilotDeckToolKind,
-  PilotDeckToolModelClient,
-  PilotDeckToolProgressEvent,
-  PilotDeckToolProgressSink,
-  PilotDeckTodoItem,
-  PilotDeckReadFileStateEntry,
-  PilotDeckReadFileStateMap,
-  PilotDeckToolResultContent,
-  PilotDeckToolRuntimeContext,
-  PilotDeckSubagentForkApi,
-  PilotDeckWriteSnapshotEntry,
-  PilotDeckWriteSnapshotMap,
+  RigoriumToolCall,
+  RigoriumToolAvailability,
+  RigoriumToolAvailabilityContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolSupplementalMessage,
+  RigoriumFileUpdateNotification,
+  RigoriumFileUpdateNotifier,
+  RigoriumPlanTodoStateHandle,
+  RigoriumPlanTodoStateSnapshot,
+  RigoriumToolFileHistorySink,
+  RigoriumToolKind,
+  RigoriumToolModelClient,
+  RigoriumToolProgressEvent,
+  RigoriumToolProgressSink,
+  RigoriumTodoItem,
+  RigoriumReadFileStateEntry,
+  RigoriumReadFileStateMap,
+  RigoriumToolResultContent,
+  RigoriumToolRuntimeContext,
+  RigoriumSubagentForkApi,
+  RigoriumWriteSnapshotEntry,
+  RigoriumWriteSnapshotMap,
 } from "./protocol/types.js";
 export { ToolRegistry } from "./registry/ToolRegistry.js";
 export { createBuiltinRegistry, type CreateBuiltinRegistryOptions } from "./registry/createBuiltinRegistry.js";
 export {
   filterAvailableTools,
   type FilterAvailableToolsResult,
-  type PilotDeckUnavailableToolDiagnostic,
+  type RigoriumUnavailableToolDiagnostic,
 } from "./registry/filterAvailableTools.js";
 export { ConcurrentToolScheduler } from "./scheduler/ConcurrentToolScheduler.js";
 export { SequentialToolScheduler } from "./scheduler/SequentialToolScheduler.js";
-export type { PilotDeckToolScheduler } from "./scheduler/ToolScheduler.js";
+export type { RigoriumToolScheduler } from "./scheduler/ToolScheduler.js";
 export {
   BUILTIN_SUBAGENTS,
   createAgentTool,
@@ -101,9 +101,9 @@ export {
   type BashOutputState,
   type BashInput,
   type CreateBashToolOptions,
-  type PilotDeckCommandOptions,
-  type PilotDeckCommandResult,
-  type PilotDeckCommandRunner,
+  type RigoriumCommandOptions,
+  type RigoriumCommandResult,
+  type RigoriumCommandRunner,
 } from "./builtin/bash.js";
 export {
   ASK_USER_QUESTION_HEADER_MAX,
@@ -116,12 +116,12 @@ export {
 } from "./builtin/askUserQuestion.js";
 export {
   InMemoryElicitationChannel,
-  type PilotDeckElicitationAnswer,
-  type PilotDeckElicitationChannel,
-  type PilotDeckElicitationOption,
-  type PilotDeckElicitationQuestion,
-  type PilotDeckElicitationRequest,
-} from "./elicitation/PilotDeckElicitationChannel.js";
+  type RigoriumElicitationAnswer,
+  type RigoriumElicitationChannel,
+  type RigoriumElicitationOption,
+  type RigoriumElicitationQuestion,
+  type RigoriumElicitationRequest,
+} from "./elicitation/RigoriumElicitationChannel.js";
 export { validateHtmlPreview } from "./elicitation/validateHtmlPreview.js";
 export {
   createWebFetchTool,
@@ -200,12 +200,12 @@ export {
   buildMcpToolWireName,
   createMcpTool,
   type CreateMcpToolOptions,
-  type PilotDeckMcpToolAdapter,
+  type RigoriumMcpToolAdapter,
 } from "./builtin/mcpTool.js";
 export {
   createListMcpResourcesTool,
   createReadMcpResourceTool,
-  type PilotDeckMcpResourceAdapter,
+  type RigoriumMcpResourceAdapter,
 } from "./builtin/mcpResources.js";
 export { createStructuredOutputTool, type StructuredOutputInput } from "./builtin/structuredOutput.js";
 export {

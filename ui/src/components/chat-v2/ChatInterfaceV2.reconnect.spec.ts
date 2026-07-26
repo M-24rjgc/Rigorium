@@ -10,7 +10,7 @@ describe('ChatInterfaceV2 reconnect recovery helpers', () => {
     expect(buildReconnectStatusMessage('session-1')).toEqual({
       type: 'check-session-status',
       sessionId: 'session-1',
-      provider: 'pilotdeck',
+      provider: 'rigorium',
       includeActiveTurnMessages: true,
     });
   });

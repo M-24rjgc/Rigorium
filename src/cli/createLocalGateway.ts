@@ -62,13 +62,13 @@ import {
 import { createModelRuntime, type ModelRuntime } from "../model/index.js";
 import { createDefaultPermissionContext, type PermissionRule } from "../permission/index.js";
 import {
-  loadPilotConfig,
+  loadRigoriumConfig,
   resolveDeepSeekNativeSearchConfig,
-  resolvePilotHome,
-  type PilotProxyConfig,
-} from "../pilot/index.js";
-import { createPilotConfigStoreSync, type PilotConfigStore } from "../pilot/config/PilotConfigStore.js";
-import type { PilotAgentModelSelection, PilotConfigSnapshot } from "../pilot/config/types.js";
+  resolveRigoriumHome,
+  type RigoriumProxyConfig,
+} from "../rigorium/index.js";
+import { createRigoriumConfigStoreSync, type RigoriumConfigStore } from "../rigorium/config/RigoriumConfigStore.js";
+import type { RigoriumAgentModelSelection, RigoriumConfigSnapshot } from "../rigorium/config/types.js";
 import { DEFAULT_JUDGE_TIMEOUT_MS, DEFAULT_ALLOWED_TOOLS, DEFAULT_TRIGGER_TIERS, type RouterConfig } from "../router/config/schema.js";
 import { createAgentProjectSessionStorage, listProjectSessions, resumeAgentSession } from "../session/index.js";
 import { sanitizeSessionIdForPath } from "../session/storage/ProjectSessionStorage.js";
@@ -79,9 +79,9 @@ import { describeWebProject, listWebProjects } from "../web/server/listProjects.
 import { BackgroundTaskRuntime, type BackgroundTaskCompletionEvent } from "../task/runtime/BackgroundTaskRuntime.js";
 import { createBuiltinRegistry, createPlanFileManager, filterAvailableTools } from "../tool/index.js";
 import type {
-  PilotDeckElicitationChannel,
-  PilotDeckToolDefinition,
-  PilotDeckUnavailableToolDiagnostic,
+  RigoriumElicitationChannel,
+  RigoriumToolDefinition,
+  RigoriumUnavailableToolDiagnostic,
   ToolRegistry,
 } from "../tool/index.js";
 import { createRouterRuntime, type RouterRuntime } from "../router/index.js";
@@ -95,13 +95,13 @@ import { createTelemetryCollector, type TelemetryClient } from "../telemetry/ind
 
 export type CreateLocalGatewayOptions = {
   projectRoot?: string;
-  pilotHome?: string;
-  /** Read-only skills shipped with this PilotDeck build. Auto-discovered when omitted. */
+  rigoriumHome?: string;
+  /** Read-only skills shipped with this Rigorium build. Auto-discovered when omitted. */
   builtinSkillsRoot?: string;
   env?: Record<string, string | undefined>;
   permissionMode?: AgentRuntimeConfig["permissionMode"];
   /** Tools merged into every per-project ToolRegistry. */
-  extraTools?: PilotDeckToolDefinition[];
+  extraTools?: RigoriumToolDefinition[];
   /** Per-sessionKey config overrides (cwd / permissionMode). */
   sessionOverrides?: SessionConfigOverrides;
   /** Optional Cron runtime controller exposed through Gateway management methods. */
@@ -117,12 +117,12 @@ export type CreateLocalGatewayOptions = {
    * stream) so the rest of the wiring (Router, Tools, Context, AgentLoop) runs
    * end-to-end against a deterministic transport. NOT part of the public API.
    */
-  __testModelFactory?: (snapshot: PilotConfigSnapshot) => ModelRuntime;
+  __testModelFactory?: (snapshot: RigoriumConfigSnapshot) => ModelRuntime;
   /**
    * Fallback project root used as the agent cwd when no explicit
    * `projectKey` is provided (e.g. IM channels without a bound project).
    * Defaults to `projectRoot` when omitted; server mode should set this
-   * to `pilotHome` so IM sessions land in the general workspace instead
+   * to `rigoriumHome` so IM sessions land in the general workspace instead
    * of the gateway process's cwd.
    */
   fallbackProjectRoot?: string;
@@ -136,7 +136,7 @@ export type CreateLocalGatewayOptions = {
 };
 
 export type SubsystemUpdate = {
-  extraTools: PilotDeckToolDefinition[];
+  extraTools: RigoriumToolDefinition[];
   sessionOverrides?: SessionConfigOverrides;
   cron?: GatewayCronController;
   alwaysOnApply?: InProcessGatewayOptions["alwaysOnApply"];
@@ -145,7 +145,7 @@ export type SubsystemUpdate = {
 
 export type CreateLocalGatewayResult = {
   gateway: Gateway;
-  configStore: PilotConfigStore;
+  configStore: RigoriumConfigStore;
   registry: ProjectRuntimeRegistry;
   dispose: () => void;
   bindServer: (server: { broadcastNotification(name: string, payload?: unknown): void }) => void;
@@ -166,29 +166,29 @@ export type CreateLocalGatewayResult = {
 export function createLocalGateway(options: CreateLocalGatewayOptions = {}): CreateLocalGatewayResult {
   const baseEnv = options.env ?? process.env;
   const projectRoot = resolve(options.projectRoot ?? process.cwd());
-  const pilotHome = options.pilotHome ?? resolvePilotHome(baseEnv);
-  const env = options.pilotHome ? { ...baseEnv, PILOT_HOME: pilotHome } : baseEnv;
+  const rigoriumHome = options.rigoriumHome ?? resolveRigoriumHome(baseEnv);
+  const env = options.rigoriumHome ? { ...baseEnv, RIGORIUM_HOME: rigoriumHome } : baseEnv;
   const builtinSkillsRoot = resolveBuiltinSkillsRoot(options.builtinSkillsRoot, env);
-  const legacySkillMigration = migrateLegacyBundledSkillCopies({ pilotHome, builtinSkillsRoot });
+  const legacySkillMigration = migrateLegacyBundledSkillCopies({ rigoriumHome, builtinSkillsRoot });
   if (legacySkillMigration.migrated.length > 0) {
     // eslint-disable-next-line no-console
     console.log(
-      `[pilotdeck] Activated bundled skills directly; moved ${legacySkillMigration.migrated.length} ` +
+      `[rigorium] Activated bundled skills directly; moved ${legacySkillMigration.migrated.length} ` +
       `unchanged legacy ${legacySkillMigration.migrated.length === 1 ? "copy" : "copies"} to ` +
-      `${joinPath(pilotHome, "skill-backups", "legacy-bundled-v1")}.`,
+      `${joinPath(rigoriumHome, "skill-backups", "legacy-bundled-v1")}.`,
     );
   }
   for (const failure of legacySkillMigration.failures) {
     // eslint-disable-next-line no-console
-    console.warn(`[pilotdeck] Could not migrate legacy skill '${failure.slug}': ${failure.message}`);
+    console.warn(`[rigorium] Could not migrate legacy skill '${failure.slug}': ${failure.message}`);
   }
   const now = () => new Date();
-  const telemetry = options.telemetry ?? createTelemetryCollector({ env, pilotHome });
+  const telemetry = options.telemetry ?? createTelemetryCollector({ env, rigoriumHome });
   const ownsTelemetry = !options.telemetry;
   let registry!: ProjectRuntimeRegistry;
   let router: SessionRouter | undefined;
   const extensionWatchManager = new ExtensionWatchManager({
-    pilotHome,
+    rigoriumHome,
     builtinSkillsRoot,
     onChange: (event) => {
       handleExtensionWatchEvent(event, registry, router);
@@ -196,7 +196,7 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
     onError: (scope, error) => {
       // eslint-disable-next-line no-console
       console.warn(
-        `[pilotdeck] Extension watcher failed for ${describeExtensionScope(scope)}:`,
+        `[rigorium] Extension watcher failed for ${describeExtensionScope(scope)}:`,
         error.message,
       );
     },
@@ -204,7 +204,7 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
   const fallbackProjectRoot = options.fallbackProjectRoot ?? projectRoot;
   registry = new ProjectRuntimeRegistry({
     fallbackProjectRoot,
-    pilotHome,
+    rigoriumHome,
     builtinSkillsRoot,
     env,
     permissionMode: options.permissionMode ?? "default",
@@ -223,7 +223,7 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
     defaultRuntime.snapshot.config.gateway?.memoryDiagnostics,
   );
 
-  const configStore = createPilotConfigStoreSync({ projectRoot, env });
+  const configStore = createRigoriumConfigStoreSync({ projectRoot, env });
   const stopConfigWatching = configStore.startWatching();
   const stopExtensionWatching = extensionWatchManager.start();
 
@@ -237,11 +237,11 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
     }
     if (changeClasses.every((c) => c === "restart-required")) {
       // eslint-disable-next-line no-console
-      console.warn("[pilotdeck] Config change requires process restart:", changedPaths.join(", "));
+      console.warn("[rigorium] Config change requires process restart:", changedPaths.join(", "));
       return;
     }
     // eslint-disable-next-line no-console
-    console.log("[pilotdeck] Config reloaded, invalidating runtimes:", changedPaths.join(", "));
+    console.log("[rigorium] Config reloaded, invalidating runtimes:", changedPaths.join(", "));
     registry.invalidate();
     if (memoryDiagnosticsEnabled) {
       logGatewayMemoryDiagnostic({
@@ -285,19 +285,19 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
         }
       : undefined,
   });
-  const skillManager = new SkillManager({ pilotHome, builtinSkillsRoot });
+  const skillManager = new SkillManager({ rigoriumHome, builtinSkillsRoot });
   const gateway = new InProcessGateway(router, {
     now,
     serverInfo: { mode: "in_process", projectKey: projectRoot },
     telemetry,
-    toolResultsDir: resolve(tmpdir(), "pilotdeck-tool-output", process.pid.toString()),
+    toolResultsDir: resolve(tmpdir(), "rigorium-tool-output", process.pid.toString()),
     cron: options.cron,
     skillManager,
     setSessionCwd: (sessionKey, cwd) => registry.setSessionCwd(sessionKey, cwd),
     readSessionMessages: (input) =>
       readWebSessionMessages(input, {
         projectRoot: input.projectKey ? input.projectKey : fallbackProjectRoot,
-        pilotHome,
+        rigoriumHome,
         maxContextTokens: defaultRuntime.snapshot.config.agent.maxContextTokens,
         maxOutputTokens: defaultRuntime.snapshot.config.agent.maxOutputTokens,
         now,
@@ -305,19 +305,19 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
     readSubagentMessages: (input) =>
       readSubagentWebMessages(input, {
         projectRoot: input.projectKey ? input.projectKey : fallbackProjectRoot,
-        pilotHome,
+        rigoriumHome,
         now,
       }),
     forkSession: (input) =>
       forkWebSession(input, {
         projectRoot: input.projectKey ? input.projectKey : fallbackProjectRoot,
-        pilotHome,
+        rigoriumHome,
         now,
       }),
     async recordAgentStatusMessage(input) {
       const storage = createAgentProjectSessionStorage({
         projectRoot: input.projectKey ? input.projectKey : fallbackProjectRoot,
-        pilotHome,
+        rigoriumHome,
         sessionId: input.sessionKey,
         now,
       });
@@ -325,9 +325,9 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
       return { recorded: true };
     },
     listProjects: () =>
-      listWebProjects({ pilotHome }),
+      listWebProjects({ rigoriumHome }),
     describeProject: (input) =>
-      describeWebProject(input.projectKey, { pilotHome }),
+      describeWebProject(input.projectKey, { rigoriumHome }),
     async reloadConfig() {
       let changedPaths: string[] = [];
       const unsubscribe = configStore.subscribe((event) => {
@@ -345,14 +345,14 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
       if (input?.projectKey) {
         // eslint-disable-next-line no-console
         console.log(
-          `[pilotdeck] Extensions reload requested for project ${input.projectKey}:`,
+          `[rigorium] Extensions reload requested for project ${input.projectKey}:`,
           changedPaths.join(", ") || "(manual)",
         );
         registry.invalidate(input.projectKey);
         router?.markProjectDirty(input.projectKey, "extension_changed");
       } else {
         // eslint-disable-next-line no-console
-        console.log("[pilotdeck] Extensions reload requested for all runtimes:", changedPaths.join(", ") || "(manual)");
+        console.log("[rigorium] Extensions reload requested for all runtimes:", changedPaths.join(", ") || "(manual)");
         registry.invalidate();
         router?.markAllDirty("extension_changed");
       }
@@ -365,7 +365,7 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
     // Defensive: re-check the on-disk config at the start of every
     // turn so an apiKey/url edit applied between two messages takes
     // effect on the next one, even if the fs watcher missed it.
-    // Singleton-deduped inside PilotConfigStore.reload — concurrent
+    // Singleton-deduped inside RigoriumConfigStore.reload — concurrent
     // turns share a single in-flight read, and unchanged config is a
     // no-op (no invalidation, no session recreation).
     async refreshConfigBeforeTurn() {
@@ -423,7 +423,7 @@ function resolveBuiltinSkillsRoot(
   configuredRoot: string | undefined,
   env: Record<string, string | undefined>,
 ): string {
-  const explicit = configuredRoot ?? env.PILOTDECK_BUNDLED_SKILLS_DIR;
+  const explicit = configuredRoot ?? env.RIGORIUM_BUNDLED_SKILLS_DIR;
   if (explicit) return resolve(explicit);
 
   const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -437,16 +437,16 @@ function resolveBuiltinSkillsRoot(
 
 type ProjectRuntimeRegistryOptions = {
   fallbackProjectRoot: string;
-  pilotHome: string;
+  rigoriumHome: string;
   builtinSkillsRoot?: string;
   env: Record<string, string | undefined>;
   permissionMode: AgentRuntimeConfig["permissionMode"];
   now: () => Date;
-  extraTools?: PilotDeckToolDefinition[];
+  extraTools?: RigoriumToolDefinition[];
   sessionOverrides?: SessionConfigOverrides;
   additionalWorkingDirectories?: string[];
   /** @internal Test hook from `CreateLocalGatewayOptions.__testModelFactory`. */
-  modelFactory?: (snapshot: PilotConfigSnapshot) => ModelRuntime;
+  modelFactory?: (snapshot: RigoriumConfigSnapshot) => ModelRuntime;
   autoElicitation?: boolean;
   telemetry: TelemetryClient;
   onProjectActivated?: (projectRoot: string) => void;
@@ -454,17 +454,17 @@ type ProjectRuntimeRegistryOptions = {
 
 type ProjectRuntime = {
   projectRoot: string;
-  snapshot: ReturnType<typeof loadPilotConfig>;
+  snapshot: ReturnType<typeof loadRigoriumConfig>;
   model: ModelRuntime;
   tokenAccounting: TokenAccountingRuntime;
   router: RouterRuntime;
   pluginRuntime: PluginRuntime;
   tools: ToolRegistry;
-  unavailableTools?: PilotDeckUnavailableToolDiagnostic[];
+  unavailableTools?: RigoriumUnavailableToolDiagnostic[];
   projectStorage: GatewayProjectStorageOptions;
   /** Per-project background task runtime (shared across sessions). C5. */
   backgroundTasks: BackgroundTaskRuntime;
-  /** Memory provider, undefined when memory is disabled in PilotConfig. */
+  /** Memory provider, undefined when memory is disabled in RigoriumConfig. */
   memory?: EdgeClawMemoryProvider;
   /** Backing memory service for maintenance / introspection. */
   memoryService?: EdgeClawMemoryService;
@@ -485,7 +485,7 @@ type ProjectRuntime = {
    * these specs so that e.g. browser-use gets an isolated process per
    * session.  Populated during `ensureMcpReady()`.
    */
-  perSessionServerSpecs?: import("../mcp/protocol/types.js").PilotDeckMcpServerSpec[];
+  perSessionServerSpecs?: import("../mcp/protocol/types.js").RigoriumMcpServerSpec[];
 };
 
 const DEFAULT_BROWSER_ACTION_TIMEOUT_MS = 30_000;
@@ -503,7 +503,7 @@ class ProjectRuntimeRegistry {
    *     push session-scoped allow rules on `remember=true` and have the
    *     very next `decide()` call inside this turn see them.
    * Without this fallback, remote-gateway clients (Web UI talking to
-   * `pilotdeck server`) wouldn't be able to round-trip permission
+   * `rigorium server`) wouldn't be able to round-trip permission
    * prompts because they can't reach into the server's `sessionOverrides`
    * map from outside the process.
    */
@@ -520,7 +520,7 @@ class ProjectRuntimeRegistry {
    */
   private readonly sessionMcpRuntimes = new Map<string, McpRuntime>();
 
-  private _extraTools: PilotDeckToolDefinition[];
+  private _extraTools: RigoriumToolDefinition[];
   private _sessionOverrides: SessionConfigOverrides | undefined;
   private readonly sharedSessionStore = new SessionRouterStore({
     now: () => this.options.now().getTime(),
@@ -568,12 +568,12 @@ class ProjectRuntimeRegistry {
   }
 
   private buildRouterEventBus(): RouterEventBus {
-    const pilotHome = this.options.pilotHome;
-    const routerDir = joinPath(pilotHome, "router");
+    const rigoriumHome = this.options.rigoriumHome;
+    const routerDir = joinPath(rigoriumHome, "router");
     try { mkdirSyncFs(routerDir, { recursive: true }); } catch { /* exists */ }
     const eventsPath = joinPath(routerDir, "events.jsonl");
     try {
-      const oldPath = joinPath(pilotHome, "router-events.jsonl");
+      const oldPath = joinPath(rigoriumHome, "router-events.jsonl");
       if (!existsSync(eventsPath) && existsSync(oldPath)) {
         renameSync(oldPath, eventsPath);
       }
@@ -584,7 +584,7 @@ class ProjectRuntimeRegistry {
         try {
           appendFileSync(eventsPath, JSON.stringify(event) + "\n");
         } catch { /* best-effort, never crash the agent loop */ }
-        if (event.type === "pilotdeck_router_retry_progress") {
+        if (event.type === "rigorium_router_retry_progress") {
           try {
             self.gateway?.broadcastRetryProgress(event);
           } catch { /* best-effort */ }
@@ -623,7 +623,7 @@ class ProjectRuntimeRegistry {
 
   /**
    * Drop cached runtimes so the next `resolve()` call rebuilds from
-   * a fresh `loadPilotConfig()` snapshot. Gracefully shuts down any
+   * a fresh `loadRigoriumConfig()` snapshot. Gracefully shuts down any
    * active MCP connections (both shared and per-session) before
    * discarding the entry.
    */
@@ -660,7 +660,7 @@ class ProjectRuntimeRegistry {
    * map. Also invalidates cached runtimes.
    */
   updateSubsystems(config: {
-    extraTools: PilotDeckToolDefinition[];
+    extraTools: RigoriumToolDefinition[];
     sessionOverrides?: SessionConfigOverrides;
   }): void {
     this._extraTools = config.extraTools;
@@ -688,7 +688,7 @@ class ProjectRuntimeRegistry {
       return cached;
     }
 
-    const snapshot = loadPilotConfig({ projectRoot, env: this.options.env });
+    const snapshot = loadRigoriumConfig({ projectRoot, env: this.options.env });
     const model = this.options.modelFactory
       ? this.options.modelFactory(snapshot)
       : createModelRuntime(snapshot.config.model);
@@ -697,7 +697,7 @@ class ProjectRuntimeRegistry {
     });
     const pluginRuntime = new PluginRuntime({
       projectRoot,
-      pilotHome: this.options.pilotHome,
+      rigoriumHome: this.options.rigoriumHome,
       builtinSkillsRoot: this.options.builtinSkillsRoot,
       builtinPlugins: loadBuiltinPlugins(),
       builtinPluginsEnabled: snapshot.config.extension.builtinPluginsEnabled,
@@ -773,7 +773,7 @@ class ProjectRuntimeRegistry {
       memoryService: memory?.service,
       projectStorage: {
         projectRoot,
-        pilotHome: this.options.pilotHome,
+        rigoriumHome: this.options.rigoriumHome,
       },
     };
     this.runtimes.set(projectRoot, runtime);
@@ -814,7 +814,7 @@ class ProjectRuntimeRegistry {
           });
           // eslint-disable-next-line no-console
           console.warn(
-            `[pilotdeck] memory maintenance failed for project ${runtime.projectRoot}:`,
+            `[rigorium] memory maintenance failed for project ${runtime.projectRoot}:`,
             error instanceof Error ? error.message : String(error),
           );
         }
@@ -836,10 +836,10 @@ class ProjectRuntimeRegistry {
     if (runtime.mcpReady) return runtime.mcpReady;
     runtime.mcpReady = (async () => {
       try {
-        const configServers = loadMcpServerConfig(runtime.projectRoot, this.options.pilotHome);
+        const configServers = loadMcpServerConfig(runtime.projectRoot, this.options.rigoriumHome);
         for (const diagnostic of configServers.diagnostics) {
           // eslint-disable-next-line no-console
-          console.warn(`[pilotdeck] Ignoring invalid MCP config ${diagnostic.path}: ${diagnostic.message}`);
+          console.warn(`[rigorium] Ignoring invalid MCP config ${diagnostic.path}: ${diagnostic.message}`);
         }
         const rawServers = {
           ...runtime.pluginRuntime.mcpServers(),
@@ -865,7 +865,7 @@ class ProjectRuntimeRegistry {
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn(
-          `[pilotdeck] MCP runtime startup partial-failed for project ${runtime.projectRoot}:`,
+          `[rigorium] MCP runtime startup partial-failed for project ${runtime.projectRoot}:`,
           (err as Error).message,
         );
       }
@@ -930,7 +930,7 @@ class ProjectRuntimeRegistry {
         if (spec.transport === "stdio" && spec.id === "browser-use") {
           const outDir = joinPath(
             runtime.projectRoot,
-            ".pilotdeck",
+            ".rigorium",
             "browser_screenshots",
             sanitizeSessionIdForPath(context.sessionKey),
           );
@@ -961,14 +961,14 @@ class ProjectRuntimeRegistry {
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn(
-          `[pilotdeck] Per-session MCP startup failed for ${context.sessionKey}:`,
+          `[rigorium] Per-session MCP startup failed for ${context.sessionKey}:`,
           (err as Error).message,
         );
       }
     } else if (perSpecs && perSpecs.length > 0) {
       // eslint-disable-next-line no-console
       console.warn(
-        `[pilotdeck] Per-session MCP limit reached (${maxInstances}). ` +
+        `[rigorium] Per-session MCP limit reached (${maxInstances}). ` +
         `Session ${context.sessionKey} will share the project-level browser instance.`,
       );
     }
@@ -1142,7 +1142,7 @@ class ProjectRuntimeRegistry {
       const instructionDiscovery = new InstructionDiscovery(
         projectRoot,
         projectRoot,
-        this.options.pilotHome,
+        this.options.rigoriumHome,
       );
       const contextRuntime = new DefaultContextRuntime({
         extension,
@@ -1175,7 +1175,7 @@ class ProjectRuntimeRegistry {
               emit: (event) => gw.emitForSession(context.sessionKey, event),
               dispatchHook: (hookEvent, payload) => {
                 lifecycle.dispatch({
-                  event: hookEvent as import("../extension/hooks/protocol/events.js").PilotDeckHookEvent,
+                  event: hookEvent as import("../extension/hooks/protocol/events.js").RigoriumHookEvent,
                   baseInput: { sessionId: context.sessionKey, transcriptPath: "", cwd: projectRoot },
                   payload,
                   matchQuery: hookEvent,
@@ -1287,7 +1287,7 @@ class ProjectRuntimeRegistry {
     } catch {
       maxContextTokens = agent.maxContextTokens;
     }
-    maxOutputTokens = readPositiveIntegerEnv(this.options.env.PILOTDECK_MAX_OUTPUT_TOKENS)
+    maxOutputTokens = readPositiveIntegerEnv(this.options.env.RIGORIUM_MAX_OUTPUT_TOKENS)
       ?? agent.maxOutputTokens
       ?? maxOutputTokens;
     return {
@@ -1347,14 +1347,14 @@ function handleExtensionWatchEvent(
   const changed = event.changedPaths.join(", ");
   if (event.scope.kind === "global") {
     // eslint-disable-next-line no-console
-    console.log("[pilotdeck] Extensions changed, invalidating all runtimes:", changed);
+    console.log("[rigorium] Extensions changed, invalidating all runtimes:", changed);
     registry.invalidate();
     router?.markAllDirty("extension_changed");
     return;
   }
   // eslint-disable-next-line no-console
   console.log(
-    `[pilotdeck] Extensions changed for project ${event.scope.projectRoot}, invalidating runtime:`,
+    `[rigorium] Extensions changed for project ${event.scope.projectRoot}, invalidating runtime:`,
     changed,
   );
   registry.invalidate(event.scope.projectRoot);
@@ -1365,7 +1365,7 @@ function describeExtensionScope(scope: ExtensionWatchEvent["scope"]): string {
   return scope.kind === "global" ? "global extensions" : `project extensions (${scope.projectRoot})`;
 }
 
-function createAutoElicitationChannel(): PilotDeckElicitationChannel {
+function createAutoElicitationChannel(): RigoriumElicitationChannel {
   return {
     async askUser(request) {
       const answers: Record<string, string | string[]> = {};
@@ -1385,7 +1385,7 @@ function createAutoElicitationChannel(): PilotDeckElicitationChannel {
 
 function ensureRouterConfig(
   router: RouterConfig | undefined,
-  defaultSelection: PilotAgentModelSelection,
+  defaultSelection: RigoriumAgentModelSelection,
 ): RouterConfig {
   const defaultRef = { id: defaultSelection.id, provider: defaultSelection.provider, model: defaultSelection.model };
   if (router?.enabled === false) {
@@ -1453,7 +1453,7 @@ export function buildBrowserUseArgs(
   baseArgs: string[],
   outputDir: string,
   env: Record<string, string | undefined>,
-  configProxy?: PilotProxyConfig,
+  configProxy?: RigoriumProxyConfig,
 ): string[] {
   let args = [...baseArgs];
   args = appendCliArg(args, "--output-dir", outputDir);
@@ -1461,8 +1461,8 @@ export function buildBrowserUseArgs(
     args,
     "--timeout-action",
     String(
-      readPositiveIntegerEnv(env.PILOTDECK_BROWSER_TIMEOUT_ACTION_MS)
-        ?? readPositiveIntegerEnv(env.PILOTDECK_BROWSER_ACTION_TIMEOUT_MS)
+      readPositiveIntegerEnv(env.RIGORIUM_BROWSER_TIMEOUT_ACTION_MS)
+        ?? readPositiveIntegerEnv(env.RIGORIUM_BROWSER_ACTION_TIMEOUT_MS)
         ?? DEFAULT_BROWSER_ACTION_TIMEOUT_MS,
     ),
   );
@@ -1470,8 +1470,8 @@ export function buildBrowserUseArgs(
     args,
     "--timeout-navigation",
     String(
-      readPositiveIntegerEnv(env.PILOTDECK_BROWSER_TIMEOUT_NAVIGATION_MS)
-        ?? readPositiveIntegerEnv(env.PILOTDECK_BROWSER_NAVIGATION_TIMEOUT_MS)
+      readPositiveIntegerEnv(env.RIGORIUM_BROWSER_TIMEOUT_NAVIGATION_MS)
+        ?? readPositiveIntegerEnv(env.RIGORIUM_BROWSER_NAVIGATION_TIMEOUT_MS)
         ?? DEFAULT_BROWSER_NAVIGATION_TIMEOUT_MS,
     ),
   );
@@ -1498,16 +1498,16 @@ type BrowserProxySource = "browser-env" | "env" | "config";
 
 function resolveBrowserProxyServer(
   env: Record<string, string | undefined>,
-  configProxy?: PilotProxyConfig,
+  configProxy?: RigoriumProxyConfig,
 ): { server: string; source: BrowserProxySource } | undefined {
-  const explicit = cleanEnvValue(env.PILOTDECK_BROWSER_PROXY_SERVER);
+  const explicit = cleanEnvValue(env.RIGORIUM_BROWSER_PROXY_SERVER);
   if (explicit) {
     if (/^(0|false|off|none|direct)$/i.test(explicit)) return undefined;
     return { server: explicit, source: "browser-env" };
   }
-  if (/^(1|true|on|yes)$/i.test(cleanEnvValue(env.PILOTDECK_BROWSER_PROXY_FROM_ENV) ?? "")) {
+  if (/^(1|true|on|yes)$/i.test(cleanEnvValue(env.RIGORIUM_BROWSER_PROXY_FROM_ENV) ?? "")) {
     const envProxy = (
-      cleanEnvValue(env.PILOTDECK_PROXY)
+      cleanEnvValue(env.RIGORIUM_PROXY)
       ?? cleanEnvValue(env.https_proxy)
       ?? cleanEnvValue(env.HTTPS_PROXY)
       ?? cleanEnvValue(env.http_proxy)
@@ -1521,10 +1521,10 @@ function resolveBrowserProxyServer(
 
 function resolveBrowserProxyBypass(
   env: Record<string, string | undefined>,
-  configProxy: PilotProxyConfig | undefined,
+  configProxy: RigoriumProxyConfig | undefined,
   proxySource: BrowserProxySource,
 ): string {
-  const explicit = cleanEnvValue(env.PILOTDECK_BROWSER_PROXY_BYPASS);
+  const explicit = cleanEnvValue(env.RIGORIUM_BROWSER_PROXY_BYPASS);
   if (explicit) return explicit;
   const noProxy = cleanEnvValue(env.no_proxy) ?? cleanEnvValue(env.NO_PROXY);
   const configNoProxy = proxySource === "config" ? cleanEnvValue(configProxy?.noProxy) : undefined;

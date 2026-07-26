@@ -34,10 +34,10 @@ function openAlexWork(id: string, title: string, referencedWorks: string[] = [])
   };
 }
 
-async function configureOpenAlexOnly(pilotHome: string): Promise<void> {
+async function configureOpenAlexOnly(rigoriumHome: string): Promise<void> {
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -53,18 +53,18 @@ async function configureOpenAlexOnly(pilotHome: string): Promise<void> {
   });
 }
 
-function context(root: string, pilotHome: string, abortSignal?: AbortSignal) {
+function context(root: string, rigoriumHome: string, abortSignal?: AbortSignal) {
   return {
     cwd: join(root, "project"),
-    env: { PILOT_HOME: pilotHome },
+    env: { RIGORIUM_HOME: rigoriumHome },
     now: () => new Date(retrievedAt),
     ...(abortSignal ? { abortSignal } : {}),
   } as any;
 }
 
-function runtimeContext(root: string, pilotHome: string) {
+function runtimeContext(root: string, rigoriumHome: string) {
   return {
-    ...context(root, pilotHome),
+    ...context(root, rigoriumHome),
     sessionId: "deep-search-test-session",
     turnId: "deep-search-test-turn",
     permissionMode: "bypassPermissions" as const,
@@ -241,7 +241,7 @@ test("literature_deep_search rejects duplicate expansion directions during preva
 
 test("literature_deep_search uses ToolRuntime validation before issuing network requests", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-deep-search-runtime-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   let fetchCalls = 0;
   const registry = new ToolRegistry();
   registry.register(createLiteratureDeepSearchTool({
@@ -263,7 +263,7 @@ test("literature_deep_search uses ToolRuntime validation before issuing network 
       tasks: [],
       timeoutMs: 0,
     },
-  }, runtimeContext(root, pilotHome));
+  }, runtimeContext(root, rigoriumHome));
 
   assert.equal(result.type, "error");
   assert.equal(result.error.code, "invalid_tool_input");
@@ -272,8 +272,8 @@ test("literature_deep_search uses ToolRuntime validation before issuing network 
 
 test("literature_deep_search runs an explicit task graph with bounded concurrency and a traceable session artifact", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-deep-search-graph-"));
-  const pilotHome = join(root, "pilot-home");
-  await configureOpenAlexOnly(pilotHome);
+  const rigoriumHome = join(root, "rigorium-home");
+  await configureOpenAlexOnly(rigoriumHome);
   const startedQueries: string[] = [];
   let activeRequests = 0;
   let peakRequests = 0;
@@ -338,7 +338,7 @@ test("literature_deep_search runs an explicit task graph with bounded concurrenc
         limit: 1,
       },
     ],
-  }, context(root, pilotHome));
+  }, context(root, rigoriumHome));
 
   assert.equal(result.data?.kind, "literature_search_session");
   assert.equal(result.data?.status, "complete");
@@ -372,8 +372,8 @@ test("literature_deep_search runs an explicit task graph with bounded concurrenc
 
 test("literature_deep_search keeps successful artifacts when a citation expansion fails", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-deep-search-partial-"));
-  const pilotHome = join(root, "pilot-home");
-  await configureOpenAlexOnly(pilotHome);
+  const rigoriumHome = join(root, "rigorium-home");
+  await configureOpenAlexOnly(rigoriumHome);
   const tool = createLiteratureDeepSearchTool({
     search: {
       endpoint: OPENALEX_ENDPOINT,
@@ -413,7 +413,7 @@ test("literature_deep_search keeps successful artifacts when a citation expansio
         limitPerDirection: 1,
       },
     ],
-  }, context(root, pilotHome));
+  }, context(root, rigoriumHome));
 
   assert.equal(result.data?.status, "partial");
   assert.deepEqual(result.data?.coverage.successfulTaskIds, ["reliable-search"]);
@@ -425,8 +425,8 @@ test("literature_deep_search keeps successful artifacts when a citation expansio
 
 test("literature_deep_search returns an auditable cancelled session when its whole-session timeout expires", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-deep-search-timeout-"));
-  const pilotHome = join(root, "pilot-home");
-  await configureOpenAlexOnly(pilotHome);
+  const rigoriumHome = join(root, "rigorium-home");
+  await configureOpenAlexOnly(rigoriumHome);
   const tool = createLiteratureDeepSearchTool({
     search: {
       endpoint: OPENALEX_ENDPOINT,
@@ -449,7 +449,7 @@ test("literature_deep_search returns an auditable cancelled session when its who
       query: "slow search",
       limit: 1,
     }],
-  }, context(root, pilotHome));
+  }, context(root, rigoriumHome));
 
   assert.equal(result.data?.status, "cancelled");
   assert.equal(result.data?.stopReason, "cancelled");

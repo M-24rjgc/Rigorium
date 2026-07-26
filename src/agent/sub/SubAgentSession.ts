@@ -26,9 +26,9 @@ import type { AgentRuntimeConfig } from "../runtime/AgentRuntimeConfig.js";
 import type { AgentRuntimeDependencies } from "../runtime/AgentRuntimeDependencies.js";
 import { ToolRegistry } from "../../tool/registry/ToolRegistry.js";
 import type {
-  PilotDeckReadFileStateMap,
-  PilotDeckToolDefinition,
-  PilotDeckWriteSnapshotMap,
+  RigoriumReadFileStateMap,
+  RigoriumToolDefinition,
+  RigoriumWriteSnapshotMap,
 } from "../../tool/index.js";
 import { ConcurrentToolScheduler } from "../../tool/scheduler/ConcurrentToolScheduler.js";
 import { ToolRuntime } from "../../tool/execution/ToolRuntime.js";
@@ -59,9 +59,9 @@ export type SubAgentSessionOptions = {
   /** Parent agent's runtime dependencies (model, scheduler factory, ...). */
   parentDependencies: AgentRuntimeDependencies;
   /** Parent agent's read-file deduplication cache (cloned into the child). */
-  parentReadFileState?: PilotDeckReadFileStateMap;
+  parentReadFileState?: RigoriumReadFileStateMap;
   /** Parent agent's write snapshots (cloned into the child). */
-  parentWriteSnapshots?: PilotDeckWriteSnapshotMap;
+  parentWriteSnapshots?: RigoriumWriteSnapshotMap;
   /** Parent session/turn scope used for forwarding child activity to hosts. */
   parentSessionId: string;
   parentTurnId: string;
@@ -213,7 +213,7 @@ export class SubAgentSession {
       if (forceReadOnly && !tool.isReadOnly({} as never)) {
         continue; // S9 — read-only subagents reject side-effecting tools outright.
       }
-      scoped.register(tool as PilotDeckToolDefinition);
+      scoped.register(tool as RigoriumToolDefinition);
     }
     return scoped;
   }

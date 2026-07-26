@@ -1,6 +1,6 @@
 import type { Gateway, GatewayEvent } from "../protocol/types.js";
 import type { WsHelloFrame, WsRequestFrame } from "../protocol/frames.js";
-import { PILOTDECK_GATEWAY_PROTOCOL_VERSION } from "../protocol/version.js";
+import { RIGORIUM_GATEWAY_PROTOCOL_VERSION } from "../protocol/version.js";
 import { TextWebSocketConnection } from "./websocket.js";
 import { SkillManagerError, SkillValidationError } from "../../extension/skills/index.js";
 
@@ -66,7 +66,7 @@ export class GatewayWsConnection {
       this.ws.close(4001, "hello_required");
       return;
     }
-    if (frame.protocolVersion !== PILOTDECK_GATEWAY_PROTOCOL_VERSION) {
+    if (frame.protocolVersion !== RIGORIUM_GATEWAY_PROTOCOL_VERSION) {
       this.ws.close(4001, "protocol_mismatch");
       return;
     }
@@ -78,7 +78,7 @@ export class GatewayWsConnection {
     this.ws.sendText(
       JSON.stringify({
         type: "hello_ok",
-        protocolVersion: PILOTDECK_GATEWAY_PROTOCOL_VERSION,
+        protocolVersion: RIGORIUM_GATEWAY_PROTOCOL_VERSION,
         serverVersion: this.options.serverVersion,
         serverInfo: await this.options.gateway.describeServer(),
       }),

@@ -15,12 +15,12 @@ test("research settings enable arXiv metadata search by default", () => {
 
 test("research settings merge global defaults with an enabled project override", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-research-settings-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   const projectRoot = join(root, "project");
 
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -31,7 +31,7 @@ test("research settings merge global defaults with an enabled project override",
   });
   await writeResearchSettings({
     scope: "project",
-    pilotHome,
+    rigoriumHome,
     projectRoot,
     projectOverrideEnabled: true,
     settings: {
@@ -43,11 +43,11 @@ test("research settings merge global defaults with an enabled project override",
     },
   });
 
-  const snapshot = await readResearchSettings({ pilotHome, projectRoot });
+  const snapshot = await readResearchSettings({ rigoriumHome, projectRoot });
   assert.equal(snapshot.global.literature.search.defaultLimit, 8);
   assert.equal(snapshot.projectOverride?.enabled, true);
   assert.equal(snapshot.effective.literature.search.defaultLimit, 5);
-  assert.match(snapshot.paths.project ?? "", /\.pilotdeck[\\/]research[\\/]settings\.json$/);
+  assert.match(snapshot.paths.project ?? "", /\.rigorium[\\/]research[\\/]settings\.json$/);
 });
 
 test("research settings reject non-loopback Zotero endpoints", async () => {
@@ -55,7 +55,7 @@ test("research settings reject non-loopback Zotero endpoints", async () => {
   await assert.rejects(
     writeResearchSettings({
       scope: "global",
-      pilotHome: root,
+      rigoriumHome: root,
       settings: {
         ...DEFAULT_RESEARCH_SETTINGS,
         zotero: { ...DEFAULT_RESEARCH_SETTINGS.zotero, baseUrl: "https://example.com" },
@@ -70,7 +70,7 @@ test("research settings preserve a project Zotero collection binding", async () 
   const projectRoot = join(root, "project");
   await writeResearchSettings({
     scope: "project",
-    pilotHome: join(root, "pilot-home"),
+    rigoriumHome: join(root, "rigorium-home"),
     projectRoot,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
@@ -83,7 +83,7 @@ test("research settings preserve a project Zotero collection binding", async () 
     },
   });
 
-  const snapshot = await readResearchSettings({ pilotHome: join(root, "pilot-home"), projectRoot });
+  const snapshot = await readResearchSettings({ rigoriumHome: join(root, "rigorium-home"), projectRoot });
   assert.equal(snapshot.effective.zotero.collectionKey, "ABCD1234");
   assert.equal(snapshot.effective.zotero.collectionName, "Project Evidence");
   assert.equal(snapshot.effective.zotero.useSelectedCollection, false);
@@ -91,10 +91,10 @@ test("research settings preserve a project Zotero collection binding", async () 
 
 test("research settings retain only non-secret Zotero cloud selection data", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-research-zotero-cloud-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       zotero: {
@@ -111,7 +111,7 @@ test("research settings retain only non-secret Zotero cloud selection data", asy
     },
   });
 
-  const snapshot = await readResearchSettings({ pilotHome });
+  const snapshot = await readResearchSettings({ rigoriumHome });
   const raw = await readFile(snapshot.paths.global, "utf8");
   assert.deepEqual(snapshot.effective.zotero.cloud, {
     enabled: true,
@@ -127,7 +127,7 @@ test("research settings reject invalid enabled Zotero cloud group IDs", async ()
   await assert.rejects(
     writeResearchSettings({
       scope: "global",
-      pilotHome: root,
+      rigoriumHome: root,
       settings: {
         ...DEFAULT_RESEARCH_SETTINGS,
         zotero: {

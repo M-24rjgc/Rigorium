@@ -6,11 +6,11 @@ import {
   MemoryBundleValidationError,
 } from '../../../src/context/memory/edgeclaw-memory-core/lib/index.js';
 import {
-  readPilotDeckConfigFile,
-  writePilotDeckConfig,
-} from '../services/pilotdeckConfig.js';
-import { reloadPilotDeckConfig } from '../services/pilotdeckConfigReloader.js';
-import { suppressNextWatchEvent } from '../services/pilotdeckConfigWatcher.js';
+  readRigoriumConfigFile,
+  writeRigoriumConfig,
+} from '../services/rigoriumConfig.js';
+import { reloadRigoriumConfig } from '../services/rigoriumConfigReloader.js';
+import { suppressNextWatchEvent } from '../services/rigoriumConfigWatcher.js';
 import {
   clearAllMemoryData,
   exportAllProjectsMemoryBundle,
@@ -72,11 +72,11 @@ function getGlobalMemorySettingsFromConfig(config) {
 }
 
 function getGlobalMemorySettings() {
-  return getGlobalMemorySettingsFromConfig(readPilotDeckConfigFile().config);
+  return getGlobalMemorySettingsFromConfig(readRigoriumConfigFile().config);
 }
 
 async function saveGlobalMemorySettings(partial = {}) {
-  const record = readPilotDeckConfigFile();
+  const record = readRigoriumConfigFile();
   if (record.parseError) {
     const error = new Error('Invalid config YAML; repair raw YAML before updating memory settings');
     error.validation = {
@@ -108,8 +108,8 @@ async function saveGlobalMemorySettings(partial = {}) {
     },
   };
   suppressNextWatchEvent();
-  const saved = await writePilotDeckConfig(nextConfig);
-  await reloadPilotDeckConfig(saved.config);
+  const saved = await writeRigoriumConfig(nextConfig);
+  await reloadRigoriumConfig(saved.config);
   return getGlobalMemorySettingsFromConfig(saved.config);
 }
 
@@ -544,14 +544,14 @@ router.get('/dream-traces/:dreamTraceId', async (req, res) =>
 router.get('/export/current-project', async (req, res) =>
   withMemoryService(req, res, async ({ service }) => {
     const bundle = service.exportBundle();
-    sendBundleDownload(res, bundle, 'pilotdeck-memory-current-project');
+    sendBundleDownload(res, bundle, 'rigorium-memory-current-project');
   }),
 );
 
 router.get('/export/all-projects', async (_req, res) => {
   try {
     const bundle = await exportAllProjectsMemoryBundle();
-    sendBundleDownload(res, bundle, 'pilotdeck-memory-all-projects');
+    sendBundleDownload(res, bundle, 'rigorium-memory-all-projects');
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : String(error),
@@ -586,7 +586,7 @@ router.post('/import/all-projects', async (req, res) => {
 router.get('/export', async (req, res) =>
   withMemoryService(req, res, async ({ service }) => {
     const bundle = service.exportBundle();
-    sendBundleDownload(res, bundle, 'pilotdeck-memory-current-project');
+    sendBundleDownload(res, bundle, 'rigorium-memory-current-project');
   }),
 );
 

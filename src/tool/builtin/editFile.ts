@@ -1,8 +1,8 @@
 import { stat } from "node:fs/promises";
-import type { PilotDeckToolDefinition } from "../protocol/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolDefinition } from "../protocol/types.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
 import { isNotebookPath } from "./filesystem/fileTypeSafety.js";
-import { resolvePilotDeckWorkspacePath } from "./filesystem/pathSafety.js";
+import { resolveRigoriumWorkspacePath } from "./filesystem/pathSafety.js";
 import { checkFilesystemWritePermission } from "./filesystem/writePermissions.js";
 import { readTextFile } from "./filesystem/readTextFile.js";
 import { writeTextFile } from "./filesystem/writeTextFile.js";
@@ -22,7 +22,7 @@ export type EditFileInput = {
   replace_all?: boolean;
 };
 
-export function createEditFileTool(): PilotDeckToolDefinition<EditFileInput> {
+export function createEditFileTool(): RigoriumToolDefinition<EditFileInput> {
   return {
     name: "edit_file",
     aliases: ["Edit"],
@@ -59,7 +59,7 @@ export function createEditFileTool(): PilotDeckToolDefinition<EditFileInput> {
     checkPermissions: async (input, context) =>
       checkFilesystemWritePermission("edit_file", input.file_path, context),
     validateInput: async (input, context) => {
-      const resolved = resolvePilotDeckWorkspacePath(input.file_path, context, {
+      const resolved = resolveRigoriumWorkspacePath(input.file_path, context, {
         forWrite: true,
         allowOutsideWorkspace: true,
       });
@@ -100,7 +100,7 @@ export function createEditFileTool(): PilotDeckToolDefinition<EditFileInput> {
       try {
         freshness = await validateWriteSnapshotFresh(context, resolved.absolutePath);
       } catch (error) {
-        const normalized = error instanceof PilotDeckToolRuntimeError ? error.message : String(error);
+        const normalized = error instanceof RigoriumToolRuntimeError ? error.message : String(error);
         if (
           normalized === "File has not been read yet. Read it first before writing to it."
           || normalized === "File has changed since the last read. Read it again before writing to it."
@@ -150,12 +150,12 @@ export function createEditFileTool(): PilotDeckToolDefinition<EditFileInput> {
       };
     },
     execute: async (input, context) => {
-      const resolved = resolvePilotDeckWorkspacePath(input.file_path, context, {
+      const resolved = resolveRigoriumWorkspacePath(input.file_path, context, {
         forWrite: true,
         allowOutsideWorkspace: context.currentPermissionDecision?.type === "allow",
       });
       if (!resolved.ok) {
-        throw new PilotDeckToolRuntimeError(resolved.error.code, resolved.error.message, resolved.error.details);
+        throw new RigoriumToolRuntimeError(resolved.error.code, resolved.error.message, resolved.error.details);
       }
 
       const freshness = await ensureWriteSnapshotFresh(context, resolved.absolutePath);
@@ -172,7 +172,7 @@ export function createEditFileTool(): PilotDeckToolDefinition<EditFileInput> {
 
       if (input.old_string === "") {
         if (freshness.exists && content.length !== 0) {
-          throw new PilotDeckToolRuntimeError(
+          throw new RigoriumToolRuntimeError(
             "invalid_tool_input",
             "old_string may be empty only when creating a new file or writing to an empty file.",
           );
@@ -183,14 +183,14 @@ export function createEditFileTool(): PilotDeckToolDefinition<EditFileInput> {
           normalizeEditInput(resolved.absolutePath, input.old_string, input.new_string);
         const actualOldString = findActualString(content, normalizedOld);
         if (!actualOldString) {
-          throw new PilotDeckToolRuntimeError(
+          throw new RigoriumToolRuntimeError(
             "invalid_tool_input",
             `String to replace not found in file.\nString: ${input.old_string}`,
           );
         }
         occurrences = countOccurrences(content, actualOldString);
         if (occurrences > 1 && !input.replace_all) {
-          throw new PilotDeckToolRuntimeError(
+          throw new RigoriumToolRuntimeError(
             "invalid_tool_input",
             `Found ${occurrences} matches of old_string. Set replace_all to true to replace all occurrences, or provide a more specific old_string.`,
           );

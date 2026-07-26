@@ -34,8 +34,8 @@ const getProviderCommand = ({
     return customCommand;
   }
 
-  if (provider === 'pilotdeck') {
-    return 'pilotdeck --dangerously-skip-permissions /login';
+  if (provider === 'rigorium') {
+    return 'rigorium --dangerously-skip-permissions /login';
   }
 
   if (provider === 'claude') {
@@ -54,7 +54,7 @@ const getProviderCommand = ({
 };
 
 const getProviderTitle = (provider: CliProvider) => {
-  if (provider === 'pilotdeck') return 'Rigorium API Login';
+  if (provider === 'rigorium') return 'Rigorium API Login';
   if (provider === 'claude') return 'Anthropic API Login';
   if (provider === 'cursor') return 'Cursor CLI Login';
   if (provider === 'codex') return 'Codex CLI Login';
@@ -76,7 +76,7 @@ const normalizeProject = (project?: LoginModalProject | null) => {
 export default function ProviderLoginModal({
   isOpen,
   onClose,
-  provider = 'pilotdeck',
+  provider = 'rigorium',
   project = null,
   onComplete,
   customCommand,

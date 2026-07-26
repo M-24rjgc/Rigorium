@@ -8,7 +8,7 @@
  */
 
 import {
-  PILOTDECK_GATEWAY_PROTOCOL_VERSION_WEB,
+  RIGORIUM_GATEWAY_PROTOCOL_VERSION_WEB,
   type WebGatewayEvent,
   type WebGatewayFrame,
   type WebGatewayMethod,
@@ -101,7 +101,7 @@ export class GatewayBrowserClient {
       JSON.stringify({
         type: "hello",
         protocolVersion:
-          this.options.protocolVersion ?? PILOTDECK_GATEWAY_PROTOCOL_VERSION_WEB,
+          this.options.protocolVersion ?? RIGORIUM_GATEWAY_PROTOCOL_VERSION_WEB,
         clientName: this.options.clientName ?? "web",
         clientVersion: this.options.clientVersion ?? "0.1.0",
         token: this.options.token,

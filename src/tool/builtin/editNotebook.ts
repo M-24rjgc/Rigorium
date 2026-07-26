@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
-import type { PilotDeckToolDefinition } from "../protocol/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import { resolvePilotDeckWorkspacePath } from "./filesystem/pathSafety.js";
+import type { RigoriumToolDefinition } from "../protocol/types.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import { resolveRigoriumWorkspacePath } from "./filesystem/pathSafety.js";
 import { isNotebookPath } from "./filesystem/fileTypeSafety.js";
 import { writeTextFile } from "./filesystem/writeTextFile.js";
 import {
@@ -53,7 +53,7 @@ export type EditNotebookOutput = {
   error?: string;
 };
 
-export function createEditNotebookTool(): PilotDeckToolDefinition<EditNotebookInput, EditNotebookOutput> {
+export function createEditNotebookTool(): RigoriumToolDefinition<EditNotebookInput, EditNotebookOutput> {
   return {
     name: "edit_notebook",
     aliases: ["NotebookEdit"],
@@ -124,7 +124,7 @@ export function createEditNotebookTool(): PilotDeckToolDefinition<EditNotebookIn
     isConcurrencySafe: () => false,
     isDestructive: () => false,
     validateInput: async (input, context) => {
-      const resolved = resolvePilotDeckWorkspacePath(input.notebook_path, context, { mustExist: true, forWrite: true });
+      const resolved = resolveRigoriumWorkspacePath(input.notebook_path, context, { mustExist: true, forWrite: true });
       if (!resolved.ok) {
         return {
           ok: false,
@@ -162,7 +162,7 @@ export function createEditNotebookTool(): PilotDeckToolDefinition<EditNotebookIn
       try {
         await validateWriteSnapshotFresh(context, resolved.absolutePath);
       } catch (error) {
-        const normalized = error instanceof PilotDeckToolRuntimeError ? error.message : String(error);
+        const normalized = error instanceof RigoriumToolRuntimeError ? error.message : String(error);
         if (
           normalized === "File has not been read yet. Read it first before writing to it."
           || normalized === "File has changed since the last read. Read it again before writing to it."
@@ -214,12 +214,12 @@ export function createEditNotebookTool(): PilotDeckToolDefinition<EditNotebookIn
       return { ok: true, input };
     },
     execute: async (input, context) => {
-      const resolved = resolvePilotDeckWorkspacePath(input.notebook_path, context, { mustExist: true, forWrite: true });
+      const resolved = resolveRigoriumWorkspacePath(input.notebook_path, context, { mustExist: true, forWrite: true });
       if (!resolved.ok) {
-        throw new PilotDeckToolRuntimeError(resolved.error.code, resolved.error.message, resolved.error.details);
+        throw new RigoriumToolRuntimeError(resolved.error.code, resolved.error.message, resolved.error.details);
       }
       if (!isNotebookPath(resolved.absolutePath)) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           "File must be a Jupyter notebook (.ipynb file). Use edit_file for non-notebook files.",
         );
@@ -259,7 +259,7 @@ export function createEditNotebookTool(): PilotDeckToolDefinition<EditNotebookIn
 
       if (effectiveMode === "delete") {
         if (cellIndex < 0 || cellIndex >= cells.length) {
-          throw new PilotDeckToolRuntimeError(
+          throw new RigoriumToolRuntimeError(
             "invalid_tool_input",
             `Cell ${input.cell_id ?? `cell-${cellIndex}`} does not exist in the notebook.`,
           );
@@ -270,7 +270,7 @@ export function createEditNotebookTool(): PilotDeckToolDefinition<EditNotebookIn
       } else {
         const targetCell = cells[cellIndex];
         if (!targetCell) {
-          throw new PilotDeckToolRuntimeError(
+          throw new RigoriumToolRuntimeError(
             "invalid_tool_input",
             `Cell ${input.cell_id ?? `cell-${cellIndex}`} does not exist in the notebook.`,
           );
@@ -330,7 +330,7 @@ export function createEditNotebookTool(): PilotDeckToolDefinition<EditNotebookIn
 async function readNotebookJson(filePath: string): Promise<string> {
   return readFile(filePath, "utf8").catch((error: unknown) => {
     if (isNodeError(error) && error.code === "ENOENT") {
-      throw new PilotDeckToolRuntimeError("file_not_found", `File ${filePath} does not exist.`);
+      throw new RigoriumToolRuntimeError("file_not_found", `File ${filePath} does not exist.`);
     }
     throw error;
   });
@@ -340,7 +340,7 @@ function parseNotebook(raw: string): NotebookContent {
   try {
     return JSON.parse(raw) as NotebookContent;
   } catch (error) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       "Notebook is not valid JSON.",
       { cause: error instanceof Error ? error.message : String(error) },

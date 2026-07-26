@@ -26,7 +26,7 @@ import {
 import { listProjectSessions, readTranscript, findLastCompactBoundaryIndex, type SessionInfo } from "../../session/index.js";
 import type { AgentTranscriptEntry } from "../../session/transcript/TranscriptEntry.js";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { getPilotProjectChatDir } from "../../pilot/index.js";
+import { getRigoriumProjectChatDir } from "../../rigorium/index.js";
 import { sanitizeSessionIdForPath } from "../../session/storage/ProjectSessionStorage.js";
 import type {
   WebReadSessionMessagesInput,
@@ -36,7 +36,7 @@ import type { WebMessage, WebMessageKind, WebMessageRole } from "../client/webMe
 
 export type ReadWebSessionMessagesOptions = {
   projectRoot: string;
-  pilotHome: string;
+  rigoriumHome: string;
   maxContextTokens?: number;
   maxOutputTokens?: number;
   /** Override clock for deterministic tests. */
@@ -50,7 +50,7 @@ export async function readWebSessionMessages(
   options: ReadWebSessionMessagesOptions,
 ): Promise<WebReadSessionMessagesResult> {
   const effectiveProjectRoot = input.projectKey ?? options.projectRoot;
-  const chatDir = getPilotProjectChatDir(effectiveProjectRoot, options.pilotHome);
+  const chatDir = getRigoriumProjectChatDir(effectiveProjectRoot, options.rigoriumHome);
   const transcriptPath = resolveTranscriptPath(input, chatDir);
   const isBackgroundTask = isBackgroundTaskInput(input);
   const sessionInfo = isBackgroundTask ? undefined : await locateSession(input.sessionKey, {
@@ -96,7 +96,7 @@ export async function readWebSessionMessages(
       sessionKey: input.sessionKey,
       projectKey: input.projectKey,
       createdAt: boundary.timestamp,
-      provider: "pilotdeck",
+      provider: "rigorium",
       role: "system",
       kind: "compact_boundary",
       text: "Context compacted",
@@ -267,7 +267,7 @@ export async function readSubagentWebMessages(
   options: ReadWebSessionMessagesOptions,
 ): Promise<{ messages: WebMessage[]; total: number }> {
   const effectiveProjectRoot = input.projectKey ?? options.projectRoot;
-  const chatDir = getPilotProjectChatDir(effectiveProjectRoot, options.pilotHome);
+  const chatDir = getRigoriumProjectChatDir(effectiveProjectRoot, options.rigoriumHome);
   const parentTranscriptPath = resolveTranscriptPath(input, chatDir);
 
   const { entries: parentEntries } = await readTranscript(parentTranscriptPath);
@@ -322,7 +322,7 @@ export async function readSubagentWebMessages(
       sessionKey: `${input.sessionKey}::sub::${input.subagentId}`,
       projectKey: input.projectKey,
       createdAt: boundary.timestamp,
-      provider: "pilotdeck",
+      provider: "rigorium",
       role: "system",
       kind: "compact_boundary",
       text: "Context compacted",
@@ -389,7 +389,7 @@ function createIncompleteTurnStatusMessage(
     sessionKey: input.sessionKey,
     projectKey: input.projectKey,
     createdAt: stamp,
-    provider: "pilotdeck",
+    provider: "rigorium",
     role: "system",
     kind: "status",
     text: "上次运行未正常结束或已中断，已恢复当时产生的工具调用和输出。",
@@ -422,7 +422,7 @@ async function locateSession(
 ): Promise<SessionInfo | undefined> {
   const sessions = await listProjectSessions({
     projectRoot: options.projectRoot,
-    pilotHome: options.pilotHome,
+    rigoriumHome: options.rigoriumHome,
   });
   // sessionId in SessionInfo is the on-disk filename (already sanitized);
   // the incoming sessionKey may still be the raw form (e.g. tui:project=/foo:default).
@@ -483,7 +483,7 @@ export function flattenCanonicalMessage(
       sessionKey: context.sessionKey,
       projectKey: context.projectKey,
       createdAt: stamp,
-      provider: "pilotdeck",
+      provider: "rigorium",
       role,
       kind: "text",
       text: textBuffer,
@@ -549,7 +549,7 @@ function flushBlock(
         sessionKey: context.sessionKey,
         projectKey: context.projectKey,
         createdAt: stamp,
-        provider: "pilotdeck",
+        provider: "rigorium",
         role: "assistant",
         kind: "thinking",
         text: block.text,
@@ -563,7 +563,7 @@ function flushBlock(
         sessionKey: context.sessionKey,
         projectKey: context.projectKey,
         createdAt: stamp,
-        provider: "pilotdeck",
+        provider: "rigorium",
         role: "tool",
         kind: "tool_use",
         toolCallId: block.id,
@@ -590,7 +590,7 @@ function flushBlock(
         sessionKey: context.sessionKey,
         projectKey: context.projectKey,
         createdAt: stamp,
-        provider: "pilotdeck",
+        provider: "rigorium",
         role: "tool",
         kind: "tool_result",
         toolCallId: block.toolCallId,
@@ -611,7 +611,7 @@ function flushBlock(
         sessionKey: context.sessionKey,
         projectKey: context.projectKey,
         createdAt: stamp,
-        provider: "pilotdeck",
+        provider: "rigorium",
         role: "tool",
         kind: "tool_result",
         toolCallId: block.toolCallId,
@@ -635,7 +635,7 @@ function flushBlock(
         sessionKey: context.sessionKey,
         projectKey: context.projectKey,
         createdAt: stamp,
-        provider: "pilotdeck",
+        provider: "rigorium",
         role: "tool",
         kind: "tool_result",
         toolCallId: block.toolCallId,
@@ -665,7 +665,7 @@ function flushBlock(
         sessionKey: context.sessionKey,
         projectKey: context.projectKey,
         createdAt: stamp,
-        provider: "pilotdeck",
+        provider: "rigorium",
         role,
         kind: "status",
         text: `[${block.type} attachment]`,
@@ -682,7 +682,7 @@ function flushBlock(
         sessionKey: context.sessionKey,
         projectKey: context.projectKey,
         createdAt: stamp,
-        provider: "pilotdeck",
+        provider: "rigorium",
         role,
         kind,
         text: `[${block.type} attachment]`,
@@ -916,7 +916,7 @@ function injectErrorTurnMessages(
       sessionKey,
       projectKey,
       createdAt: entry.createdAt,
-      provider: "pilotdeck",
+      provider: "rigorium",
       role: "error",
       kind: "error",
       text,
@@ -953,7 +953,7 @@ function injectAgentStatusMessages(
       sessionKey,
       projectKey,
       createdAt: entry.createdAt,
-      provider: "pilotdeck",
+      provider: "rigorium",
       role: entry.kind === "error" ? "error" : "system",
       kind: entry.kind,
       text: entry.text,

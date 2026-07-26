@@ -2,7 +2,7 @@ import express from 'express';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const nativeFetch = globalThis.fetch;
-const originalDesktopMode = process.env.PILOTDECK_DESKTOP;
+const originalDesktopMode = process.env.RIGORIUM_DESKTOP;
 
 const mocks = vi.hoisted(() => {
   class TestZoteroInputError extends Error {}
@@ -48,7 +48,7 @@ vi.mock('./zoteroCloudTransport.js', () => ({
 const projectPath = '/workspace/research-project';
 
 beforeEach(() => {
-  process.env.PILOTDECK_DESKTOP = '0';
+  process.env.RIGORIUM_DESKTOP = '0';
   mocks.validateWorkspacePath.mockReset();
   mocks.validateWorkspacePath.mockImplementation(async (value) => ({
     valid: typeof value === 'string' && value.trim().length > 0,
@@ -73,8 +73,8 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  if (originalDesktopMode === undefined) delete process.env.PILOTDECK_DESKTOP;
-  else process.env.PILOTDECK_DESKTOP = originalDesktopMode;
+  if (originalDesktopMode === undefined) delete process.env.RIGORIUM_DESKTOP;
+  else process.env.RIGORIUM_DESKTOP = originalDesktopMode;
 });
 
 describe('research routes', () => {
@@ -93,7 +93,7 @@ describe('research routes', () => {
 
     const project = await request(`/api/research/settings?projectPath=${encodeURIComponent(projectPath)}`);
     expect(project.status).toBe(200);
-    expect(project.body.projectOverride).toMatchObject({ enabled: true, path: `${projectPath}/.pilotdeck/research/settings.json` });
+    expect(project.body.projectOverride).toMatchObject({ enabled: true, path: `${projectPath}/.rigorium/research/settings.json` });
     expect(project.body.effective.citation.style).toBe('ieee');
 
     const savedGlobal = await request('/api/research/settings', {
@@ -430,11 +430,11 @@ function snapshot(settings, activeProjectPath) {
     global: clone,
     effective: structuredClone(settings),
     projectOverride: activeProjectPath
-      ? { enabled: true, path: `${activeProjectPath}/.pilotdeck/research/settings.json`, settings: structuredClone(settings) }
+      ? { enabled: true, path: `${activeProjectPath}/.rigorium/research/settings.json`, settings: structuredClone(settings) }
       : null,
     paths: {
-      global: '/pilot-home/research/settings.json',
-      ...(activeProjectPath ? { project: `${activeProjectPath}/.pilotdeck/research/settings.json` } : {}),
+      global: '/rigorium-home/research/settings.json',
+      ...(activeProjectPath ? { project: `${activeProjectPath}/.rigorium/research/settings.json` } : {}),
     },
   };
 }

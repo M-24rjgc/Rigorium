@@ -1,8 +1,8 @@
-import type { PilotDeckToolDefinition } from "../../tool/index.js";
+import type { RigoriumToolDefinition } from "../../tool/index.js";
 import type { CronDeleteInput, CronDeleteResult } from "../protocol/types.js";
 import type { CronToolRuntime } from "./CronToolRuntime.js";
 
-export function createCronDeleteTool(runtime: CronToolRuntime): PilotDeckToolDefinition<CronDeleteInput, CronDeleteResult> {
+export function createCronDeleteTool(runtime: CronToolRuntime): RigoriumToolDefinition<CronDeleteInput, CronDeleteResult> {
   return {
     name: "cron_delete",
     title: "Delete Cron Task",

@@ -5,19 +5,19 @@ set -euo pipefail
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/M-24rjgc/Rigorium/main/install.sh | bash
 
-REPO_URL="${PILOTDECK_REPO_URL:-https://github.com/M-24rjgc/Rigorium.git}"
-BRANCH="${PILOTDECK_BRANCH:-main}"
-INSTALL_DIR="${PILOTDECK_INSTALL_DIR:-$HOME/.pilotdeck/app}"
-CONFIG_FILE="${PILOTDECK_CONFIG_PATH:-$HOME/.pilotdeck/pilotdeck.yaml}"
-BIN_LINK="${PILOTDECK_BIN_LINK:-/usr/local/bin/pilotdeck}"
-MAX_PORT_TRIES="${PILOTDECK_MAX_PORT_TRIES:-20}"
+REPO_URL="${RIGORIUM_REPO_URL:-https://github.com/M-24rjgc/Rigorium.git}"
+BRANCH="${RIGORIUM_BRANCH:-main}"
+INSTALL_DIR="${RIGORIUM_INSTALL_DIR:-$HOME/.rigorium/app}"
+CONFIG_FILE="${RIGORIUM_CONFIG_PATH:-$HOME/.rigorium/rigorium.yaml}"
+BIN_LINK="${RIGORIUM_BIN_LINK:-/usr/local/bin/rigorium}"
+MAX_PORT_TRIES="${RIGORIUM_MAX_PORT_TRIES:-20}"
 MIN_NODE_VERSION="22.13.0"
 MAX_NODE_MAJOR="22"
-NODE_INSTALL_VERSION="${PILOTDECK_NODE_VERSION:-22}"
-NODE_FALLBACK_VERSION="${PILOTDECK_NODE_FALLBACK_VERSION:-22.13.0}"
-NODE_DIRECT_INSTALL_ROOT="$HOME/.local/share/pilotdeck-node"
-NODE_DIST_MIRROR="${PILOTDECK_NODE_DIST_MIRROR:-https://nodejs.org/dist}"
-NODE_DIST_FALLBACK_MIRRORS="${PILOTDECK_NODE_DIST_FALLBACK_MIRRORS:-}"
+NODE_INSTALL_VERSION="${RIGORIUM_NODE_VERSION:-22}"
+NODE_FALLBACK_VERSION="${RIGORIUM_NODE_FALLBACK_VERSION:-22.13.0}"
+NODE_DIRECT_INSTALL_ROOT="$HOME/.local/share/rigorium-node"
+NODE_DIST_MIRROR="${RIGORIUM_NODE_DIST_MIRROR:-https://nodejs.org/dist}"
+NODE_DIST_FALLBACK_MIRRORS="${RIGORIUM_NODE_DIST_FALLBACK_MIRRORS:-}"
 APT_UPDATED=0
 # 1 = repo was (re)cloned or its HEAD changed; drives whether we reinstall/rebuild.
 REPO_CHANGED=1
@@ -33,11 +33,11 @@ ok() { printf "  ${GREEN}✓${RESET} %s\n" "$1"; }
 warn() { printf "  ${YELLOW}→${RESET} %s\n" "$1"; }
 fail() { printf "  ${RED}✗${RESET} %s\n" "$1"; exit 1; }
 
-# Localized string picker: L "<english>" "<chinese>" prints one based on PD_LANG.
+# Localized string picker: L "<english>" "<chinese>" prints one based on RIGORIUM_LANG.
 # Any ${vars} are expanded by the caller before L runs, so interpolation works
 # in both languages.
 L() {
-  if [[ "${PD_LANG:-en}" == "zh" ]]; then
+  if [[ "${RIGORIUM_LANG:-en}" == "zh" ]]; then
     printf "%s" "$2"
   else
     printf "%s" "$1"
@@ -45,16 +45,18 @@ L() {
 }
 
 # Language for user-facing guidance (en|zh). Resolution order:
-#   1. PILOTDECK_LANG env var (en/zh)
+#   1. RIGORIUM_LANG env var (en/zh)
 #   2. Interactive prompt when a terminal is available (works with curl | bash
 #      because we read from /dev/tty, not the piped stdin)
 #   3. Auto-detect from the locale ($LANG / $LC_ALL); default to English.
-PD_LANG="en"
+# Preserve an explicit environment override. `select_language` fills in the
+# interactive or locale-derived default only when it was not supplied.
+RIGORIUM_LANG="${RIGORIUM_LANG:-}"
 
 select_language() {
-  case "${PILOTDECK_LANG:-}" in
-    zh|cn|zh_CN|zh-CN|中文) PD_LANG="zh"; return ;;
-    en|en_US|en-US|english|English) PD_LANG="en"; return ;;
+  case "${RIGORIUM_LANG:-}" in
+    zh|cn|zh_CN|zh-CN|中文) RIGORIUM_LANG="zh"; return ;;
+    en|en_US|en-US|english|English) RIGORIUM_LANG="en"; return ;;
   esac
 
   # Prompt only if we can actually open the controlling terminal. This works
@@ -69,15 +71,15 @@ select_language() {
     read -r answer <&3 || answer=""
     exec 3<&-
     case "$answer" in
-      2|zh|cn|中文|中) PD_LANG="zh" ;;
-      *) PD_LANG="en" ;;
+      2|zh|cn|中文|中) RIGORIUM_LANG="zh" ;;
+      *) RIGORIUM_LANG="en" ;;
     esac
     return
   fi
 
   case "${LC_ALL:-}${LANG:-}" in
-    *zh*|*ZH*) PD_LANG="zh" ;;
-    *) PD_LANG="en" ;;
+    *zh*|*ZH*) RIGORIUM_LANG="zh" ;;
+    *) RIGORIUM_LANG="en" ;;
   esac
 }
 
@@ -86,7 +88,7 @@ select_language() {
 # plus the manual config path, CLI commands, and where to find docs.
 print_getting_started() {
   local ui_url="$1"
-  if [[ "$PD_LANG" == "zh" ]]; then
+  if [[ "$RIGORIUM_LANG" == "zh" ]]; then
     print_getting_started_zh "$ui_url"
   else
     print_getting_started_en "$ui_url"
@@ -100,7 +102,7 @@ print_getting_started_en() {
   echo "==============="
   echo ""
   echo -e "  ${BOLD}1. Configure your model & API key${RESET}"
-  echo -e "     PilotDeck ships with a placeholder config, so your first stop is onboarding."
+  echo -e "     Rigorium ships with a placeholder config, so your first stop is onboarding."
   echo -e "     Open ${GREEN}${ui_url}${RESET} — it redirects to the onboarding screen where you"
   echo -e "     choose a provider, paste an API key, and pick a model."
   echo -e "     ${DIM}Supported: OpenAI, Anthropic, Google Gemini, DeepSeek, Qwen, Kimi, MiniMax,${RESET}"
@@ -118,14 +120,14 @@ print_getting_started_en() {
   echo -e "       ${DIM}      url: https://api.deepseek.com/v1${RESET}"
   echo -e "       ${DIM}      apiKey: sk-your-api-key${RESET}"
   echo ""
-  echo -e "  ${BOLD}3. Manage PilotDeck from the CLI${RESET}"
-  echo -e "     ${GREEN}pilotdeck${RESET}         start the server"
-  echo -e "     ${GREEN}pilotdeck status${RESET}  show install path, config, and URL"
-  echo -e "     ${GREEN}pilotdeck help${RESET}    list all commands"
+  echo -e "  ${BOLD}3. Manage Rigorium from the CLI${RESET}"
+  echo -e "     ${GREEN}rigorium${RESET}         start the server"
+  echo -e "     ${GREEN}rigorium status${RESET}  show install path, config, and URL"
+  echo -e "     ${GREEN}rigorium help${RESET}    list all commands"
   echo ""
   echo -e "  ${BOLD}Docs & community${RESET}"
-  echo -e "     Tutorial:  ${DIM}https://pilotdeck.openbmb.cn/pilotdeck.github.io/docs/en/introduction${RESET}"
-  echo -e "     Website:   ${DIM}https://pilotdeck.openbmb.cn${RESET}"
+  echo -e "     Tutorial:  ${DIM}https://github.com/M-24rjgc/Rigorium#readme${RESET}"
+  echo -e "     Website:   ${DIM}https://github.com/M-24rjgc/Rigorium${RESET}"
   echo -e "     Issues:    ${DIM}https://github.com/M-24rjgc/Rigorium/issues${RESET}"
   echo ""
 }
@@ -137,7 +139,7 @@ print_getting_started_zh() {
   echo "========"
   echo ""
   echo -e "  ${BOLD}1. 配置模型与 API Key${RESET}"
-  echo -e "     PilotDeck 初始使用占位配置,因此第一步是完成引导配置。"
+  echo -e "     Rigorium 初始使用占位配置,因此第一步是完成引导配置。"
   echo -e "     打开 ${GREEN}${ui_url}${RESET} — 页面会自动跳转到引导界面,"
   echo -e "     在这里选择服务商、粘贴 API Key 并选择模型。"
   echo -e "     ${DIM}已支持:OpenAI、Anthropic、Google Gemini、DeepSeek、Qwen、Kimi、MiniMax,${RESET}"
@@ -155,19 +157,19 @@ print_getting_started_zh() {
   echo -e "       ${DIM}      url: https://api.deepseek.com/v1${RESET}"
   echo -e "       ${DIM}      apiKey: sk-your-api-key${RESET}"
   echo ""
-  echo -e "  ${BOLD}3. 通过命令行管理 PilotDeck${RESET}"
-  echo -e "     ${GREEN}pilotdeck${RESET}         启动服务"
-  echo -e "     ${GREEN}pilotdeck status${RESET}  查看安装路径、配置和访问地址"
-  echo -e "     ${GREEN}pilotdeck help${RESET}    查看全部命令"
+  echo -e "  ${BOLD}3. 通过命令行管理 Rigorium${RESET}"
+  echo -e "     ${GREEN}rigorium${RESET}         启动服务"
+  echo -e "     ${GREEN}rigorium status${RESET}  查看安装路径、配置和访问地址"
+  echo -e "     ${GREEN}rigorium help${RESET}    查看全部命令"
   echo ""
   echo -e "  ${BOLD}文档与社区${RESET}"
-  echo -e "     教程:  ${DIM}https://pilotdeck.openbmb.cn/pilotdeck.github.io/docs/en/introduction${RESET}"
-  echo -e "     官网:  ${DIM}https://pilotdeck.openbmb.cn${RESET}"
+  echo -e "     教程:  ${DIM}https://github.com/M-24rjgc/Rigorium#readme${RESET}"
+  echo -e "     官网:  ${DIM}https://github.com/M-24rjgc/Rigorium${RESET}"
   echo -e "     反馈:  ${DIM}https://github.com/M-24rjgc/Rigorium/issues${RESET}"
   echo ""
 }
 
-# Sentinel written by scripts/bootstrap-pilotdeck-config.mjs for an unconfigured install.
+# Sentinel written by scripts/bootstrap-rigorium-config.mjs for an unconfigured install.
 ONBOARD_SENTINEL="PLACEHOLDER_RUN_ONBOARDING_TO_REPLACE"
 
 # True when the config already holds a real provider/model (not the placeholder).
@@ -178,8 +180,8 @@ config_is_configured() {
   return 0
 }
 
-# Write a minimal, valid pilotdeck.yaml from the collected provider details.
-write_pilotdeck_config() {
+# Write a minimal, valid rigorium.yaml from the collected provider details.
+write_rigorium_config() {
   local pid="$1" protocol="$2" url="$3" api_key="$4" model="$5"
   mkdir -p "$(dirname "$CONFIG_FILE")"
   if [[ -f "$CONFIG_FILE" ]]; then
@@ -214,9 +216,9 @@ YAML
 
 # Interactive terminal setup wizard: pick a provider, enter an API key, choose a
 # model, and write the config. Skips cleanly when non-interactive, already
-# configured, or PILOTDECK_SKIP_ONBOARDING=1.
+# configured, or RIGORIUM_SKIP_ONBOARDING=1.
 run_onboarding() {
-  if [[ "${PILOTDECK_SKIP_ONBOARDING:-0}" == "1" ]]; then
+  if [[ "${RIGORIUM_SKIP_ONBOARDING:-0}" == "1" ]]; then
     return
   fi
   if config_is_configured; then
@@ -300,7 +302,7 @@ run_onboarding() {
     return
   fi
 
-  write_pilotdeck_config "$pid" "$protocol" "$url" "$api_key" "$model"
+  write_rigorium_config "$pid" "$protocol" "$url" "$api_key" "$model"
   ok "$(L "Saved config for ${pid}/${model} to" "已保存 ${pid}/${model} 的配置到") ${DIM}${CONFIG_FILE}${RESET}"
 }
 
@@ -445,7 +447,7 @@ install_node_tarball() {
 
   if [[ "$downloaded" != "1" ]]; then
     rm -rf "$tmp_dir"
-    fail "$(L "Could not download Node.js. Check your network/proxy, or explicitly set PILOTDECK_NODE_DIST_MIRROR / PILOTDECK_NODE_DIST_FALLBACK_MIRRORS to a trusted reachable Node.js mirror." "无法下载 Node.js。请检查网络/代理，或显式将 PILOTDECK_NODE_DIST_MIRROR / PILOTDECK_NODE_DIST_FALLBACK_MIRRORS 设置为可信且可访问的 Node.js 镜像。")"
+    fail "$(L "Could not download Node.js. Check your network/proxy, or explicitly set RIGORIUM_NODE_DIST_MIRROR / RIGORIUM_NODE_DIST_FALLBACK_MIRRORS to a trusted reachable Node.js mirror." "无法下载 Node.js。请检查网络/代理，或显式将 RIGORIUM_NODE_DIST_MIRROR / RIGORIUM_NODE_DIST_FALLBACK_MIRRORS 设置为可信且可访问的 Node.js 镜像。")"
   fi
 
   mkdir -p "$install_root"
@@ -786,21 +788,21 @@ find_free_port() {
 
 resolve_runtime_ports() {
   local server_base="${SERVER_PORT:-3001}"
-  local gateway_base="${PILOTDECK_GATEWAY_PORT:-18789}"
+  local gateway_base="${RIGORIUM_GATEWAY_PORT:-18789}"
 
   SERVER_PORT="$(find_free_port "$server_base")" || \
     fail "$(L "Could not find a free UI port within ${MAX_PORT_TRIES} ports from ${server_base}." "从 ${server_base} 起 ${MAX_PORT_TRIES} 个端口内未找到空闲的 UI 端口。")"
-  PILOTDECK_GATEWAY_PORT="$(find_free_port "$gateway_base")" || \
+  RIGORIUM_GATEWAY_PORT="$(find_free_port "$gateway_base")" || \
     fail "$(L "Could not find a free gateway port within ${MAX_PORT_TRIES} ports from ${gateway_base}." "从 ${gateway_base} 起 ${MAX_PORT_TRIES} 个端口内未找到空闲的网关端口。")"
-  PILOTDECK_GATEWAY_URL="ws://127.0.0.1:${PILOTDECK_GATEWAY_PORT}/ws"
+  RIGORIUM_GATEWAY_URL="ws://127.0.0.1:${RIGORIUM_GATEWAY_PORT}/ws"
 
-  export SERVER_PORT PILOTDECK_GATEWAY_PORT PILOTDECK_GATEWAY_URL
+  export SERVER_PORT RIGORIUM_GATEWAY_PORT RIGORIUM_GATEWAY_URL
 
   if [[ "$SERVER_PORT" != "$server_base" ]]; then
     warn "$(L "UI port ${server_base} is busy; using ${SERVER_PORT} instead." "UI 端口 ${server_base} 被占用,改用 ${SERVER_PORT}。")"
   fi
-  if [[ "$PILOTDECK_GATEWAY_PORT" != "$gateway_base" ]]; then
-    warn "$(L "Gateway port ${gateway_base} is busy; using ${PILOTDECK_GATEWAY_PORT} instead." "网关端口 ${gateway_base} 被占用,改用 ${PILOTDECK_GATEWAY_PORT}。")"
+  if [[ "$RIGORIUM_GATEWAY_PORT" != "$gateway_base" ]]; then
+    warn "$(L "Gateway port ${gateway_base} is busy; using ${RIGORIUM_GATEWAY_PORT} instead." "网关端口 ${gateway_base} 被占用,改用 ${RIGORIUM_GATEWAY_PORT}。")"
   fi
 }
 
@@ -884,7 +886,7 @@ checkout_existing_installation() {
   # Fetch from the configured (HTTPS) URL rather than the existing "origin"
   # remote, which may be an SSH URL (git@github.com) that hangs when port 22
   # connectivity is unavailable. Cap the fetch so a bad network can't stall the installer.
-  if run_with_timeout "${PILOTDECK_FETCH_TIMEOUT:-45}" git fetch "$REPO_URL" "$BRANCH"; then
+  if run_with_timeout "${RIGORIUM_FETCH_TIMEOUT:-45}" git fetch "$REPO_URL" "$BRANCH"; then
     git checkout -B "$BRANCH" FETCH_HEAD || return 1
   else
     warn "$(L "Could not fetch updates (network/SSH issue); keeping the current checkout." "无法拉取更新(网络/SSH 问题),沿用当前已安装的代码。")"
@@ -945,12 +947,12 @@ install_or_update_repo() {
 }
 
 # Skip the (slow) npm install + frontend build when nothing changed: repo HEAD
-# unchanged and all build artifacts already present. Force with PILOTDECK_FORCE_DEPS=1.
+# unchanged and all build artifacts already present. Force with RIGORIUM_FORCE_DEPS=1.
 deps_up_to_date() {
-  [[ "${PILOTDECK_FORCE_DEPS:-0}" != "1" ]] || return 1
+  [[ "${RIGORIUM_FORCE_DEPS:-0}" != "1" ]] || return 1
   [[ "${REPO_CHANGED:-1}" == "0" ]] || return 1
   [[ -d "$INSTALL_DIR/node_modules" ]] || return 1
-  [[ -f "$INSTALL_DIR/dist/src/cli/pilotdeck.js" ]] || return 1
+  [[ -f "$INSTALL_DIR/dist/src/cli/rigorium.js" ]] || return 1
   [[ -f "$INSTALL_DIR/src/context/memory/edgeclaw-memory-core/lib/index.js" ]] || return 1
   [[ -d "$INSTALL_DIR/ui/node_modules" ]] || return 1
   [[ -d "$INSTALL_DIR/ui/dist" ]] || return 1
@@ -986,15 +988,15 @@ has_playwright_chrome_for_testing() {
 }
 
 echo ""
-echo -e "${BOLD}PilotDeck Installer${RESET}"
+echo -e "${BOLD}Rigorium Installer${RESET}"
 echo "====================="
 
 select_language
 
 # Dry run for testing the "back half" (language + onboarding wizard + guide)
 # without cloning, installing deps, building, or starting the server.
-#   PILOTDECK_DRY_RUN=1 PILOTDECK_CONFIG_PATH=/tmp/pd.yaml bash install.sh
-if [[ "${PILOTDECK_DRY_RUN:-0}" == "1" ]]; then
+#   RIGORIUM_DRY_RUN=1 RIGORIUM_CONFIG_PATH=/tmp/rigorium.yaml bash install.sh
+if [[ "${RIGORIUM_DRY_RUN:-0}" == "1" ]]; then
   echo ""
   warn "$(L "Dry run: skipping install; testing onboarding + guide only." "试运行:跳过安装,仅测试配置向导与引导。")"
   run_onboarding
@@ -1036,7 +1038,7 @@ echo "$(L "Checking ripgrep..." "正在检查 ripgrep...")"
 if command -v rg >/dev/null 2>&1; then
   ok "$(L "ripgrep $(rg --version | head -1) found" "已找到 ripgrep $(rg --version | head -1)")"
 elif ! can_install_optional_system_packages; then
-  warn "$(L "ripgrep not found and sudo is unavailable; continuing because PilotDeck uses its bundled ripgrep dependency." "未找到 ripgrep 且 sudo 不可用;PilotDeck 会使用内置 ripgrep 依赖,继续安装。")"
+  warn "$(L "ripgrep not found and sudo is unavailable; continuing because Rigorium uses its bundled ripgrep dependency." "未找到 ripgrep 且 sudo 不可用;Rigorium 会使用内置 ripgrep 依赖,继续安装。")"
 else
   warn "$(L "ripgrep not found. Installing..." "未找到 ripgrep,正在安装...")"
   install_ripgrep
@@ -1068,7 +1070,7 @@ echo ""
 
 if deps_up_to_date; then
   ok "$(L "Dependencies and frontend already up to date; skipping install & build." "依赖与前端已是最新,跳过安装与构建。")"
-  warn "$(L "Set PILOTDECK_FORCE_DEPS=1 to force a full reinstall & rebuild." "如需强制重装并重新构建,请设置 PILOTDECK_FORCE_DEPS=1。")"
+  warn "$(L "Set RIGORIUM_FORCE_DEPS=1 to force a full reinstall & rebuild." "如需强制重装并重新构建,请设置 RIGORIUM_FORCE_DEPS=1。")"
   echo ""
 else
   echo "$(L "Installing dependencies..." "正在安装依赖...")"
@@ -1081,21 +1083,21 @@ else
 
   echo "$(L "Building frontend..." "正在构建前端...")"
   cd "$INSTALL_DIR"
-  run_pnpm --filter pilotdeck-ui run build
+  run_pnpm --filter rigorium-ui run build
   ok "$(L "Frontend built" "前端已构建")"
   echo ""
 fi
 
 echo "$(L "Checking Playwright browser for browser-use plugin..." "正在检查 browser-use 插件所需的 Playwright 浏览器...")"
 cd "$INSTALL_DIR"
-BROWSER_INSTALL_TIMEOUT="${PILOTDECK_BROWSER_INSTALL_TIMEOUT:-300}"
+BROWSER_INSTALL_TIMEOUT="${RIGORIUM_BROWSER_INSTALL_TIMEOUT:-300}"
 if has_playwright_chrome_for_testing; then
   ok "$(L "Chrome for Testing already installed" "Chrome for Testing 已安装")"
-elif [[ "${PILOTDECK_SKIP_BROWSER_INSTALL:-1}" == "1" ]]; then
+elif [[ "${RIGORIUM_SKIP_BROWSER_INSTALL:-1}" == "1" ]]; then
   warn "$(L "Skipping Chrome for Testing download (default) to keep install fast." "默认跳过 Chrome for Testing 下载,以加快安装速度。")"
-  warn "$(L "PilotDeck core features are still available without this optional browser-use dependency." "缺少该可选 browser-use 依赖时,PilotDeck 核心功能仍可正常使用。")"
+  warn "$(L "Rigorium core features are still available without this optional browser-use dependency." "缺少该可选 browser-use 依赖时,Rigorium 核心功能仍可正常使用。")"
   warn "$(L "To enable browser-use, run: cd \"$INSTALL_DIR\" && npm run install:browser" "如需启用 browser-use,请运行:cd \"$INSTALL_DIR\" && npm run install:browser")"
-  warn "$(L "Or re-run the installer with PILOTDECK_SKIP_BROWSER_INSTALL=0." "或以 PILOTDECK_SKIP_BROWSER_INSTALL=0 重新运行安装器。")"
+  warn "$(L "Or re-run the installer with RIGORIUM_SKIP_BROWSER_INSTALL=0." "或以 RIGORIUM_SKIP_BROWSER_INSTALL=0 重新运行安装器。")"
 else
   echo "  $(L "Downloading and extracting Chrome for Testing (timeout: ${BROWSER_INSTALL_TIMEOUT}s)..." "正在下载并解压 Chrome for Testing(超时:${BROWSER_INSTALL_TIMEOUT}s)...")"
   echo "  $(L "This may take a few minutes — the extraction step can appear to stall." "这可能需要几分钟 —— 解压阶段看起来可能像卡住。")"
@@ -1108,9 +1110,9 @@ else
     else
       warn "$(L "Chrome for Testing install failed (exit code $exit_code)." "Chrome for Testing 安装失败(退出码 $exit_code)。")"
     fi
-    warn "$(L "PilotDeck core features are still available." "PilotDeck 核心功能仍可正常使用。")"
+    warn "$(L "Rigorium core features are still available." "Rigorium 核心功能仍可正常使用。")"
     warn "$(L "To enable browser-use later, run: cd \"$INSTALL_DIR\" && npm run install:browser" "如需稍后启用 browser-use,请运行:cd \"$INSTALL_DIR\" && npm run install:browser")"
-    warn "$(L "To increase timeout, set PILOTDECK_BROWSER_INSTALL_TIMEOUT=600 and re-run." "如需延长超时,请设置 PILOTDECK_BROWSER_INSTALL_TIMEOUT=600 后重新运行。")"
+    warn "$(L "To increase timeout, set RIGORIUM_BROWSER_INSTALL_TIMEOUT=600 and re-run." "如需延长超时,请设置 RIGORIUM_BROWSER_INSTALL_TIMEOUT=600 后重新运行。")"
   fi
 fi
 echo ""
@@ -1127,7 +1129,7 @@ echo ""
 
 echo "$(L "Setting up CLI command..." "正在设置 CLI 命令...")"
 WRAPPER_DIR="$INSTALL_DIR/bin"
-CLI_TARGET="$WRAPPER_DIR/pilotdeck"
+CLI_TARGET="$WRAPPER_DIR/rigorium"
 mkdir -p "$WRAPPER_DIR"
 cat > "$CLI_TARGET" <<'EOF'
 #!/usr/bin/env bash
@@ -1144,17 +1146,17 @@ while [[ -L "$SOURCE" ]]; do
   fi
 done
 INSTALL_DIR="$(cd "$(dirname "$SOURCE")/.." && pwd)"
-CONFIG_FILE="${PILOTDECK_CONFIG_PATH:-$HOME/.pilotdeck/pilotdeck.yaml}"
-MAX_PORT_TRIES="${PILOTDECK_MAX_PORT_TRIES:-20}"
+CONFIG_FILE="${RIGORIUM_CONFIG_PATH:-$HOME/.rigorium/rigorium.yaml}"
+MAX_PORT_TRIES="${RIGORIUM_MAX_PORT_TRIES:-20}"
 MIN_NODE_VERSION="22.13.0"
 MAX_NODE_MAJOR="22"
-NODE_INSTALL_VERSION="${PILOTDECK_NODE_VERSION:-22}"
-NODE_FALLBACK_VERSION="${PILOTDECK_NODE_FALLBACK_VERSION:-22.13.0}"
-NODE_DIRECT_INSTALL_ROOT="$HOME/.local/share/pilotdeck-node"
-NODE_DIST_MIRROR="${PILOTDECK_NODE_DIST_MIRROR:-https://nodejs.org/dist}"
+NODE_INSTALL_VERSION="${RIGORIUM_NODE_VERSION:-22}"
+NODE_FALLBACK_VERSION="${RIGORIUM_NODE_FALLBACK_VERSION:-22.13.0}"
+NODE_DIRECT_INSTALL_ROOT="$HOME/.local/share/rigorium-node"
+NODE_DIST_MIRROR="${RIGORIUM_NODE_DIST_MIRROR:-https://nodejs.org/dist}"
 
-fail() { printf "pilotdeck: %s\n" "$1" >&2; exit 1; }
-warn() { printf "pilotdeck: %s\n" "$1" >&2; }
+fail() { printf "rigorium: %s\n" "$1" >&2; exit 1; }
+warn() { printf "rigorium: %s\n" "$1" >&2; }
 
 version_at_least() {
   local version="${1#v}"
@@ -1260,7 +1262,7 @@ ensure_node_runtime() {
   local node_version
   node_version="$(node --version)"
   if ! version_at_least "$node_version" "$MIN_NODE_VERSION" || [[ "$(node_major "$node_version")" != "$MAX_NODE_MAJOR" ]]; then
-    fail "Node.js >=${MIN_NODE_VERSION} and <23 is required because PilotDeck uses node:sqlite and native packages are tested on Node.js 22. Current: ${node_version}. Re-run install.sh or switch Node with fnm/nvm."
+    fail "Node.js >=${MIN_NODE_VERSION} and <23 is required because Rigorium uses node:sqlite and native packages are tested on Node.js 22. Current: ${node_version}. Re-run install.sh or switch Node with fnm/nvm."
   fi
   if ! node -e "import('node:sqlite').then(() => {}, () => process.exit(1))" >/dev/null 2>&1; then
     fail "Current Node.js (${node_version}) does not provide node:sqlite. Re-run install.sh or switch to Node.js 22.13+."
@@ -1343,14 +1345,14 @@ done
 
 if [[ "$COMMAND" == "help" ]]; then
   cat <<HELP
-pilotdeck - start the PilotDeck web UI
+rigorium - start the Rigorium web UI
 
 Usage:
-  pilotdeck [start] [--port <port>] [--config <path>]
-  pilotdeck status
-  pilotdeck help
+  rigorium [start] [--port <port>] [--config <path>]
+  rigorium status
+  rigorium help
 
-First run? Start PilotDeck, open the printed URL, and complete onboarding
+First run? Start Rigorium, open the printed URL, and complete onboarding
 (choose a provider, paste an API key, pick a model). You can also edit the
 config directly at: ${CONFIG_FILE}
 
@@ -1373,24 +1375,24 @@ fi
 ensure_node_runtime
 
 SERVER_BASE="${SERVER_PORT:-3001}"
-GATEWAY_BASE="${PILOTDECK_GATEWAY_PORT:-18789}"
+GATEWAY_BASE="${RIGORIUM_GATEWAY_PORT:-18789}"
 SERVER_PORT="$(find_free_port "$SERVER_BASE")" || fail "could not find a free UI port from ${SERVER_BASE}"
-PILOTDECK_GATEWAY_PORT="$(find_free_port "$GATEWAY_BASE")" || fail "could not find a free gateway port from ${GATEWAY_BASE}"
-PILOTDECK_GATEWAY_URL="ws://127.0.0.1:${PILOTDECK_GATEWAY_PORT}/ws"
+RIGORIUM_GATEWAY_PORT="$(find_free_port "$GATEWAY_BASE")" || fail "could not find a free gateway port from ${GATEWAY_BASE}"
+RIGORIUM_GATEWAY_URL="ws://127.0.0.1:${RIGORIUM_GATEWAY_PORT}/ws"
 
-export PILOTDECK_CONFIG_PATH="$CONFIG_FILE"
-export SERVER_PORT PILOTDECK_GATEWAY_PORT PILOTDECK_GATEWAY_URL
+export RIGORIUM_CONFIG_PATH="$CONFIG_FILE"
+export SERVER_PORT RIGORIUM_GATEWAY_PORT RIGORIUM_GATEWAY_URL
 
 if [[ "$SERVER_PORT" != "$SERVER_BASE" ]]; then
   warn "UI port ${SERVER_BASE} is busy; using ${SERVER_PORT} instead."
 fi
-if [[ "$PILOTDECK_GATEWAY_PORT" != "$GATEWAY_BASE" ]]; then
-  warn "Gateway port ${GATEWAY_BASE} is busy; using ${PILOTDECK_GATEWAY_PORT} instead."
+if [[ "$RIGORIUM_GATEWAY_PORT" != "$GATEWAY_BASE" ]]; then
+  warn "Gateway port ${GATEWAY_BASE} is busy; using ${RIGORIUM_GATEWAY_PORT} instead."
 fi
 
-node "$INSTALL_DIR/scripts/bootstrap-pilotdeck-config.mjs"
+node "$INSTALL_DIR/scripts/bootstrap-rigorium-config.mjs"
 
-printf "pilotdeck: starting at http://localhost:%s\n" "$SERVER_PORT"
+printf "rigorium: starting at http://localhost:%s\n" "$SERVER_PORT"
 cd "$INSTALL_DIR/ui"
 exec npm run start:built
 EOF
@@ -1404,7 +1406,7 @@ if [[ -e "$BIN_LINK" || -L "$BIN_LINK" ]]; then
     :
   else
     warn "$(L "Cannot update ${BIN_LINK} without sudo; falling back to user-local bin." "无 sudo 权限,无法更新 ${BIN_LINK};改用用户本地 bin 目录。")"
-    TARGET_BIN="$HOME/.local/bin/pilotdeck"
+    TARGET_BIN="$HOME/.local/bin/rigorium"
   fi
 fi
 
@@ -1417,16 +1419,16 @@ fi
 
 if [[ "$TARGET_BIN" == "$BIN_LINK" && -d "$TARGET_BIN_DIR" && -w "$TARGET_BIN_DIR" ]]; then
   ln -sf "$CLI_TARGET" "$TARGET_BIN"
-  ok "$(L "pilotdeck command linked to" "pilotdeck 命令已链接到") ${DIM}${TARGET_BIN}${RESET}"
+  ok "$(L "rigorium command linked to" "rigorium 命令已链接到") ${DIM}${TARGET_BIN}${RESET}"
 elif sudo -n true 2>/dev/null; then
   sudo mkdir -p "$TARGET_BIN_DIR"
   sudo ln -sf "$CLI_TARGET" "$TARGET_BIN"
-  ok "$(L "pilotdeck command linked to" "pilotdeck 命令已链接到") ${DIM}${TARGET_BIN}${RESET}"
+  ok "$(L "rigorium command linked to" "rigorium 命令已链接到") ${DIM}${TARGET_BIN}${RESET}"
 else
   LOCAL_BIN="$HOME/.local/bin"
   mkdir -p "$LOCAL_BIN"
-  ln -sf "$CLI_TARGET" "$LOCAL_BIN/pilotdeck"
-  ok "$(L "pilotdeck command linked to" "pilotdeck 命令已链接到") ${DIM}${LOCAL_BIN}/pilotdeck${RESET}"
+  ln -sf "$CLI_TARGET" "$LOCAL_BIN/rigorium"
+  ok "$(L "rigorium command linked to" "rigorium 命令已链接到") ${DIM}${LOCAL_BIN}/rigorium${RESET}"
   if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
     PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
     SHELL_RC=""
@@ -1445,9 +1447,9 @@ else
 
     if [[ -n "$SHELL_RC" ]]; then
       if [[ ! -f "$SHELL_RC" ]] || ! grep -qF '.local/bin' "$SHELL_RC" 2>/dev/null; then
-        printf '\n# Added by PilotDeck installer\n%s\n' "$PATH_LINE" >> "$SHELL_RC"
+        printf '\n# Added by Rigorium installer\n%s\n' "$PATH_LINE" >> "$SHELL_RC"
         ok "$(L "PATH updated in" "已在以下文件更新 PATH:") ${DIM}${SHELL_RC}${RESET}"
-        warn "$(L "Run ${BOLD}source ${SHELL_RC}${RESET} or open a new terminal to use the ${BOLD}pilotdeck${RESET} command" "运行 ${BOLD}source ${SHELL_RC}${RESET} 或新开一个终端即可使用 ${BOLD}pilotdeck${RESET} 命令")"
+        warn "$(L "Run ${BOLD}source ${SHELL_RC}${RESET} or open a new terminal to use the ${BOLD}rigorium${RESET} command" "运行 ${BOLD}source ${SHELL_RC}${RESET} 或新开一个终端即可使用 ${BOLD}rigorium${RESET} 命令")"
       else
         ok "$(L "${DIM}${SHELL_RC}${RESET} already contains .local/bin PATH entry" "${DIM}${SHELL_RC}${RESET} 已包含 .local/bin 的 PATH 配置")"
       fi
@@ -1460,14 +1462,14 @@ echo ""
 run_onboarding
 echo ""
 
-if [[ "$PD_LANG" == "zh" ]]; then
+if [[ "$RIGORIUM_LANG" == "zh" ]]; then
   echo -e "${BOLD}安装完成!${RESET}"
   echo ""
   echo -e "  安装目录:   ${DIM}${INSTALL_DIR}${RESET}"
   echo -e "  配置文件:   ${DIM}${CONFIG_FILE}${RESET}"
   echo -e "  CLI 命令:   ${DIM}${TARGET_BIN}${RESET}"
   echo ""
-  echo "正在启动 PilotDeck..."
+  echo "正在启动 Rigorium..."
 else
   echo -e "${BOLD}Installation complete!${RESET}"
   echo ""
@@ -1475,18 +1477,18 @@ else
   echo -e "  Config file:    ${DIM}${CONFIG_FILE}${RESET}"
   echo -e "  CLI command:    ${DIM}${TARGET_BIN}${RESET}"
   echo ""
-  echo "Starting PilotDeck..."
+  echo "Starting Rigorium..."
 fi
 echo ""
-export PILOTDECK_CONFIG_PATH="$CONFIG_FILE"
+export RIGORIUM_CONFIG_PATH="$CONFIG_FILE"
 resolve_runtime_ports
-node "$INSTALL_DIR/scripts/bootstrap-pilotdeck-config.mjs"
+node "$INSTALL_DIR/scripts/bootstrap-rigorium-config.mjs"
 echo -e "  UI:             ${DIM}http://localhost:${SERVER_PORT}${RESET}"
-echo -e "  Gateway:        ${DIM}${PILOTDECK_GATEWAY_URL}${RESET}"
+echo -e "  Gateway:        ${DIM}${RIGORIUM_GATEWAY_URL}${RESET}"
 
 print_getting_started "http://localhost:${SERVER_PORT}"
 
-if [[ "$PD_LANG" == "zh" ]]; then
+if [[ "$RIGORIUM_LANG" == "zh" ]]; then
   echo -e "${BOLD}正在启动服务${RESET} — 打开 ${GREEN}http://localhost:${SERVER_PORT}${RESET} 完成引导配置。"
 else
   echo -e "${BOLD}Starting server${RESET} — open ${GREEN}http://localhost:${SERVER_PORT}${RESET} to finish onboarding."

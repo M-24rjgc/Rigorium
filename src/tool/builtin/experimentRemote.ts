@@ -29,12 +29,12 @@ import {
   type RemoteCancellationReconciliationInput,
   type SlurmResourceSpec,
 } from "../../research/experimentation/remote/index.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 
 export const EXPERIMENT_REMOTE_OPERATIONS = [
@@ -89,7 +89,7 @@ export type CreateExperimentRemoteToolOptions = Readonly<{
 
 export function createExperimentRemoteTool(
   options: CreateExperimentRemoteToolOptions = {},
-): PilotDeckToolDefinition<ExperimentRemoteInput, ExperimentRemoteOutput> {
+): RigoriumToolDefinition<ExperimentRemoteInput, ExperimentRemoteOutput> {
   const transport = options.transport ?? new OpenSshRemoteTransport();
   return {
     name: "experiment_remote",
@@ -123,10 +123,10 @@ The current Project cwd is the only local storage root. OpenSSH uses strict know
 
 async function executeOperation(
   input: ExperimentRemoteInput,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
   transport: RemoteExecutionTransport,
   configuredNow: (() => Date) | undefined,
-): Promise<PilotDeckToolExecutionOutput<ExperimentRemoteOutput>> {
+): Promise<RigoriumToolExecutionOutput<ExperimentRemoteOutput>> {
   const projectRoot = context.cwd;
   const now = configuredNow ?? context.now ?? (() => new Date());
   const before = await loadRemoteExecutionManifest({ projectRoot });
@@ -251,12 +251,12 @@ function remoteSubmission(projectRoot: string, input: ExperimentRemoteInput): Re
   };
 }
 
-function validateInput(input: unknown): PilotDeckToolValidationResult {
+function validateInput(input: unknown): RigoriumToolValidationResult {
   try {
     normalizeInput(input);
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = {
+    const issue: RigoriumToolValidationIssue = {
       path: "$",
       code: "invalid_schema",
       message: messageOf(error),
@@ -328,7 +328,7 @@ function normalizeInput(value: unknown): ExperimentRemoteInput {
   return value as unknown as ExperimentRemoteInput;
 }
 
-function formatOutput(data: ExperimentRemoteOutput): PilotDeckToolExecutionOutput<ExperimentRemoteOutput> {
+function formatOutput(data: ExperimentRemoteOutput): RigoriumToolExecutionOutput<ExperimentRemoteOutput> {
   const lines = [
     `Remote experiment operation: ${data.operation}`,
     `Project: ${data.projectRoot}`,
@@ -355,40 +355,40 @@ function formatOutput(data: ExperimentRemoteOutput): PilotDeckToolExecutionOutpu
   };
 }
 
-function mapRemoteError(error: unknown): PilotDeckToolRuntimeError {
-  if (error instanceof PilotDeckToolRuntimeError) return error;
+function mapRemoteError(error: unknown): RigoriumToolRuntimeError {
+  if (error instanceof RigoriumToolRuntimeError) return error;
   if (error instanceof RemoteExperimentBridgeError) {
-    if (error.code === "permission_denied") return new PilotDeckToolRuntimeError("permission_denied", error.message);
-    if (error.code === "not_found") return new PilotDeckToolRuntimeError("file_not_found", error.message);
-    return new PilotDeckToolRuntimeError("invalid_tool_input", error.message);
+    if (error.code === "permission_denied") return new RigoriumToolRuntimeError("permission_denied", error.message);
+    if (error.code === "not_found") return new RigoriumToolRuntimeError("file_not_found", error.message);
+    return new RigoriumToolRuntimeError("invalid_tool_input", error.message);
   }
   if (error instanceof RemoteExecutionControllerError) {
-    if (error.code === "not_found") return new PilotDeckToolRuntimeError("file_not_found", error.message);
-    if (error.code === "invalid_input") return new PilotDeckToolRuntimeError("invalid_tool_input", error.message);
-    return new PilotDeckToolRuntimeError("tool_execution_failed", error.message);
+    if (error.code === "not_found") return new RigoriumToolRuntimeError("file_not_found", error.message);
+    if (error.code === "invalid_input") return new RigoriumToolRuntimeError("invalid_tool_input", error.message);
+    return new RigoriumToolRuntimeError("tool_execution_failed", error.message);
   }
   if (error instanceof RemoteTransportError) {
-    return new PilotDeckToolRuntimeError("tool_execution_failed", `Remote transport ${error.code}: ${error.message}`, {
+    return new RigoriumToolRuntimeError("tool_execution_failed", `Remote transport ${error.code}: ${error.message}`, {
       retryable: error.retryable,
       submissionUncertain: error.submissionUncertain,
     });
   }
   if (error instanceof RemoteExecutionRepositoryError) {
-    if (error.code === "path_violation") return new PilotDeckToolRuntimeError("path_not_allowed", error.message);
-    if (error.code === "repository_busy") return new PilotDeckToolRuntimeError("file_conflict", error.message);
-    if (error.code === "invalid_input") return new PilotDeckToolRuntimeError("invalid_tool_input", error.message);
-    return new PilotDeckToolRuntimeError("tool_execution_failed", error.message);
+    if (error.code === "path_violation") return new RigoriumToolRuntimeError("path_not_allowed", error.message);
+    if (error.code === "repository_busy") return new RigoriumToolRuntimeError("file_conflict", error.message);
+    if (error.code === "invalid_input") return new RigoriumToolRuntimeError("invalid_tool_input", error.message);
+    return new RigoriumToolRuntimeError("tool_execution_failed", error.message);
   }
   if (error instanceof ExperimentRepositoryError) {
-    if (error.code === "path_violation") return new PilotDeckToolRuntimeError("path_not_allowed", error.message);
+    if (error.code === "path_violation") return new RigoriumToolRuntimeError("path_not_allowed", error.message);
     if (error.code === "revision_conflict" || error.code === "repository_busy") {
-      return new PilotDeckToolRuntimeError("file_conflict", error.message);
+      return new RigoriumToolRuntimeError("file_conflict", error.message);
     }
-    if (error.code === "invalid_input" || error.code === "invalid_project_root") return new PilotDeckToolRuntimeError("invalid_tool_input", error.message);
-    return new PilotDeckToolRuntimeError("tool_execution_failed", error.message);
+    if (error.code === "invalid_input" || error.code === "invalid_project_root") return new RigoriumToolRuntimeError("invalid_tool_input", error.message);
+    return new RigoriumToolRuntimeError("tool_execution_failed", error.message);
   }
-  if (error instanceof TypeError) return new PilotDeckToolRuntimeError("invalid_tool_input", error.message);
-  return new PilotDeckToolRuntimeError("tool_execution_failed", `Remote operation failed: ${messageOf(error)}`);
+  if (error instanceof TypeError) return new RigoriumToolRuntimeError("invalid_tool_input", error.message);
+  return new RigoriumToolRuntimeError("tool_execution_failed", `Remote operation failed: ${messageOf(error)}`);
 }
 
 function experimentRemoteInputSchema() {

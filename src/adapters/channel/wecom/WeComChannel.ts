@@ -75,7 +75,7 @@ const DENIED_BASENAMES = new Set([
   "auth.json",
   "credentials",
   "server-token",
-  "pilotdeck.yaml",
+  "rigorium.yaml",
 ]);
 const DENIED_SEGMENTS = new Set([
   ".git",
@@ -862,7 +862,7 @@ export class WeComChannel implements ChannelAdapter {
 
     const rawName = String(media.filename ?? media.name ?? `wecom_${kind}${defaultExtForMedia(kind)}`).trim();
     const safeName = safeFileName(rawName || `wecom_${kind}${defaultExtForMedia(kind)}`);
-    const dir = join(tmpdir(), "pilotdeck-wecom-media");
+    const dir = join(tmpdir(), "rigorium-wecom-media");
     await mkdir(dir, { recursive: true });
     const filePath = join(dir, `${Date.now()}-${this.uuid().replace(/-/g, "")}-${safeName}`);
     await writeFile(filePath, data, { mode: 0o600 });
@@ -1571,10 +1571,10 @@ function mediaTypeForDeliverableExt(ext: string): WeComMediaType {
 function isDeniedDeliverablePath(path: string): boolean {
   const normalized = resolve(path);
   const home = homedir();
-  const pilotHome = process.env.PILOT_HOME || join(home, ".pilotdeck");
+  const rigoriumHome = process.env.RIGORIUM_HOME || join(home, ".rigorium");
   if (pathUnder(normalized, join(home, ".ssh"))) return true;
-  if (pathUnder(normalized, join(pilotHome, "server-token"))) return true;
-  if (pathUnder(normalized, join(pilotHome, "pilotdeck.yaml"))) return true;
+  if (pathUnder(normalized, join(rigoriumHome, "server-token"))) return true;
+  if (pathUnder(normalized, join(rigoriumHome, "rigorium.yaml"))) return true;
 
   const lowerBase = basename(normalized).toLowerCase();
   if (DENIED_BASENAMES.has(lowerBase)) return true;

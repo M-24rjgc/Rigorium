@@ -1,16 +1,16 @@
-import type { PilotDeckLoadedPlugin } from "../protocol/plugin.js";
+import type { RigoriumLoadedPlugin } from "../protocol/plugin.js";
 
 export class PluginRegistry {
-  private readonly plugins = new Map<string, PilotDeckLoadedPlugin>();
+  private readonly plugins = new Map<string, RigoriumLoadedPlugin>();
 
-  replaceAll(plugins: PilotDeckLoadedPlugin[]): void {
+  replaceAll(plugins: RigoriumLoadedPlugin[]): void {
     this.plugins.clear();
     for (const plugin of plugins) {
       this.plugins.set(`${plugin.name}@${plugin.source}`, plugin);
     }
   }
 
-  list(): PilotDeckLoadedPlugin[] {
+  list(): RigoriumLoadedPlugin[] {
     return [...this.plugins.values()];
   }
 }

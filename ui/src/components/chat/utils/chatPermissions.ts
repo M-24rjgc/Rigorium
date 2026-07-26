@@ -1,13 +1,13 @@
 import { safeJsonParse } from '../../../lib/utils.js';
-import type { ChatMessage, PilotDeckPermissionSuggestion, PermissionGrantResult } from '../types/types.js';
+import type { ChatMessage, RigoriumPermissionSuggestion, PermissionGrantResult } from '../types/types.js';
 import {
-  PILOTDECK_SETTINGS_KEY,
-  getPilotDeckSettings,
+  RIGORIUM_SETTINGS_KEY,
+  getRigoriumSettings,
   safeLocalStorage,
-  savePilotDeckPermissionSettings,
+  saveRigoriumPermissionSettings,
 } from './chatStorage';
 
-export function buildPilotDeckToolPermissionEntry(toolName?: string, toolInput?: unknown) {
+export function buildRigoriumToolPermissionEntry(toolName?: string, toolInput?: unknown) {
   if (!toolName) return null;
   const fileWriteToolName = normalizeFileWriteToolName(toolName);
   if (fileWriteToolName) return buildFileWritePermissionEntry(fileWriteToolName, toolInput);
@@ -73,7 +73,7 @@ export function formatToolInputForDisplay(input: unknown) {
   }
 }
 
-// Backend `PilotDeckToolErrorCode` values that map to "user can fix this by
+// Backend `RigoriumToolErrorCode` values that map to "user can fix this by
 // granting a permission rule". Anything else (e.g. `tool_execution_failed`,
 // `file_not_found`, `tool_timeout`) is a real failure unrelated to ACL state,
 // and surfacing the "Add to Allowed Tools" CTA for those cases is actively
@@ -111,10 +111,10 @@ export function isReadOnlyModeToolDeny(message: ChatMessage | null | undefined):
 
 export const isPlanModeToolDeny = isReadOnlyModeToolDeny;
 
-export function getPilotDeckPermissionSuggestion(
+export function getRigoriumPermissionSuggestion(
   message: ChatMessage | null | undefined,
   _provider: string,
-): PilotDeckPermissionSuggestion | null {
+): RigoriumPermissionSuggestion | null {
   // migration every provider routes tool calls through the same gateway
   // PermissionContext, so the "Permission added" affordance is useful
   // regardless of which model is selected.
@@ -129,18 +129,18 @@ export function getPilotDeckPermissionSuggestion(
   if (errorCode && !PERMISSION_ERROR_CODES.has(errorCode)) return null;
 
   const toolName = message?.toolName;
-  const entry = buildPilotDeckToolPermissionEntry(toolName, message.toolInput);
+  const entry = buildRigoriumToolPermissionEntry(toolName, message.toolInput);
   if (!entry) return null;
 
-  const settings = getPilotDeckSettings();
+  const settings = getRigoriumSettings();
   const isAllowed = settings.allowedTools.includes(entry);
   return { toolName: toolName || 'UnknownTool', entry, isAllowed };
 }
 
-export function grantPilotDeckToolPermission(entry: string | null): PermissionGrantResult {
+export function grantRigoriumToolPermission(entry: string | null): PermissionGrantResult {
   if (!entry) return { success: false };
 
-  const settings = getPilotDeckSettings();
+  const settings = getRigoriumSettings();
   const alreadyAllowed = settings.allowedTools.includes(entry);
   const nextAllowed = alreadyAllowed ? settings.allowedTools : [...settings.allowedTools, entry];
   const nextDisallowed = settings.disallowedTools.filter((tool) => tool !== entry);
@@ -151,8 +151,8 @@ export function grantPilotDeckToolPermission(entry: string | null): PermissionGr
     lastUpdated: new Date().toISOString(),
   };
 
-  safeLocalStorage.setItem(PILOTDECK_SETTINGS_KEY, JSON.stringify(updatedSettings));
-  savePilotDeckPermissionSettings({
+  safeLocalStorage.setItem(RIGORIUM_SETTINGS_KEY, JSON.stringify(updatedSettings));
+  saveRigoriumPermissionSettings({
     allowedTools: nextAllowed,
     disallowedTools: nextDisallowed,
   }).catch((error) => {

@@ -23,7 +23,7 @@ async function writeSkill(
 }
 
 test("standalone skills expose only their slug without a parent-directory namespace", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pilotdeck-standalone-skill-"));
+  const root = await mkdtemp(join(tmpdir(), "rigorium-standalone-skill-"));
   try {
     const skillDir = join(root, "docx");
     await writeSkill(skillDir, "docx", "Create and edit Word documents.", "# DOCX skill");
@@ -50,9 +50,9 @@ test("a plugin skill directory used as the configured base never derives a paren
 });
 
 test("standalone skill precedence is project > user > builtin without legacy aliases", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pilotdeck-skill-precedence-"));
+  const root = await mkdtemp(join(tmpdir(), "rigorium-skill-precedence-"));
   try {
-    const pilotHome = join(root, "pilot-home");
+    const rigoriumHome = join(root, "rigorium-home");
     const projectRoot = join(root, "project");
     const builtinSkillsRoot = join(root, "bundled-skills");
     await writeSkill(
@@ -62,19 +62,19 @@ test("standalone skill precedence is project > user > builtin without legacy ali
       "# Built-in DOCX skill",
     );
     await writeSkill(
-      join(pilotHome, "skills", "docx"),
+      join(rigoriumHome, "skills", "docx"),
       "docx",
       "Global DOCX skill description.",
       "# Global DOCX skill",
     );
     await writeSkill(
-      join(projectRoot, ".pilotdeck", "skills", "docx"),
+      join(projectRoot, ".rigorium", "skills", "docx"),
       "docx",
       "Project DOCX skill description.",
       "# Project DOCX skill",
     );
 
-    const pluginDir = join(pilotHome, "plugins", "office");
+    const pluginDir = join(rigoriumHome, "plugins", "office");
     await mkdir(join(pluginDir, "skills", "docx"), { recursive: true });
     await writeFile(
       join(pluginDir, "plugin.json"),
@@ -88,7 +88,7 @@ test("standalone skill precedence is project > user > builtin without legacy ali
       "# Plugin DOCX skill",
     );
 
-    const runtime = new PluginRuntime({ projectRoot, pilotHome, builtinSkillsRoot });
+    const runtime = new PluginRuntime({ projectRoot, rigoriumHome, builtinSkillsRoot });
     await runtime.refresh();
 
     const docxSkills = runtime.getAllSkills().filter((skill) => skill.name.includes("docx"));
@@ -96,7 +96,7 @@ test("standalone skill precedence is project > user > builtin without legacy ali
     assert.equal(docxSkills.find((skill) => skill.name === "docx")?.description, "Project DOCX skill description.");
     assert.equal(
       docxSkills.find((skill) => skill.name === "docx")?.path,
-      join(projectRoot, ".pilotdeck", "skills", "docx", "SKILL.md"),
+      join(projectRoot, ".rigorium", "skills", "docx", "SKILL.md"),
     );
     assert.equal(
       docxSkills.find((skill) => skill.name === "office:docx")?.path,
@@ -108,7 +108,7 @@ test("standalone skill precedence is project > user > builtin without legacy ali
     assert.equal(await runtime.loadSkillPrompt("docx:docx"), undefined);
     assert.match(await runtime.loadSkillPrompt("office:docx") ?? "", /# Plugin DOCX skill/);
 
-    await rm(join(projectRoot, ".pilotdeck", "skills", "docx"), { recursive: true, force: true });
+    await rm(join(projectRoot, ".rigorium", "skills", "docx"), { recursive: true, force: true });
     await runtime.refresh();
     assert.equal(
       runtime.getAllSkills().find((skill) => skill.name === "docx")?.description,
@@ -116,11 +116,11 @@ test("standalone skill precedence is project > user > builtin without legacy ali
     );
     assert.equal(
       runtime.getAllSkills().find((skill) => skill.name === "docx")?.path,
-      join(pilotHome, "skills", "docx", "SKILL.md"),
+      join(rigoriumHome, "skills", "docx", "SKILL.md"),
     );
     assert.match(await runtime.loadSkillPrompt("docx") ?? "", /# Global DOCX skill/);
 
-    await rm(join(pilotHome, "skills", "docx"), { recursive: true, force: true });
+    await rm(join(rigoriumHome, "skills", "docx"), { recursive: true, force: true });
     await runtime.refresh();
     assert.equal(
       runtime.getAllSkills().find((skill) => skill.name === "docx")?.description,

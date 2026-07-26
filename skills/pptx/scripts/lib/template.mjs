@@ -109,7 +109,7 @@ export async function prepareStarter(templatePath, mapPath, outputPath, options 
   const templateDir = path.dirname(source);
   const outputDir = path.dirname(output);
   const templateFile = path.basename(source);
-  const sourceAlias = '__pilotdeck_source__';
+  const sourceAlias = '__rigorium_source__';
   await fs.mkdir(outputDir, { recursive: true });
   const automizer = new Automizer({
     templateDir,

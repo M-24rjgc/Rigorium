@@ -36,7 +36,7 @@ const providerCards = [
     loginButtonClassName: 'bg-teal-600 hover:bg-teal-700',
   },
   {
-    provider: 'pilotdeck' as const,
+    provider: 'rigorium' as const,
     title: 'Rigorium',
     connectedClassName: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800',
     iconContainerClassName: 'bg-green-100 dark:bg-green-900/30',

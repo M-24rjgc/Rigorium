@@ -1,17 +1,17 @@
-import type { PilotDeckHooksSettings } from "../../hooks/protocol/settings.js";
+import type { RigoriumHooksSettings } from "../../hooks/protocol/settings.js";
 import type { PromptContribution } from "../../contributions/PromptContribution.js";
 import type { RouterContribution } from "../../contributions/RouterContribution.js";
 import type { LoadedPluginCommand } from "../loading/PluginCommandLoader.js";
-import type { PilotDeckPluginManifest } from "./manifest.js";
+import type { RigoriumPluginManifest } from "./manifest.js";
 
-export type PilotDeckPluginSourceKind = "builtin" | "global" | "project";
+export type RigoriumPluginSourceKind = "builtin" | "global" | "project";
 
-export type PilotDeckLoadedPlugin = {
+export type RigoriumLoadedPlugin = {
   name: string;
   path: string;
-  source: PilotDeckPluginSourceKind;
-  manifest: PilotDeckPluginManifest;
-  hooksConfig?: PilotDeckHooksSettings;
+  source: RigoriumPluginSourceKind;
+  manifest: RigoriumPluginManifest;
+  hooksConfig?: RigoriumHooksSettings;
   commands?: LoadedPluginCommand[];
   skills?: LoadedPluginCommand[];
   outputStyles?: LoadedPluginCommand[];

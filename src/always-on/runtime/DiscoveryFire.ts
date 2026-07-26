@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Gateway, GatewayChannelKey, GatewayEvent } from "../../gateway/index.js";
-import { getPilotProjectChatDir } from "../../pilot/paths.js";
+import { getRigoriumProjectChatDir } from "../../rigorium/paths.js";
 import { buildChatDigest } from "../context/ChatDigestBuilder.js";
 import type { AlwaysOnConfig } from "../config/parseAlwaysOnConfig.js";
 import { buildFallbackReport, parseReportMarkdown, type ReportMetadata } from "../contracts/ReportContract.js";
@@ -558,7 +558,7 @@ export class DiscoveryFire {
 
     const chatDigest = await buildChatDigest({
       projectRoot: this.deps.projectKey,
-      pilotHome: this.deps.paths.pilotHome,
+      rigoriumHome: this.deps.paths.rigoriumHome,
       maxSessions: 10,
       maxPromptsPerSession: 8,
       maxPromptLength: 500,
@@ -583,7 +583,7 @@ export class DiscoveryFire {
           projectRoot: this.deps.projectKey,
           runId,
           createdAt: startedAt.toISOString(),
-          chatDir: getPilotProjectChatDir(this.deps.projectKey, this.deps.paths.pilotHome),
+          chatDir: getRigoriumProjectChatDir(this.deps.projectKey, this.deps.paths.rigoriumHome),
           workspace: existingWorkspace
             ? { cwd: existingWorkspace.cwd, strategy: existingWorkspace.strategy }
             : undefined,

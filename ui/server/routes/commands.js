@@ -8,8 +8,8 @@ import { promisify } from 'util';
 import { CURSOR_MODELS, CODEX_MODELS } from '../../shared/modelConstants.js';
 import { parseFrontmatter } from '../utils/frontmatter.js';
 import { getClaudeRuntimeModelConfig, getClaudeRuntimeModelValues } from '../utils/claude-runtime-config.js';
-import { readPilotDeckConfigFile, resolveModel } from '../services/pilotdeckConfig.js';
-import { resolvePilotHome } from '../utils/pilotPaths.js';
+import { readRigoriumConfigFile, resolveModel } from '../services/rigoriumConfig.js';
+import { resolveRigoriumHome } from '../utils/rigoriumPaths.js';
 import { executeTurnkeySlashCommand } from '../turnkey-slash.js';
 import { getRegisteredCommands } from '../../../src/adapters/channel/protocol/ChannelCommandRegistry.js';
 import { runChatSearchFormatted } from '../../../src/cli/commands/chatSearch.js';
@@ -211,7 +211,7 @@ const webOnlyBuiltInCommands = [
   },
   {
     name: '/memory',
-    description: 'Open PILOTDECK.md memory file for editing',
+    description: 'Open RIGORIUM.md memory file for editing',
     namespace: 'builtin',
     metadata: { type: 'builtin' }
   },
@@ -242,7 +242,7 @@ const webOnlyBuiltInCommands = [
   {
     name: '/skill_install',
     description:
-      'Install a skill from clawhub.com. Auto-targets ~/.pilotdeck/skills/<slug> in general chat and <project>/.pilotdeck/skills/<slug> when a project is active. Use --global / --project to override.',
+      'Install a skill from clawhub.com. Auto-targets ~/.rigorium/skills/<slug> in general chat and <project>/.rigorium/skills/<slug> when a project is active. Use --global / --project to override.',
     namespace: 'builtin',
     metadata: {
       type: 'builtin',
@@ -290,7 +290,7 @@ async function executeSearchCommand(args, context) {
   const { result, text } = await runChatSearchFormatted({
     arg: rawArg,
     projectRoot: context?.projectPath,
-    pilotHome: resolvePilotHome(process.env),
+    rigoriumHome: resolveRigoriumHome(process.env),
     locale: 'en',
   });
 
@@ -321,8 +321,8 @@ ${cmd.description}
 ## Custom Commands
 
 Custom commands can be created in:
-- Project: \`.pilotdeck/commands/\` (project-specific)
-- User: \`~/.pilotdeck/commands/\` (available in all projects)
+- Project: \`.rigorium/commands/\` (project-specific)
+- User: \`~/.rigorium/commands/\` (available in all projects)
 
 ### Command Syntax
 
@@ -358,7 +358,7 @@ Custom commands can be created in:
   },
 
   '/model': async (args, context) => {
-    const { config } = readPilotDeckConfigFile();
+    const { config } = readRigoriumConfigFile();
     const mainRef = config?.agent?.model || '';
     const resolved = resolveModel(config, mainRef, { allowMissing: true });
     const currentModel = resolved ? resolved.id : mainRef || '(not configured)';
@@ -390,9 +390,9 @@ Custom commands can be created in:
 
   '/cost': async (args, context) => {
     const tokenUsage = context?.tokenUsage || {};
-    const { config: pdConfig } = readPilotDeckConfigFile();
-    const mainRef = pdConfig?.agent?.model || '';
-    const resolvedMain = resolveModel(pdConfig, mainRef, { allowMissing: true });
+    const { config: rigoriumConfig } = readRigoriumConfigFile();
+    const mainRef = rigoriumConfig?.agent?.model || '';
+    const resolvedMain = resolveModel(rigoriumConfig, mainRef, { allowMissing: true });
     const provider = context?.provider || resolvedMain?.providerId || 'unknown';
     const model = context?.model || (resolvedMain ? resolvedMain.id : mainRef || '(not configured)');
 
@@ -468,7 +468,7 @@ Custom commands can be created in:
   '/status': async (args, context) => {
     const packageJsonPath = path.join(path.dirname(__dirname), '..', 'package.json');
     let version = 'unknown';
-    let packageName = 'pilotdeck';
+    let packageName = 'rigorium';
 
     try {
       const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf8'));
@@ -478,7 +478,7 @@ Custom commands can be created in:
       console.error('Error reading package.json:', err);
     }
 
-    const { config } = readPilotDeckConfigFile();
+    const { config } = readRigoriumConfigFile();
     const mainRef = config?.agent?.model || '';
     const resolved = resolveModel(config, mainRef, { allowMissing: true });
 
@@ -514,17 +514,17 @@ Custom commands can be created in:
         action: 'memory',
         data: {
           error: 'No project selected',
-          message: 'Please select a project to access its PILOTDECK.md file'
+          message: 'Please select a project to access its RIGORIUM.md file'
         }
       };
     }
 
-    const pilotDeckMdPath = path.join(projectPath, 'PILOTDECK.md');
+    const rigoriumMdPath = path.join(projectPath, 'RIGORIUM.md');
 
-    // Check if PILOTDECK.md exists
+    // Check if RIGORIUM.md exists
     let exists = false;
     try {
-      await fs.access(pilotDeckMdPath);
+      await fs.access(rigoriumMdPath);
       exists = true;
     } catch (err) {
       // File doesn't exist
@@ -534,11 +534,11 @@ Custom commands can be created in:
       type: 'builtin',
       action: 'memory',
       data: {
-        path: pilotDeckMdPath,
+        path: rigoriumMdPath,
         exists,
         message: exists
-          ? `Opening PILOTDECK.md at ${pilotDeckMdPath}`
-          : `PILOTDECK.md not found at ${pilotDeckMdPath}. Create it to store project-specific instructions.`
+          ? `Opening RIGORIUM.md at ${rigoriumMdPath}`
+          : `RIGORIUM.md not found at ${rigoriumMdPath}. Create it to store project-specific instructions.`
       }
     };
   },
@@ -731,10 +731,10 @@ Custom commands can be created in:
 
     const projectPath = context?.projectPath || null;
 
-    // PilotDeck's virtual "general" workspace roots at ~/.pilotdeck. It looks
+    // Rigorium's virtual "general" workspace roots at ~/.rigorium. It looks
     // like a real projectPath but the user's mental model is general chat →
     // user/global scope. Force user scope with --global when needed.
-    const GENERAL_CWD_PATHS = [path.resolve(resolvePilotHome(process.env))];
+    const GENERAL_CWD_PATHS = [path.resolve(resolveRigoriumHome(process.env))];
     const isGeneralCwd =
       projectPath && GENERAL_CWD_PATHS.includes(path.resolve(projectPath));
     const effectiveProjectPath = isGeneralCwd ? null : projectPath;
@@ -757,9 +757,9 @@ Custom commands can be created in:
         };
       }
       workdir = effectiveProjectPath;
-      dir = path.join('.pilotdeck', 'skills');
+      dir = path.join('.rigorium', 'skills');
     } else {
-      workdir = resolvePilotHome(process.env);
+      workdir = resolveRigoriumHome(process.env);
       dir = 'skills';
     }
     const installPath = path.join(workdir, dir, slug);
@@ -873,7 +873,7 @@ Custom commands can be created in:
  *   - Built-in commands: hardcoded in this file (handled by builtInHandlers).
  *   - Bundled skills: hardcoded stubs (BUNDLED_SKILL_STUBS) — actual handlers
  *     live in the CLI binary; we only surface them so the UI menu shows them.
- *   - On-disk commands: `.pilotdeck/commands/**\/*.md` (project + user).
+ *   - On-disk commands: `.rigorium/commands/**\/*.md` (project + user).
  *
  * Dedup: when the same `/<name>` exists in multiple places, project wins over
  * user, and `commands/` wins over `skills/` (first-seen preference).
@@ -885,13 +885,13 @@ Custom commands can be created in:
 router.post('/list', async (req, res) => {
   try {
     const { projectPath } = req.body;
-    const pilotHome = resolvePilotHome(process.env);
+    const rigoriumHome = resolveRigoriumHome(process.env);
 
     const customCommandSources = [];
 
     if (projectPath) {
-      const projectCommandsDir = path.join(projectPath, '.pilotdeck', 'commands');
-      const projectSkillsDir = path.join(projectPath, '.pilotdeck', 'skills');
+      const projectCommandsDir = path.join(projectPath, '.rigorium', 'commands');
+      const projectSkillsDir = path.join(projectPath, '.rigorium', 'skills');
       const [projectCommands, projectSkills] = await Promise.all([
         scanCommandsDirectory(projectCommandsDir, projectCommandsDir, 'project'),
         scanSkillsDirectory(projectSkillsDir, 'project'),
@@ -899,8 +899,8 @@ router.post('/list', async (req, res) => {
       customCommandSources.push(...projectCommands, ...projectSkills);
     }
 
-    const userCommandsDir = path.join(pilotHome, 'commands');
-    const userSkillsDir = path.join(pilotHome, 'skills');
+    const userCommandsDir = path.join(rigoriumHome, 'commands');
+    const userSkillsDir = path.join(rigoriumHome, 'skills');
     const [userCommands, userSkills] = await Promise.all([
       scanCommandsDirectory(userCommandsDir, userCommandsDir, 'user'),
       scanSkillsDirectory(userSkillsDir, 'user'),
@@ -977,11 +977,11 @@ router.post('/load', async (req, res) => {
     // Security: Prevent path traversal. Allow paths under any
     const resolvedPath = path.resolve(commandPath);
     const inHome = resolvedPath.startsWith(path.resolve(os.homedir()));
-    const inPilotdeckSubdir = /\.pilotdeck\/(commands|skills)\//.test(resolvedPath);
-    if (!inHome && !inPilotdeckSubdir) {
+    const inRigoriumSubdir = /[\\/]\.rigorium[\\/](commands|skills)[\\/]/.test(resolvedPath);
+    if (!inHome && !inRigoriumSubdir) {
       return res.status(403).json({
         error: 'Access denied',
-        message: 'Command must be in a .pilotdeck/commands or .pilotdeck/skills directory'
+        message: 'Command must be in a .rigorium/commands or .rigorium/skills directory'
       });
     }
 
@@ -1078,7 +1078,7 @@ router.post('/execute', async (req, res) => {
     // server-side and submitted as raw user input — that would dump the whole
     // SKILL.md body into chat. Instead, passthrough the slash text so the
     // proxy's slash parser invokes SkillTool with the procedural body.
-    if (commandPath && /\/\.pilotdeck\/skills\/[^/]+\/SKILL\.md$/i.test(commandPath)) {
+    if (commandPath && /[\\/]\.rigorium[\\/]skills[\\/][^\\/]+[\\/]SKILL\.md$/i.test(commandPath)) {
       const passthroughContent = buildPassthroughContent();
       return res.json({
         type: 'custom',
@@ -1100,15 +1100,15 @@ router.post('/execute', async (req, res) => {
     // Security: validate commandPath is within allowed directories.
     {
       const resolvedPath = path.resolve(commandPath);
-      const pilotHome = resolvePilotHome(process.env);
+      const rigoriumHome = resolveRigoriumHome(process.env);
       const allowedBases = [
-        path.resolve(path.join(pilotHome, 'commands')),
-        path.resolve(path.join(pilotHome, 'skills')),
+        path.resolve(path.join(rigoriumHome, 'commands')),
+        path.resolve(path.join(rigoriumHome, 'skills')),
       ];
       if (context?.projectPath) {
         allowedBases.push(
-          path.resolve(path.join(context.projectPath, '.pilotdeck', 'commands')),
-          path.resolve(path.join(context.projectPath, '.pilotdeck', 'skills')),
+          path.resolve(path.join(context.projectPath, '.rigorium', 'commands')),
+          path.resolve(path.join(context.projectPath, '.rigorium', 'skills')),
         );
       }
       const isUnder = (base) => {
@@ -1118,7 +1118,7 @@ router.post('/execute', async (req, res) => {
       if (!allowedBases.some(isUnder)) {
         return res.status(403).json({
           error: 'Access denied',
-          message: 'Command must be in a .pilotdeck/commands or .pilotdeck/skills directory'
+          message: 'Command must be in a .rigorium/commands or .rigorium/skills directory'
         });
       }
     }

@@ -9,9 +9,9 @@ import {
   type ResearchDesignPackageInput,
   type ResearchBriefBuildInput,
 } from "../../research/design/index.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
-import type { PilotDeckToolDefinition, PilotDeckToolExecutionOutput } from "../protocol/types.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
+import type { RigoriumToolDefinition, RigoriumToolExecutionOutput } from "../protocol/types.js";
 
 export type ResearchDesignToolInput = Readonly<{
   entry: CandidatePortfolioBuildInput["entry"];
@@ -42,7 +42,7 @@ export type CreateResearchDesignToolOptions = Readonly<{
 
 export function createResearchDesignTool(
   options: CreateResearchDesignToolOptions = {},
-): PilotDeckToolDefinition<ResearchDesignToolInput, ResearchDesignPackage> {
+): RigoriumToolDefinition<ResearchDesignToolInput, ResearchDesignPackage> {
   return {
     name: "research_design",
     title: "Develop and Challenge a Research Idea",
@@ -55,7 +55,7 @@ Use entry=discover when the user provides a broad domain and entry=complete when
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
     isOpenWorld: () => false,
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => validateInput(input),
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => validateInput(input),
     execute: async (input, context) => {
       try {
         const normalized = normalizeInput(input);
@@ -137,12 +137,12 @@ function normalizeInput(input: unknown): Omit<ResearchDesignPackageInput, "now">
   };
 }
 
-function validateInput(input: unknown): PilotDeckToolValidationResult {
+function validateInput(input: unknown): RigoriumToolValidationResult {
   try {
     createResearchDesignPackage({ ...normalizeInput(input), now: new Date("2000-01-01T00:00:00.000Z") });
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = {
+    const issue: RigoriumToolValidationIssue = {
       path: "$",
       code: "invalid_schema",
       message: messageOf(error),
@@ -151,7 +151,7 @@ function validateInput(input: unknown): PilotDeckToolValidationResult {
   }
 }
 
-function formatOutput(result: ResearchDesignPackage): PilotDeckToolExecutionOutput<ResearchDesignPackage> {
+function formatOutput(result: ResearchDesignPackage): RigoriumToolExecutionOutput<ResearchDesignPackage> {
   const selected = result.decisionRecord.payload.choice ?? "none";
   const lines = [
     "Research design artifacts",
@@ -178,8 +178,8 @@ function formatOutput(result: ResearchDesignPackage): PilotDeckToolExecutionOutp
   };
 }
 
-function invalidInput(error: unknown): PilotDeckToolRuntimeError {
-  return new PilotDeckToolRuntimeError("invalid_tool_input", `Invalid research design: ${messageOf(error)}`);
+function invalidInput(error: unknown): RigoriumToolRuntimeError {
+  return new RigoriumToolRuntimeError("invalid_tool_input", `Invalid research design: ${messageOf(error)}`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

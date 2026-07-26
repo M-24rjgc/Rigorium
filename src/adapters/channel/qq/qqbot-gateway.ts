@@ -232,8 +232,8 @@ export class QQBotGateway extends EventEmitter {
         shard: [0, 1],
         properties: {
           $os: "linux",
-          $browser: "pilotdeck",
-          $device: "pilotdeck",
+          $browser: "rigorium",
+          $device: "rigorium",
         },
       },
     }));

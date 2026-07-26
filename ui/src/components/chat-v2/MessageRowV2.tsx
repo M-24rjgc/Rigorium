@@ -12,7 +12,7 @@ import {
 import type {
   ChatAttachment,
   ChatMessage,
-  PilotDeckPermissionSuggestion,
+  RigoriumPermissionSuggestion,
   SessionPermissionGrantResult,
 } from '../chat/types/types';
 import MessageComponent from '../chat/view/subcomponents/MessageComponent';
@@ -97,7 +97,7 @@ type MessageRowV2Props = {
   onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
   onShowSettings?: () => void;
   onGrantSessionToolPermission?: (
-    suggestion: PilotDeckPermissionSuggestion,
+    suggestion: RigoriumPermissionSuggestion,
   ) => SessionPermissionGrantResult | null | undefined;
   autoExpandTools?: boolean;
   showRawParameters?: boolean;

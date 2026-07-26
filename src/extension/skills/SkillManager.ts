@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, isAbsolute, join, posix, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 
-import { getPilotExtensionPaths } from "../../pilot/paths.js";
+import { getRigoriumExtensionPaths } from "../../rigorium/paths.js";
 import type {
   SkillAddressInput,
   SkillCreateInput,
@@ -52,13 +52,13 @@ const RISKY_EXTS = new Set([
 ]);
 
 export type SkillManagerOptions = {
-  /** Resolved `~/.pilotdeck` root. Required. */
-  pilotHome: string;
-  /** Read-only skills shipped with the active PilotDeck build. */
+  /** Resolved `~/.rigorium` root. Required. */
+  rigoriumHome: string;
+  /** Read-only skills shipped with the active Rigorium build. */
   builtinSkillsRoot?: string;
   /**
    * "General chat" cwds we treat as not-a-real-project. Defaults to
-   * `pilotHome` (~/.pilotdeck). When the caller passes a `projectKey`
+   * `rigoriumHome` (~/.rigorium). When the caller passes a `projectKey`
    * matching one of these, the manager behaves as if no project was set —
    * built-in and user-scope skills are visible, but project skills are not.
    */
@@ -68,22 +68,22 @@ export type SkillManagerOptions = {
 /**
  * Authoritative skill-CRUD layer used by every host (gateway clients,
  * UI server, future SDK callers). Reads the release's bundled skill root and
- * owns the editable layouts under `~/.pilotdeck/skills/` (user scope) and
- * `<projectRoot>/.pilotdeck/skills/` (project scope). Legacy third-party skill
+ * owns the editable layouts under `~/.rigorium/skills/` (user scope) and
+ * `<projectRoot>/.rigorium/skills/` (project scope). Legacy third-party skill
  * directories are intentionally not consulted — conflating them with
- * PilotDeck's layout caused the UI/agent skill drift the migration fixes.
+ * Rigorium's layout caused the UI/agent skill drift the migration fixes.
  */
 export class SkillManager {
-  private readonly pilotHome: string;
+  private readonly rigoriumHome: string;
   private readonly builtinSkillsRootPath: string | null;
   private readonly generalCwdPaths: string[];
 
   constructor(options: SkillManagerOptions) {
-    this.pilotHome = resolve(options.pilotHome);
+    this.rigoriumHome = resolve(options.rigoriumHome);
     this.builtinSkillsRootPath = options.builtinSkillsRoot
       ? resolve(options.builtinSkillsRoot)
       : null;
-    const defaults = [this.pilotHome];
+    const defaults = [this.rigoriumHome];
     this.generalCwdPaths = (options.generalCwdPaths ?? defaults).map((p) => resolve(p));
   }
 
@@ -92,7 +92,7 @@ export class SkillManager {
   // -------------------------------------------------------------------
 
   private userSkillsRoot(): string {
-    return getPilotExtensionPaths(this.pilotHome, this.pilotHome).globalSkillsDir;
+    return getRigoriumExtensionPaths(this.rigoriumHome, this.rigoriumHome).globalSkillsDir;
   }
 
   private builtinSkillsRoot(): string {
@@ -103,7 +103,7 @@ export class SkillManager {
   }
 
   private projectSkillsRoot(projectRoot: string): string {
-    return getPilotExtensionPaths(projectRoot, this.pilotHome).projectSkillsDir;
+    return getRigoriumExtensionPaths(projectRoot, this.rigoriumHome).projectSkillsDir;
   }
 
   private isGeneralCwd(projectKey: string | null | undefined): boolean {

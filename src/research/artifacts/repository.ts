@@ -36,7 +36,7 @@ const INVALIDATION_REASONS = new Set<string>([
 
 export type ProjectResearchArtifactPaths = Readonly<{
   projectRoot: string;
-  pilotDeckDir: string;
+  rigoriumDir: string;
   researchDir: string;
   artifactsDir: string;
   manifestPath: string;
@@ -140,15 +140,15 @@ export function getProjectResearchArtifactPaths(input: {
     throw repositoryError("invalid_input", "projectRoot must be a non-empty path.", { operation: "resolve_paths" });
   }
   const projectRoot = resolve(input.projectRoot);
-  const pilotDeckDir = join(projectRoot, ".pilotdeck");
-  const researchDir = join(pilotDeckDir, "research");
+  const rigoriumDir = join(projectRoot, ".rigorium");
+  const researchDir = join(rigoriumDir, "research");
   const artifactsDir = join(researchDir, "artifacts");
   const manifestPath = join(artifactsDir, "manifest.json");
   const lockPath = join(artifactsDir, ".manifest.lock");
-  for (const candidate of [pilotDeckDir, researchDir, artifactsDir, manifestPath, lockPath]) {
+  for (const candidate of [rigoriumDir, researchDir, artifactsDir, manifestPath, lockPath]) {
     assertWithinProject(projectRoot, candidate);
   }
-  return Object.freeze({ projectRoot, pilotDeckDir, researchDir, artifactsDir, manifestPath, lockPath });
+  return Object.freeze({ projectRoot, rigoriumDir, researchDir, artifactsDir, manifestPath, lockPath });
 }
 
 export async function loadProjectResearchArtifactRepository(input: {
@@ -1191,7 +1191,7 @@ async function assertExistingDirectoryChain(
   operation: string,
 ): Promise<void> {
   await assertProjectRoot(paths, operation);
-  for (const directory of [paths.pilotDeckDir, paths.researchDir, paths.artifactsDir]) {
+  for (const directory of [paths.rigoriumDir, paths.researchDir, paths.artifactsDir]) {
     const stats = await lstatIfExists(directory, operation);
     if (stats && (!stats.isDirectory() || stats.isSymbolicLink())) {
       throw repositoryError("path_violation", "Artifact repository directories must not be files or symbolic links.", {
@@ -1204,7 +1204,7 @@ async function assertExistingDirectoryChain(
 
 async function ensureDirectories(paths: ProjectResearchArtifactPaths): Promise<void> {
   await assertProjectRoot(paths, "ensure_directories");
-  for (const directory of [paths.pilotDeckDir, paths.researchDir, paths.artifactsDir]) {
+  for (const directory of [paths.rigoriumDir, paths.researchDir, paths.artifactsDir]) {
     try {
       await mkdir(directory);
     } catch (error) {

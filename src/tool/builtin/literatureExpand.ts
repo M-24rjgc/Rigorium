@@ -12,8 +12,8 @@ import type {
   LiteratureExpansionDirection,
   LiteratureExpansionSeed,
 } from "../../research/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolDefinition, PilotDeckToolExecutionOutput } from "../protocol/types.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolDefinition, RigoriumToolExecutionOutput } from "../protocol/types.js";
 
 export type LiteratureExpandInput = {
   seed: LiteratureExpansionSeed;
@@ -37,7 +37,7 @@ const OPENALEX_OR_FILTER_MAX = 100;
  */
 export function createLiteratureExpandTool(
   options: CreateLiteratureExpandToolOptions = {},
-): PilotDeckToolDefinition<LiteratureExpandInput, LiteratureExpansionArtifact> {
+): RigoriumToolDefinition<LiteratureExpandInput, LiteratureExpansionArtifact> {
   return {
     name: "literature_expand",
     title: "Expand Literature Citations",
@@ -105,24 +105,24 @@ Use this when the user asks to follow references, inspect who cites a paper, bro
       const seed = normalizeSeed(input.seed);
       const directions = normalizeDirections(input.directions);
       const settingsSnapshot = await readResearchSettings({
-        pilotHome: context.env?.PILOT_HOME,
+        rigoriumHome: context.env?.RIGORIUM_HOME,
         projectRoot: context.cwd,
       });
       const settings = settingsSnapshot.effective;
       if (!settings.literature.enabled) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "setup_required",
           "Academic literature search is disabled in Research Settings.",
         );
       }
       if (!settings.privacy.allowRemoteMetadataSearch) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "permission_denied",
           "Remote metadata search is disabled by Research Settings privacy controls.",
         );
       }
       if (!settings.literature.sources.openalex.enabled) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "setup_required",
           "OpenAlex citation expansion is disabled in Research Settings.",
         );
@@ -149,7 +149,7 @@ Use this when the user asks to follow references, inspect who cites a paper, bro
         });
       } catch (error) {
         if (error instanceof OpenAlexSeedResolutionError) {
-          throw new PilotDeckToolRuntimeError("tool_execution_failed", error.message, {
+          throw new RigoriumToolRuntimeError("tool_execution_failed", error.message, {
             ...(error.queryUrl ? { queryUrl: error.queryUrl } : {}),
           });
         }
@@ -203,24 +203,24 @@ Use this when the user asks to follow references, inspect who cites a paper, bro
 
 function normalizeSeed(value: LiteratureExpansionSeed | undefined): LiteratureExpansionSeed {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "literature_expand requires a seed object.");
+    throw new RigoriumToolRuntimeError("invalid_tool_input", "literature_expand requires a seed object.");
   }
   const openAlexId = normalizeOpenAlexWorkId(value.openAlexId);
   const doi = normalizeDoi(value.doi);
   if (value.openAlexId !== undefined && !openAlexId) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       "seed.openAlexId must be an OpenAlex W identifier or canonical OpenAlex work URL.",
     );
   }
   if (value.doi !== undefined && !doi) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       "seed.doi must be a valid DOI.",
     );
   }
   if (!openAlexId && !doi) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       "literature_expand requires seed.openAlexId or seed.doi as a valid strong identifier.",
     );
@@ -239,16 +239,16 @@ function normalizeSeed(value: LiteratureExpansionSeed | undefined): LiteratureEx
 function normalizeDirections(value: LiteratureExpansionDirection[] | undefined): LiteratureExpansionDirection[] {
   const candidate = value ?? DEFAULT_DIRECTIONS;
   if (!Array.isArray(candidate) || candidate.length === 0) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "literature_expand requires at least one citation direction.");
+    throw new RigoriumToolRuntimeError("invalid_tool_input", "literature_expand requires at least one citation direction.");
   }
   const directions = [...new Set(candidate)];
   if (directions.some((direction) => direction !== "references" && direction !== "citations")) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", "directions must contain only references and citations.");
+    throw new RigoriumToolRuntimeError("invalid_tool_input", "directions must contain only references and citations.");
   }
   return directions;
 }
 
-function formatToolOutput(artifact: LiteratureExpansionArtifact): PilotDeckToolExecutionOutput<LiteratureExpansionArtifact> {
+function formatToolOutput(artifact: LiteratureExpansionArtifact): RigoriumToolExecutionOutput<LiteratureExpansionArtifact> {
   const lines = [
     `Citation expansion: ${artifact.papers.find((paper) => paper.id === artifact.seedPaperId)?.title ?? artifact.seedPaperId}`,
     `Results: ${artifact.papers.length} papers, ${artifact.edges.length} real citation relationships`,

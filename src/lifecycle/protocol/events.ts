@@ -1,3 +1,3 @@
 export type {
-  PilotDeckHookEvent as PilotDeckLifecycleHookEvent,
+  RigoriumHookEvent as RigoriumLifecycleHookEvent,
 } from "../../extension/hooks/protocol/events.js";

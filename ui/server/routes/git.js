@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { extractProjectDirectory } from '../projects.js';
-import { runChatViaGateway } from '../pilotdeck-bridge.js';
+import { runChatViaGateway } from '../rigorium-bridge.js';
 
 const router = express.Router();
 const COMMIT_DIFF_CHARACTER_LIMIT = 500_000;
@@ -840,15 +840,15 @@ router.get('/commit-diff', async (req, res) => {
 
 // Generate commit message based on staged changes using AI
 router.post('/generate-commit-message', async (req, res) => {
-  const { project, files, provider = 'pilotdeck' } = req.body;
+  const { project, files, provider = 'rigorium' } = req.body;
 
   if (!project || !files || files.length === 0) {
     return res.status(400).json({ error: 'Project name and files are required' });
   }
 
   // Validate provider
-  if (!['claude', 'pilotdeck', 'cursor'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude", "pilotdeck" or "cursor"' });
+  if (!['claude', 'rigorium', 'cursor'].includes(provider)) {
+    return res.status(400).json({ error: 'provider must be "claude", "rigorium" or "cursor"' });
   }
 
   try {
@@ -940,7 +940,7 @@ Generate the commit message:`;
           const parsed = typeof data === 'string' ? JSON.parse(data) : data;
           console.log('🔍 Writer received message type:', parsed.type);
 
-          if ((parsed.type === 'claude-response' || parsed.type === 'pilotdeck-response') && parsed.data) {
+          if ((parsed.type === 'claude-response' || parsed.type === 'rigorium-response') && parsed.data) {
             const message = parsed.data.message || parsed.data;
             console.log('Rigorium response message:', JSON.stringify(message, null, 2).substring(0, 500));
             if (message.content && Array.isArray(message.content)) {
@@ -974,7 +974,7 @@ Generate the commit message:`;
     console.log('🚀 Calling AI agent with provider:', provider);
     console.log('📝 Prompt length:', prompt.length);
 
-    // All providers route through the PilotDeck gateway. The `provider`
+    // All providers route through the Rigorium gateway. The `provider`
     // value is kept only as a label in the resulting message frames.
     await runChatViaGateway(
       prompt,
@@ -985,7 +985,7 @@ Generate the commit message:`;
         model: provider === 'cursor' ? undefined : 'sonnet',
       },
       writer,
-      provider || 'pilotdeck',
+      provider || 'rigorium',
     );
 
     console.log('📊 Total response text collected:', responseText.length, 'characters');

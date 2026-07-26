@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { TextDecoder } from "node:util";
 
-export type PilotDeckCommandOptions = {
+export type RigoriumCommandOptions = {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs: number;
@@ -12,7 +12,7 @@ export type PilotDeckCommandOptions = {
   onStderr?: (chunk: string) => void;
 };
 
-export type PilotDeckCommandResult = {
+export type RigoriumCommandResult = {
   exitCode: number | null;
   stdout: string;
   stderr: string;
@@ -20,16 +20,16 @@ export type PilotDeckCommandResult = {
   durationMs: number;
 };
 
-export type PilotDeckCommandRunner = {
-  run(command: string, options: PilotDeckCommandOptions): Promise<PilotDeckCommandResult>;
+export type RigoriumCommandRunner = {
+  run(command: string, options: RigoriumCommandOptions): Promise<RigoriumCommandResult>;
 };
 
 type SpawnShell = typeof spawn;
 
-export class NodeShellCommandRunner implements PilotDeckCommandRunner {
+export class NodeShellCommandRunner implements RigoriumCommandRunner {
   constructor(private readonly spawnShell: SpawnShell = spawn) {}
 
-  run(command: string, options: PilotDeckCommandOptions): Promise<PilotDeckCommandResult> {
+  run(command: string, options: RigoriumCommandOptions): Promise<RigoriumCommandResult> {
     const startedAt = Date.now();
     return new Promise((resolve, reject) => {
       const isWindows = process.platform === "win32";

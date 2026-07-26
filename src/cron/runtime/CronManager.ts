@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import type { SessionConfigOverrides } from "../../always-on/runtime/SessionConfigOverrides.js";
 import type { Gateway } from "../../gateway/index.js";
 import type { TelemetryClient } from "../../telemetry/index.js";
-import type { PilotDeckToolDefinition } from "../../tool/index.js";
+import type { RigoriumToolDefinition } from "../../tool/index.js";
 import type { CronConfig } from "../config/parseCronConfig.js";
 import type {
   CronCreateInput,
@@ -31,7 +31,7 @@ import { CronRuntime, type CronRuntimeLogger } from "./CronRuntime.js";
 
 export type CreateCronManagerOptions = {
   config: CronConfig;
-  pilotHome: string;
+  rigoriumHome: string;
   sessionOverrides?: SessionConfigOverrides;
   now?: () => Date;
   uuid?: () => string;
@@ -43,16 +43,16 @@ export type CreateCronManagerOptions = {
 export class CronManager {
   readonly config: CronConfig;
 
-  private readonly pilotHome: string;
+  private readonly rigoriumHome: string;
   private readonly runtimes = new Map<string, CronRuntime>();
   private readonly starting = new Map<string, Promise<void>>();
-  private readonly tools: PilotDeckToolDefinition[];
+  private readonly tools: RigoriumToolDefinition[];
   private gateway?: Gateway;
   private started = false;
 
   constructor(private readonly options: CreateCronManagerOptions) {
     this.config = options.config;
-    this.pilotHome = resolve(options.pilotHome);
+    this.rigoriumHome = resolve(options.rigoriumHome);
     this.tools = [
       createCronCreateTool(this),
       createCronListTool(this),
@@ -61,7 +61,7 @@ export class CronManager {
     ];
   }
 
-  getTools(): PilotDeckToolDefinition[] {
+  getTools(): RigoriumToolDefinition[] {
     return this.config.enabled ? [...this.tools] : [];
   }
 
@@ -81,11 +81,11 @@ export class CronManager {
       throw new Error("CronManager.start called before bindGateway.");
     }
     await migrateCronStores({
-      pilotHome: this.pilotHome,
+      rigoriumHome: this.rigoriumHome,
       logger: this.options.logger,
     });
     this.started = true;
-    const projectKeys = await discoverCronProjectKeys(this.pilotHome, this.options.logger);
+    const projectKeys = await discoverCronProjectKeys(this.rigoriumHome, this.options.logger);
     for (const projectKey of projectKeys) {
       await this.ensureRuntime(projectKey);
     }
@@ -172,7 +172,7 @@ export class CronManager {
 
     const runtime = new CronRuntime({
       config: this.config,
-      pilotHome: this.pilotHome,
+      rigoriumHome: this.rigoriumHome,
       projectKey,
       sessionOverrides: this.options.sessionOverrides,
       now: this.options.now,
@@ -257,10 +257,10 @@ function requireProjectKey(projectKey: string | undefined): string {
 }
 
 async function discoverCronProjectKeys(
-  pilotHome: string,
+  rigoriumHome: string,
   logger?: CronRuntimeLogger,
 ): Promise<string[]> {
-  const projectsDir = resolve(pilotHome, "cron", "projects");
+  const projectsDir = resolve(rigoriumHome, "cron", "projects");
   let entries: Dirent<string>[];
   try {
     entries = await readdir(projectsDir, { withFileTypes: true });

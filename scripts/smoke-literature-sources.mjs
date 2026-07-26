@@ -12,7 +12,7 @@ const result = await tool.execute({
   toYear: new Date().getUTCFullYear() + 1,
 }, {
   cwd: process.cwd(),
-  env: { PILOT_HOME: join(tmpdir(), 'rigorium-literature-live-smoke') },
+  env: { RIGORIUM_HOME: join(tmpdir(), 'rigorium-literature-live-smoke') },
 });
 
 const artifact = result.data;

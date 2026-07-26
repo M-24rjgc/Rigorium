@@ -1,8 +1,8 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import type { PilotDeckToolDefinition } from "../protocol/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import { resolvePilotDeckWorkspacePath } from "./filesystem/pathSafety.js";
+import type { RigoriumToolDefinition } from "../protocol/types.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import { resolveRigoriumWorkspacePath } from "./filesystem/pathSafety.js";
 import {
   isIgnoredPath,
   normalizeRelativePath,
@@ -40,7 +40,7 @@ const EXCLUDED_DIRECTORY_GLOBS = [
   "!dist",
 ] as const;
 
-export function createGrepTool(): PilotDeckToolDefinition<GrepInput> {
+export function createGrepTool(): RigoriumToolDefinition<GrepInput> {
   return {
     name: "grep",
     aliases: ["Grep"],
@@ -121,9 +121,9 @@ export function createGrepTool(): PilotDeckToolDefinition<GrepInput> {
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
     execute: async (input, context) => {
-      const resolved = resolvePilotDeckWorkspacePath(input.path ?? ".", context, { mustExist: true });
+      const resolved = resolveRigoriumWorkspacePath(input.path ?? ".", context, { mustExist: true });
       if (!resolved.ok) {
-        throw new PilotDeckToolRuntimeError(resolved.error.code, resolved.error.message, resolved.error.details);
+        throw new RigoriumToolRuntimeError(resolved.error.code, resolved.error.message, resolved.error.details);
       }
 
       const mode = input.output_mode ?? "files_with_matches";
@@ -325,7 +325,7 @@ function parseContentLine(line: string): ParsedContentLine {
   }
   const match = line.match(/^(.*?)([:-])(\d+)([:-])(.*)$/);
   if (!match) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `Unexpected ripgrep content output: ${line}`,
     );

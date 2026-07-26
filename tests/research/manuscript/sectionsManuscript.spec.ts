@@ -54,12 +54,12 @@ test("ManuscriptVersion keeps one canonical LaTeX source and versioned artifact 
   const latex = `\\documentclass{article}
 \\begin{document}
 Synthetic related-work fixture \\citep{synthetic2026}.
-\\label{pilotdeck-main-matter-end}
+\\label{rigorium-main-matter-end}
 \\bibliographystyle{plain}
 \\bibliography{references}
-\\label{pilotdeck-bibliography-end}
+\\label{rigorium-bibliography-end}
 \\appendix
-\\label{pilotdeck-appendix-start}
+\\label{rigorium-appendix-start}
 Synthetic appendix fixture.
 \\end{document}`;
   const first = createManuscriptVersion({

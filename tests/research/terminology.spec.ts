@@ -535,10 +535,10 @@ test("candidate-pool maps DOI-merged OpenAlex observations to the primary final 
 
 test("literature_search persists terminology only for its final candidate pool", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-terminology-artifact-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -581,7 +581,7 @@ test("literature_search persists terminology only for its final candidate pool",
   });
   const result = await tool.execute(
     { query: "final terminology", limit: 1 },
-    { cwd: join(root, "project"), env: { PILOT_HOME: pilotHome }, now: () => new Date(RETRIEVED_AT) } as any,
+    { cwd: join(root, "project"), env: { RIGORIUM_HOME: rigoriumHome }, now: () => new Date(RETRIEVED_AT) } as any,
   );
 
   assert.equal(new URL(requested[0] ?? "").searchParams.get("api_key"), "secret");

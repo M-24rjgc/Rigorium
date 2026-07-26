@@ -1,10 +1,10 @@
 import { resolve } from "node:path";
-import { createProjectId } from "../../pilot/paths.js";
+import { createProjectId } from "../../rigorium/paths.js";
 
 const ROOT_DIR_NAME = "cron";
 
 export type CronPaths = {
-  pilotHome: string;
+  rigoriumHome: string;
   projectKey: string;
   projectId: string;
   rootDir: string;
@@ -14,15 +14,15 @@ export type CronPaths = {
   runHistoryFile: string;
 };
 
-export function resolveCronPaths(input: { pilotHome: string; projectKey: string }): CronPaths {
-  const pilotHome = resolve(input.pilotHome);
+export function resolveCronPaths(input: { rigoriumHome: string; projectKey: string }): CronPaths {
+  const rigoriumHome = resolve(input.rigoriumHome);
   const projectKey = resolve(input.projectKey);
   const projectId = createProjectId(projectKey);
-  const rootDir = resolve(pilotHome, ROOT_DIR_NAME);
+  const rootDir = resolve(rigoriumHome, ROOT_DIR_NAME);
   const projectDir = resolve(rootDir, "projects", projectId);
 
   return {
-    pilotHome,
+    rigoriumHome,
     projectKey,
     projectId,
     rootDir,

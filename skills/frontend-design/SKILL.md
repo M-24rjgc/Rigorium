@@ -25,8 +25,8 @@ Use this skill when creating or reviewing frontend UI where visual quality matte
 - The UI works at common mobile/tablet/desktop widths.
 - Empty/loading/error states are intentional.
 
-## PilotDeck Migration Note
+## Rigorium Migration Note
 
 - Source inspiration: Anthropic frontend-design skill and general frontend design best practices.
-- This is a PilotDeck-native draft, not a verbatim copy.
+- This is a Rigorium-native draft, not a verbatim copy.
 

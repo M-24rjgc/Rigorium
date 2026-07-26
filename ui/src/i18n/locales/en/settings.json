@@ -366,7 +366,7 @@
       "gemini": {
         "description": "Google Gemini AI assistant"
       },
-      "pilotdeck": {
+      "rigorium": {
         "description": "Rigorium personal research assistant"
       }
     },
@@ -466,7 +466,7 @@
   "mcpServers": {
     "title": "MCP Servers",
     "description": {
-      "pilotdeck": "Model Context Protocol servers provide additional tools and data sources to Rigorium",
+      "rigorium": "Model Context Protocol servers provide additional tools and data sources to Rigorium",
       "cursor": "Model Context Protocol servers provide additional tools and data sources to Cursor",
       "codex": "Model Context Protocol servers provide additional tools and data sources to Codex"
     },
@@ -499,7 +499,7 @@
   },
   "mcpConfig": {
     "title": "MCP Servers",
-    "description": "Edit Rigorium MCP config. Global config lives in ~/.pilotdeck/mcp.json; project config lives in .pilotdeck/mcp.json and overrides global servers with the same name.",
+    "description": "Edit Rigorium MCP config. Global config lives in ~/.rigorium/mcp.json; project config lives in .rigorium/mcp.json and overrides global servers with the same name.",
     "project": "Project for project-scoped config",
     "scopes": {
       "global": "Global",
@@ -543,7 +543,7 @@
       "addHeader": "Add header"
     }
   },
-  "pilotDeckConfig": {
+  "rigoriumConfig": {
     "loading": "Loading Rigorium config...",
     "header": {
       "configFile": "Config file",
@@ -702,11 +702,11 @@
           },
           "proxyUrl": {
             "label": "HTTPS proxy",
-            "description": "Outbound HTTPS proxy URL. Applies to both Gateway and UI Server (proxy.url in pilotdeck.yaml)."
+            "description": "Outbound HTTPS proxy URL. Applies to both Gateway and UI Server (proxy.url in rigorium.yaml)."
           },
           "proxyNoProxy": {
             "label": "No-proxy list",
-            "description": "Comma-separated hostnames/IPs that bypass the proxy (proxy.noProxy in pilotdeck.yaml). 127.0.0.1 and localhost are always excluded."
+            "description": "Comma-separated hostnames/IPs that bypass the proxy (proxy.noProxy in rigorium.yaml). 127.0.0.1 and localhost are always excluded."
           }
         }
       },
@@ -1256,7 +1256,7 @@
   },
   "pluginSettings": {
     "title": "Plugins",
-    "description": "Extend the interface with custom plugins. Install from git or drop a folder in ~/.pilotdeck/plugins/",
+    "description": "Extend the interface with custom plugins. Install from git or drop a folder in ~/.rigorium/plugins/",
     "installPlaceholder": "https://github.com/user/my-plugin",
     "installButton": "Install",
     "installing": "Installing…",
@@ -1388,7 +1388,7 @@
       "websocketUrl": "WebSocket URL",
       "dmPolicy": "DM Policy",
       "groupPolicy": "Group Policy",
-      "policyHint": "Basic policies are written to pilotdeck.yaml; edit YAML later for finer user or group allowlists.",
+      "policyHint": "Basic policies are written to rigorium.yaml; edit YAML later for finer user or group allowlists.",
       "saveSuccess": "WeCom config saved"
     }
   },

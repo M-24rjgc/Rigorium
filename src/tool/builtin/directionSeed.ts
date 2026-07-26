@@ -4,11 +4,11 @@ import {
   type ResearchDirectionSeed,
   type ResearchDirectionSeedInput,
 } from "../../research/direction/directionSeed.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
 } from "../protocol/types.js";
 
 export type ResearchDirectionSeedToolInput = ResearchDirectionSeedInput;
@@ -32,7 +32,7 @@ export type CreateResearchDirectionSeedToolOptions = Readonly<{
  */
 export function createResearchDirectionSeedTool(
   options: CreateResearchDirectionSeedToolOptions = {},
-): PilotDeckToolDefinition<ResearchDirectionSeedToolInput, ResearchDirectionSeedArtifact> {
+): RigoriumToolDefinition<ResearchDirectionSeedToolInput, ResearchDirectionSeedArtifact> {
   return {
     name: "research_direction_seed",
     title: "Prepare Research Direction Candidates",
@@ -45,7 +45,7 @@ Use this when the user starts from an interest, question, paper, algorithm, data
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
     isOpenWorld: () => false,
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => validateInput(input),
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => validateInput(input),
     execute: async (input, context) => {
       let result: ResearchDirectionSeed;
       try {
@@ -154,12 +154,12 @@ function inputSchema() {
   };
 }
 
-function validateInput(input: unknown): PilotDeckToolValidationResult {
+function validateInput(input: unknown): RigoriumToolValidationResult {
   try {
     normalizeResearchDirectionSeed(input as ResearchDirectionSeedInput);
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = {
+    const issue: RigoriumToolValidationIssue = {
       path: "$",
       code: "invalid_schema",
       message: error instanceof Error ? error.message : String(error),
@@ -168,8 +168,8 @@ function validateInput(input: unknown): PilotDeckToolValidationResult {
   }
 }
 
-function invalidInput(error: unknown): PilotDeckToolRuntimeError {
-  return new PilotDeckToolRuntimeError(
+function invalidInput(error: unknown): RigoriumToolRuntimeError {
+  return new RigoriumToolRuntimeError(
     "invalid_tool_input",
     `Invalid research direction seed input: ${error instanceof Error ? error.message : String(error)}`,
   );
@@ -177,7 +177,7 @@ function invalidInput(error: unknown): PilotDeckToolRuntimeError {
 
 function formatOutput(
   artifact: ResearchDirectionSeedArtifact,
-): PilotDeckToolExecutionOutput<ResearchDirectionSeedArtifact> {
+): RigoriumToolExecutionOutput<ResearchDirectionSeedArtifact> {
   const lines = [
     "Research direction seed",
     `Cues: ${artifact.result.cues.length}`,

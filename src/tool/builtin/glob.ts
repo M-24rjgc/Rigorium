@@ -1,7 +1,7 @@
 import path from "node:path";
-import type { PilotDeckToolDefinition } from "../protocol/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import { resolvePilotDeckWorkspacePath } from "./filesystem/pathSafety.js";
+import type { RigoriumToolDefinition } from "../protocol/types.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import { resolveRigoriumWorkspacePath } from "./filesystem/pathSafety.js";
 import { ripgrepFiles } from "./filesystem/ripgrepFiles.js";
 
 export type GlobInput = {
@@ -45,7 +45,7 @@ export function extractGlobBaseDirectory(pattern: string): {
   return { baseDir, relativePattern };
 }
 
-export function createGlobTool(): PilotDeckToolDefinition<GlobInput> {
+export function createGlobTool(): RigoriumToolDefinition<GlobInput> {
   return {
     name: "glob",
     aliases: ["Glob"],
@@ -90,13 +90,13 @@ export function createGlobTool(): PilotDeckToolDefinition<GlobInput> {
         }
       }
 
-      const resolvedSearchPath = resolvePilotDeckWorkspacePath(
+      const resolvedSearchPath = resolveRigoriumWorkspacePath(
         searchPath,
         context,
         { mustExist: true },
       );
       if (!resolvedSearchPath.ok) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           resolvedSearchPath.error.code,
           resolvedSearchPath.error.message,
           resolvedSearchPath.error.details,

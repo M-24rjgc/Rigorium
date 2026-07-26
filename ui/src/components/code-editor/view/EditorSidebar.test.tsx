@@ -36,8 +36,8 @@ const editorTabs: CodeEditorTab[] = [{
   id: 'editor-tab-0',
   fileStack: [{
     name: 'report.pdf',
-    path: '/workspace/PilotDeck/report.pdf',
-    projectName: 'pilotdeck',
+    path: '/workspace/Rigorium/report.pdf',
+    projectName: 'rigorium',
     diffInfo: null,
   }],
   dirty: false,

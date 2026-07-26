@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import type { Gateway } from "../../gateway/index.js";
-import type { PilotDeckToolDefinition } from "../../tool/index.js";
+import type { RigoriumToolDefinition } from "../../tool/index.js";
 import type { AlwaysOnConfig } from "../config/parseAlwaysOnConfig.js";
 import { resolveAlwaysOnPaths, type AlwaysOnPaths } from "../storage/AlwaysOnPaths.js";
 import { DiscoveryPlanStore } from "../storage/DiscoveryPlanStore.js";
@@ -39,7 +39,7 @@ export type AlwaysOnRuntimeLogger = {
 
 export type CreateAlwaysOnRuntimeOptions = {
   config: AlwaysOnConfig;
-  pilotHome: string;
+  rigoriumHome: string;
   /** Absolute path of a project that this server hosts. */
   projectKey: string;
   now?: () => Date;
@@ -75,7 +75,7 @@ const NOOP_LOGGER: AlwaysOnRuntimeLogger = {
 /**
  * AlwaysOnRuntime is the lifecycle owner for the entire Always-On module.
  *
- * Wiring sequence (see `02-pilotdeck-always-on-rewrite-plan.md` §1, §5):
+ * Wiring sequence (see `02-rigorium-always-on-rewrite-plan.md` §1, §5):
  *   1. Construct via `createAlwaysOnRuntime(...)` before the Gateway is built.
  *   2. Pull tools via `runtime.getTools()` and feed them into the per-project
  *      ToolRegistry that the Gateway uses.
@@ -106,7 +106,7 @@ export class AlwaysOnRuntime {
   private readonly logger: AlwaysOnRuntimeLogger;
   private readonly now: () => Date;
   private readonly uuid: () => string;
-  private readonly tools: PilotDeckToolDefinition[];
+  private readonly tools: RigoriumToolDefinition[];
   private readonly isSessionInFlight: () => boolean;
   private readonly onWorktreeCreated?: (runId: string, cwd: string) => void;
   private readonly onWorktreeRemoved?: (cwd: string) => void;
@@ -121,7 +121,7 @@ export class AlwaysOnRuntime {
     this.config = options.config;
     this.projectKey = resolve(options.projectKey);
     this.paths = resolveAlwaysOnPaths({
-      pilotHome: options.pilotHome,
+      rigoriumHome: options.rigoriumHome,
       projectKey: this.projectKey,
       worktreesBaseDir: options.config.workspace.gitWorktreeBaseDir,
       snapshotsBaseDir: options.config.workspace.snapshotBaseDir,
@@ -167,7 +167,7 @@ export class AlwaysOnRuntime {
         ];
   }
 
-  getTools(): PilotDeckToolDefinition[] {
+  getTools(): RigoriumToolDefinition[] {
     return [...this.tools];
   }
 

@@ -2,21 +2,21 @@ import path from "node:path";
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { toNativeFileSystemPath, toProtocolPath } from "../../../model/protocol/path.js";
-import type { PilotDeckToolRuntimeContext } from "../../protocol/types.js";
-import type { PilotDeckToolError } from "../../protocol/errors.js";
+import type { RigoriumToolRuntimeContext } from "../../protocol/types.js";
+import type { RigoriumToolError } from "../../protocol/errors.js";
 import { toolError } from "../../protocol/errors.js";
 
-export type PilotDeckPathSafetyResult =
+export type RigoriumPathSafetyResult =
   | { ok: true; absolutePath: string; relativePath: string; root: string }
-  | { ok: false; error: PilotDeckToolError };
+  | { ok: false; error: RigoriumToolError };
 
 const DEFAULT_WRITE_DENY_DIRECTORIES = new Set([".git", "node_modules", "dist"]);
 
-export function resolvePilotDeckWorkspacePath(
+export function resolveRigoriumWorkspacePath(
   inputPath: string,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
   options?: { forWrite?: boolean; mustExist?: boolean; allowOutsideWorkspace?: boolean; allowRegisteredReadFiles?: boolean },
-): PilotDeckPathSafetyResult {
+): RigoriumPathSafetyResult {
   if (!inputPath || inputPath.includes("\0")) {
     return {
       ok: false,
@@ -152,9 +152,9 @@ function safeRealpath(value: string): string | undefined {
   }
 }
 
-function isManagedImAttachmentFile(realPath: string, context: PilotDeckToolRuntimeContext): boolean {
-  const pilotHome = path.resolve(context.env?.PILOT_HOME ?? path.join(homedir(), ".pilotdeck"));
-  const root = safeRealpath(path.join(pilotHome, "im-attachments")) ?? path.join(pilotHome, "im-attachments");
+function isManagedImAttachmentFile(realPath: string, context: RigoriumToolRuntimeContext): boolean {
+  const rigoriumHome = path.resolve(context.env?.RIGORIUM_HOME ?? path.join(homedir(), ".rigorium"));
+  const root = safeRealpath(path.join(rigoriumHome, "im-attachments")) ?? path.join(rigoriumHome, "im-attachments");
   return isPathWithinRoot(realPath, root) && isRegularFile(realPath);
 }
 

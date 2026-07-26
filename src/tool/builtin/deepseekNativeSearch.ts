@@ -6,12 +6,12 @@ import {
   searchDeepSeekNative,
   type DeepSeekNativeSearchEvidenceBundle,
 } from "../../deepseek-native-search/index.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
 import type {
-  PilotDeckToolAvailabilityContext,
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolAvailabilityContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 
 export type DeepSeekNativeSearchInput = {
@@ -36,7 +36,7 @@ export type CreateDeepSeekNativeSearchToolOptions = {
 
 export function createDeepSeekNativeSearchTool(
   options: CreateDeepSeekNativeSearchToolOptions = {},
-): PilotDeckToolDefinition<DeepSeekNativeSearchInput, DeepSeekNativeSearchEvidenceBundle> {
+): RigoriumToolDefinition<DeepSeekNativeSearchInput, DeepSeekNativeSearchEvidenceBundle> {
   return {
     name: "deepseek_native_search",
     title: "DeepSeek Native Search",
@@ -91,7 +91,7 @@ Requires a DeepSeek API key configured in tools.deepseekNativeSearch.apiKey, DEE
 
 function checkAvailability(
   options: CreateDeepSeekNativeSearchToolOptions,
-  context: PilotDeckToolAvailabilityContext,
+  context: RigoriumToolAvailabilityContext,
 ) {
   const settings = resolveDeepSeekNativeSearchSettings(options, context.env ?? process.env);
   const hasExplicitApiKey = options.credentialSource !== "automatic" &&
@@ -116,8 +116,8 @@ function checkAvailability(
 async function executeDeepSeekNativeSearch(
   options: CreateDeepSeekNativeSearchToolOptions,
   input: DeepSeekNativeSearchInput,
-  context: PilotDeckToolRuntimeContext,
-): Promise<PilotDeckToolExecutionOutput<DeepSeekNativeSearchEvidenceBundle>> {
+  context: RigoriumToolRuntimeContext,
+): Promise<RigoriumToolExecutionOutput<DeepSeekNativeSearchEvidenceBundle>> {
   try {
     const evidence = await searchDeepSeekNative({
       ...options,
@@ -160,9 +160,9 @@ function formatEvidence(evidence: DeepSeekNativeSearchEvidenceBundle): string {
   return lines.join("\n");
 }
 
-function toToolRuntimeError(error: unknown): PilotDeckToolRuntimeError {
+function toToolRuntimeError(error: unknown): RigoriumToolRuntimeError {
   if (!(error instanceof DeepSeekNativeSearchError)) {
-    return new PilotDeckToolRuntimeError(
+    return new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `DeepSeek native search failed: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -177,5 +177,5 @@ function toToolRuntimeError(error: unknown): PilotDeckToolRuntimeError {
       : error.code === "timeout"
         ? "tool_timeout"
         : "tool_execution_failed";
-  return new PilotDeckToolRuntimeError(code, error.message, { tool: "deepseek_native_search" });
+  return new RigoriumToolRuntimeError(code, error.message, { tool: "deepseek_native_search" });
 }

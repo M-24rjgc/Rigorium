@@ -1,9 +1,9 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { PermissionResult, PermissionRule } from "../../permission/index.js";
-import type { PilotDeckToolDefinition, PilotDeckToolRuntimeContext } from "../protocol/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import { resolvePilotDeckWorkspacePath } from "./filesystem/pathSafety.js";
+import type { RigoriumToolDefinition, RigoriumToolRuntimeContext } from "../protocol/types.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import { resolveRigoriumWorkspacePath } from "./filesystem/pathSafety.js";
 
 export type SendAttachmentInput = {
   file_path: string;
@@ -18,7 +18,7 @@ export type SendAttachmentOutput = {
   mimeType?: string;
 };
 
-export function createSendAttachmentTool(): PilotDeckToolDefinition<SendAttachmentInput, SendAttachmentOutput> {
+export function createSendAttachmentTool(): RigoriumToolDefinition<SendAttachmentInput, SendAttachmentOutput> {
   return {
     name: "send_attachment",
     aliases: ["send_file"],
@@ -64,17 +64,17 @@ export function createSendAttachmentTool(): PilotDeckToolDefinition<SendAttachme
     checkPermissions: async (input, context): Promise<PermissionResult> =>
       checkSendAttachmentPermission(input.file_path, context),
     execute: async (input, context) => {
-      const resolved = resolvePilotDeckWorkspacePath(input.file_path, context, {
+      const resolved = resolveRigoriumWorkspacePath(input.file_path, context, {
         mustExist: true,
         allowRegisteredReadFiles: true,
         allowOutsideWorkspace: context.currentPermissionDecision?.type === "allow",
       });
       if (!resolved.ok) {
-        throw new PilotDeckToolRuntimeError(resolved.error.code, resolved.error.message, resolved.error.details);
+        throw new RigoriumToolRuntimeError(resolved.error.code, resolved.error.message, resolved.error.details);
       }
       const fileStat = await stat(resolved.absolutePath);
       if (!fileStat.isFile()) {
-        throw new PilotDeckToolRuntimeError("invalid_tool_input", `Path ${input.file_path} is not a file.`);
+        throw new RigoriumToolRuntimeError("invalid_tool_input", `Path ${input.file_path} is not a file.`);
       }
       const name = sanitizeAttachmentName(input.name) ?? path.basename(resolved.absolutePath);
       const output: SendAttachmentOutput = {
@@ -100,8 +100,8 @@ export function createSendAttachmentTool(): PilotDeckToolDefinition<SendAttachme
   };
 }
 
-function checkSendAttachmentPermission(inputPath: string, context: PilotDeckToolRuntimeContext): PermissionResult {
-  const workspaceResolved = resolvePilotDeckWorkspacePath(inputPath, context, {
+function checkSendAttachmentPermission(inputPath: string, context: RigoriumToolRuntimeContext): PermissionResult {
+  const workspaceResolved = resolveRigoriumWorkspacePath(inputPath, context, {
     mustExist: true,
     allowRegisteredReadFiles: true,
   });
@@ -116,7 +116,7 @@ function checkSendAttachmentPermission(inputPath: string, context: PilotDeckTool
     };
   }
 
-  const outsideResolved = resolvePilotDeckWorkspacePath(inputPath, context, {
+  const outsideResolved = resolveRigoriumWorkspacePath(inputPath, context, {
     mustExist: true,
     allowOutsideWorkspace: true,
   });

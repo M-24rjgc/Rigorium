@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "library": "pilotdeck-core",
+  "library": "rigorium-core",
   "layouts": [
     { "id": "title", "export": "titleSlide", "family": "opening", "useWhen": "Open the deck with one clear promise", "slots": ["eyebrow", "title", "subtitle", "meta"], "densityBudget": "low" },
     { "id": "section", "export": "sectionSlide", "family": "divider", "useWhen": "Introduce a new narrative chapter", "slots": ["number", "title", "subtitle"], "densityBudget": "low" },

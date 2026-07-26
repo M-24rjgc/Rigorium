@@ -1,7 +1,7 @@
 import type {
   CanonicalToolCall,
 } from "../../model/index.js";
-import type { PilotDeckToolResult } from "../../tool/index.js";
+import type { RigoriumToolResult } from "../../tool/index.js";
 
 export type LargeFileRepairDecision =
   | { type: "continue"; prompt: string; purpose: string; strip?: "assistant" | "error_pair" }
@@ -55,7 +55,7 @@ export class LargeFileRepair {
   }
 
   analyzeToolResults(
-    results: PilotDeckToolResult[],
+    results: RigoriumToolResult[],
     context: LargeFileRepairToolContext,
   ): LargeFileRepairDecision | undefined {
     this.recordWrites(results);
@@ -147,7 +147,7 @@ export class LargeFileRepair {
     };
   }
 
-  private recordWrites(results: PilotDeckToolResult[]): void {
+  private recordWrites(results: RigoriumToolResult[]): void {
     for (const result of results) {
       if (result.type !== "success" || !FILE_WRITE_TOOLS.has(result.toolName)) {
         continue;
@@ -213,7 +213,7 @@ function postDraftPrompt(filePaths: string[], attempt: number): string {
 }
 
 function hasPreDraftLargeFileRisk(
-  results: PilotDeckToolResult[],
+  results: RigoriumToolResult[],
   context: LargeFileRepairToolContext,
 ): boolean {
   return results.some((result) => {
@@ -237,7 +237,7 @@ function hasPreDraftLargeFileRisk(
   });
 }
 
-function hasPostDraftRisk(results: PilotDeckToolResult[]): boolean {
+function hasPostDraftRisk(results: RigoriumToolResult[]): boolean {
   return results.some((result) => {
     if (result.type !== "error") {
       return false;
@@ -252,7 +252,7 @@ function hasPostDraftRisk(results: PilotDeckToolResult[]): boolean {
   });
 }
 
-function readIssues(result: PilotDeckToolResult): { path: string; code: string }[] {
+function readIssues(result: RigoriumToolResult): { path: string; code: string }[] {
   if (result.type !== "error") {
     return [];
   }

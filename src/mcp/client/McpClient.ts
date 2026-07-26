@@ -21,8 +21,8 @@
  *   Cache is invalidated on reconnect.
  *
  * Errors raised by `callTool` / `listTools` always carry one of the
- * PilotDeck-style `mcp_*` error codes via the `code` field on the thrown
- * error, so the caller can map them back to `PilotDeckToolErrorCode`.
+ * Rigorium-style `mcp_*` error codes via the `code` field on the thrown
+ * error, so the caller can map them back to `RigoriumToolErrorCode`.
  */
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -37,13 +37,13 @@ import { truncateMcpToolDescription } from "../runtime/truncate.js";
 import { buildMcpToolWireName } from "../runtime/wireName.js";
 import { networkFetch } from "../../network/fetch.js";
 import type {
-  PilotDeckMcpServerSpec,
-  PilotDeckMcpStatus,
-  PilotDeckMcpToolSpec,
+  RigoriumMcpServerSpec,
+  RigoriumMcpStatus,
+  RigoriumMcpToolSpec,
 } from "../protocol/types.js";
 
 const DEFAULT_CALL_TIMEOUT_MS = parseInt(
-  process.env.PILOTDECK_MCP_TOOL_TIMEOUT_MS ?? "60000",
+  process.env.RIGORIUM_MCP_TOOL_TIMEOUT_MS ?? "60000",
   10,
 );
 const LIST_TOOLS_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -53,7 +53,7 @@ export type McpClientOptions = {
   /** Connect handshake timeout. Default 10s. */
   handshakeTimeoutMs?: number;
   /** Optional override for testing — supply a pre-built Transport instance. */
-  transportFactory?: (spec: PilotDeckMcpServerSpec) => Transport;
+  transportFactory?: (spec: RigoriumMcpServerSpec) => Transport;
   /** Optional fetch override for testing streamable HTTP transports. */
   fetch?: typeof fetch;
 };
@@ -76,13 +76,13 @@ export class McpClientError extends Error {
 
 type ListToolsCache = {
   expiresAt: number;
-  tools: PilotDeckMcpToolSpec[];
+  tools: RigoriumMcpToolSpec[];
 };
 
 export class McpClient {
   private client: Client | null = null;
   private transport: Transport | null = null;
-  private status: PilotDeckMcpStatus = "idle";
+  private status: RigoriumMcpStatus = "idle";
   private listToolsCache: ListToolsCache | null = null;
   private serverInstructions = "";
   private connectPromise: Promise<void> | null = null;
@@ -90,11 +90,11 @@ export class McpClient {
   private perSessionDir: string | null = null;
 
   constructor(
-    public readonly spec: PilotDeckMcpServerSpec,
+    public readonly spec: RigoriumMcpServerSpec,
     private readonly options: McpClientOptions = {},
   ) {}
 
-  getStatus(): PilotDeckMcpStatus {
+  getStatus(): RigoriumMcpStatus {
     return this.status;
   }
 
@@ -118,7 +118,7 @@ export class McpClient {
     this.status = "connecting";
     const transport = this.buildTransport();
     const client = new Client(
-      { name: "pilotdeck", version: "0.1.0" },
+      { name: "rigorium", version: "0.1.0" },
       { capabilities: { elicitation: {} } },
     );
     const handshakeMs = this.options.handshakeTimeoutMs ?? 10_000;
@@ -167,7 +167,7 @@ export class McpClient {
     if (this.spec.transport === "stdio") {
       let args = this.spec.args;
       if (this.spec.perSession) {
-        const dir = mkdtempSync(join(tmpdir(), `pilotdeck-mcp-${this.spec.id}-`));
+        const dir = mkdtempSync(join(tmpdir(), `rigorium-mcp-${this.spec.id}-`));
         this.perSessionDir = dir;
         args = [...(args ?? []), `--user-data-dir=${dir}`];
       }
@@ -198,7 +198,7 @@ export class McpClient {
         },
       });
     }
-    const fallback = this.spec as PilotDeckMcpServerSpec;
+    const fallback = this.spec as RigoriumMcpServerSpec;
     throw new McpClientError(
       `Unsupported transport: ${(fallback as { transport: string }).transport}`,
       "mcp_unsupported_transport",
@@ -207,7 +207,7 @@ export class McpClient {
   }
 
   /** M6 — LRU-cached tools/list. */
-  async listTools(): Promise<PilotDeckMcpToolSpec[]> {
+  async listTools(): Promise<RigoriumMcpToolSpec[]> {
     const cached = this.listToolsCache;
     if (cached && cached.expiresAt > Date.now()) return cached.tools;
 
@@ -364,12 +364,12 @@ export class McpClient {
     }
   }
 
-  private toToolSpec(raw: unknown): PilotDeckMcpToolSpec {
+  private toToolSpec(raw: unknown): RigoriumMcpToolSpec {
     const sanitized = recursivelySanitizeUnicode(raw) as {
       name: string;
       description?: string;
       inputSchema?: unknown;
-      annotations?: PilotDeckMcpToolSpec["annotations"];
+      annotations?: RigoriumMcpToolSpec["annotations"];
       _meta?: Record<string, unknown>;
     };
     const wireName = buildMcpToolWireName(this.spec.id, sanitized.name);

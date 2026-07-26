@@ -36,6 +36,10 @@ let downloadJob = createIdleDownloadJob();
 let downloadAbortController = null;
 
 export function compareVersions(current, latest) {
+  const currentSemver = parseComparableVersion(current);
+  const latestSemver = parseComparableVersion(latest);
+  if (currentSemver && latestSemver) return compareSemanticVersions(currentSemver, latestSemver);
+
   const currentParts = parseVersionParts(current);
   const latestParts = parseVersionParts(latest);
   const length = Math.max(currentParts.length, latestParts.length);
@@ -51,14 +55,53 @@ export function compareVersions(current, latest) {
 }
 
 export function parseVersionParts(value) {
-  const normalized = String(value || '')
-    .trim()
-    .replace(/^rigorium[-_ ]?/i, '')
-    .replace(/^pilotdeck[-_ ]?/i, '')
-    .replace(/^desktop[-_ ]?/i, '')
-    .replace(/^v/i, '');
+  const normalized = normalizeVersionText(value);
   const matches = normalized.match(/\d+/g);
   return matches?.map((part) => Number.parseInt(part, 10)).filter(Number.isFinite) ?? [0];
+}
+
+function normalizeVersionText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^rigorium[-_ ]?/i, '')
+    .replace(/^desktop[-_ ]?/i, '')
+    .replace(/^v/i, '');
+}
+
+function parseComparableVersion(value) {
+  const match = normalizeVersionText(value).match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$/u);
+  if (!match) return null;
+  return {
+    numeric: [match[1], match[2] || '0', match[3] || '0'].map((part) => Number.parseInt(part, 10)),
+    prerelease: match[4]?.split('.') ?? null,
+  };
+}
+
+function compareSemanticVersions(current, latest) {
+  for (let index = 0; index < current.numeric.length; index += 1) {
+    if (current.numeric[index] < latest.numeric[index]) return -1;
+    if (current.numeric[index] > latest.numeric[index]) return 1;
+  }
+
+  if (!current.prerelease && !latest.prerelease) return 0;
+  if (!current.prerelease) return 1;
+  if (!latest.prerelease) return -1;
+
+  const length = Math.max(current.prerelease.length, latest.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const left = current.prerelease[index];
+    const right = latest.prerelease[index];
+    if (left === right) continue;
+    if (left === undefined) return -1;
+    if (right === undefined) return 1;
+    const leftNumeric = /^\d+$/u.test(left);
+    const rightNumeric = /^\d+$/u.test(right);
+    if (leftNumeric && rightNumeric) return Number(left) < Number(right) ? -1 : 1;
+    if (leftNumeric) return -1;
+    if (rightNumeric) return 1;
+    return left < right ? -1 : 1;
+  }
+  return 0;
 }
 
 export function normalizeRepository(value) {
@@ -147,8 +190,8 @@ export async function getCurrentDesktopVersion(options = {}) {
   return {
     version:
       firstNonEmpty(
-        env.PILOTDECK_DESKTOP_VERSION,
-        env.PILOTDECK_VERSION,
+        env.RIGORIUM_DESKTOP_VERSION,
+        env.RIGORIUM_VERSION,
         env.APP_VERSION,
         env.npm_package_version,
         releaseMetadata?.version,
@@ -156,9 +199,10 @@ export async function getCurrentDesktopVersion(options = {}) {
       ) || '0.0.0',
     buildTime,
     commit,
+    channel: firstNonEmpty(env.RIGORIUM_UPDATE_CHANNEL, releaseMetadata?.channel) || 'stable',
     platform: process.platform,
     arch: process.arch,
-    desktop: env.PILOTDECK_DESKTOP === '1' || Boolean(env.PILOTDECK_DESKTOP_VERSION),
+    desktop: env.RIGORIUM_DESKTOP === '1' || Boolean(env.RIGORIUM_DESKTOP_VERSION),
   };
 }
 
@@ -193,7 +237,7 @@ export async function getDesktopUpdateStatus(options = {}) {
   }
 
   try {
-    const latest = await fetchLatestRelease({ env, repository, includePrerelease: shouldIncludePrerelease(env) });
+    const latest = await fetchLatestRelease({ env, repository, includePrerelease: shouldIncludePrerelease(env, current.channel) });
     const selectedAsset = selectDesktopAsset(latest, {
       platform: options.platform || process.platform,
       arch: options.arch || process.arch,
@@ -204,16 +248,17 @@ export async function getDesktopUpdateStatus(options = {}) {
       source: 'github-releases',
       scope: 'desktop',
       repository,
-      status: hasUpdate ? 'update-available' : 'up-to-date',
+      status: hasUpdate && !selectedAsset ? 'asset-unavailable' : hasUpdate ? 'update-available' : 'up-to-date',
       hasUpdate,
       updateAvailable: hasUpdate,
-      checkUnavailable: false,
+      checkUnavailable: hasUpdate && !selectedAsset,
       current,
       latest: {
         ...latest,
         selectedAsset,
       },
       lastCheckedAt: now.toISOString(),
+      ...(hasUpdate && !selectedAsset ? { message: 'The latest release does not include a compatible desktop installer for this device.' } : {}),
     };
 
     cachedStatus = { cachedAt: Date.now(), status };
@@ -294,7 +339,7 @@ export async function startDesktopUpdateDownload(options = {}) {
 
   const destinationDir = getUpdateCacheDir(env, status.latest.tagName || status.latest.version);
   mkdirSync(destinationDir, { recursive: true });
-  const destinationPath = path.join(destinationDir, sanitizeFilename(asset.name || 'pilotdeck-update'));
+  const destinationPath = path.join(destinationDir, sanitizeFilename(asset.name || 'rigorium-update'));
   const partialPath = `${destinationPath}.download`;
   await clearDownloadFiles(partialPath, destinationPath);
 
@@ -454,7 +499,7 @@ async function fetchReleases(options) {
 }
 
 async function fetchJson(url, env) {
-  const timeoutMs = clampInteger(env.PILOTDECK_UPDATE_TIMEOUT_MS, 1_000, 120_000, DEFAULT_TIMEOUT_MS);
+  const timeoutMs = clampInteger(env.RIGORIUM_UPDATE_TIMEOUT_MS, 1_000, 120_000, DEFAULT_TIMEOUT_MS);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -474,7 +519,7 @@ async function fetchJson(url, env) {
 }
 
 async function fetchBoundedText(url, env, maxBytes = CHECKSUM_MAX_BYTES, options = {}) {
-  const timeoutMs = clampInteger(env.PILOTDECK_UPDATE_TIMEOUT_MS, 1_000, 120_000, DEFAULT_TIMEOUT_MS);
+  const timeoutMs = clampInteger(env.RIGORIUM_UPDATE_TIMEOUT_MS, 1_000, 120_000, DEFAULT_TIMEOUT_MS);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -500,7 +545,7 @@ async function fetchBoundedText(url, env, maxBytes = CHECKSUM_MAX_BYTES, options
 }
 
 function createGitHubHeaders(env, options = {}) {
-  const token = firstNonEmpty(env.PILOTDECK_GITHUB_TOKEN, env.GITHUB_TOKEN);
+  const token = firstNonEmpty(env.RIGORIUM_GITHUB_TOKEN, env.GITHUB_TOKEN);
   return {
     Accept: options.accept || 'application/vnd.github+json',
     'User-Agent': USER_AGENT,
@@ -945,8 +990,7 @@ export function resolveUpdateRepository(options = {}) {
   const packageMetadata = readPackageMetadata(projectRoot);
   const configured = firstNonEmpty(
     env.RIGORIUM_UPDATE_REPOSITORY,
-    env.PILOTDECK_UPDATE_REPOSITORY,
-    env.PILOTDECK_RELEASE_REPOSITORY,
+    env.RIGORIUM_RELEASE_REPOSITORY,
     releaseMetadata?.repository,
     typeof packageMetadata?.repository === 'string' ? packageMetadata.repository : packageMetadata?.repository?.url,
   );
@@ -954,7 +998,7 @@ export function resolveUpdateRepository(options = {}) {
 }
 
 async function getCurrentCommit(projectRoot, env, releaseMetadata) {
-  const fromEnv = firstNonEmpty(env.PILOTDECK_COMMIT_SHA, env.GIT_COMMIT, env.VERCEL_GIT_COMMIT_SHA);
+  const fromEnv = firstNonEmpty(env.RIGORIUM_COMMIT_SHA, env.GIT_COMMIT, env.VERCEL_GIT_COMMIT_SHA);
   if (fromEnv) return fromEnv;
   if (releaseMetadata?.commit) return releaseMetadata.commit;
 
@@ -968,8 +1012,8 @@ async function getCurrentCommit(projectRoot, env, releaseMetadata) {
 
 async function getBuildTime(projectRoot, env, releaseMetadata) {
   const fromEnv = firstNonEmpty(
-    env.PILOTDECK_DESKTOP_BUILD_TIME,
-    env.PILOTDECK_BUILD_TIME,
+    env.RIGORIUM_DESKTOP_BUILD_TIME,
+    env.RIGORIUM_BUILD_TIME,
     env.BUILD_TIME,
     env.npm_package_build_time,
   );
@@ -984,16 +1028,20 @@ async function getBuildTime(projectRoot, env, releaseMetadata) {
   }
 }
 
-function shouldIncludePrerelease(env) {
-  return env.PILOTDECK_UPDATE_INCLUDE_PRERELEASE === '1'
-    || env.PILOTDECK_UPDATE_CHANNEL === 'beta'
-    || env.PILOTDECK_UPDATE_CHANNEL === 'nightly';
+function shouldIncludePrerelease(env, packagedChannel = null) {
+  const channel = firstNonEmpty(env.RIGORIUM_UPDATE_CHANNEL, packagedChannel)?.toLowerCase();
+  return env.RIGORIUM_UPDATE_INCLUDE_PRERELEASE === '1'
+    || channel === 'prerelease'
+    || channel === 'beta'
+    || channel === 'nightly'
+    || channel === 'alpha'
+    || channel === 'canary';
 }
 
 function getUpdateCacheRoot(env) {
-  return env.PILOTDECK_UPDATE_CACHE_DIR
-    ? path.resolve(env.PILOTDECK_UPDATE_CACHE_DIR)
-    : path.join(os.homedir(), '.pilotdeck', 'updates');
+  return env.RIGORIUM_UPDATE_CACHE_DIR
+    ? path.resolve(env.RIGORIUM_UPDATE_CACHE_DIR)
+    : path.join(os.homedir(), '.rigorium', 'updates');
 }
 
 function getUpdateCacheDir(env, releaseName) {

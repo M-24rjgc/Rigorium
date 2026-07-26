@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# PilotDeck self-update script.
+# Rigorium self-update script.
 # Pulls latest code, rebuilds, and signals the parent process to restart.
 #
 # Usage:
@@ -60,7 +60,7 @@ log "Updating from ${LOCAL_HEAD:0:8} to ${REMOTE_HEAD:0:8}..."
 
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
   warn "Working directory has uncommitted changes. Stashing..."
-  git stash push -m "pilotdeck-auto-update-$(date +%Y%m%d-%H%M%S)" 2>&1
+  git stash push -m "rigorium-auto-update-$(date +%Y%m%d-%H%M%S)" 2>&1
 fi
 
 git pull --ff-only origin "$CURRENT_BRANCH" 2>&1 || {
@@ -90,9 +90,9 @@ COMMIT_MSG="$(git log --oneline -1 HEAD)"
 log "Latest commit: $COMMIT_MSG"
 
 if [[ "$DO_RESTART" -eq 1 ]]; then
-  log "Restarting PilotDeck..."
-  if [[ -n "${PILOTDECK_PID:-}" ]] && kill -0 "$PILOTDECK_PID" 2>/dev/null; then
-    kill -SIGUSR2 "$PILOTDECK_PID" 2>/dev/null || true
+  log "Restarting Rigorium..."
+  if [[ -n "${RIGORIUM_PID:-}" ]] && kill -0 "$RIGORIUM_PID" 2>/dev/null; then
+    kill -SIGUSR2 "$RIGORIUM_PID" 2>/dev/null || true
   fi
 fi
 

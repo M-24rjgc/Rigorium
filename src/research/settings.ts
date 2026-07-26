@@ -64,7 +64,7 @@ export const DEFAULT_RESEARCH_SETTINGS: ResearchSettings = {
 };
 
 type ReadResearchSettingsInput = {
-  pilotHome?: string;
+  rigoriumHome?: string;
   projectRoot?: string;
 };
 
@@ -75,10 +75,10 @@ type WriteResearchSettingsInput = ReadResearchSettingsInput & {
 };
 
 export function getResearchSettingsPaths(input: ReadResearchSettingsInput = {}) {
-  const pilotHome = resolve(input.pilotHome?.trim() || process.env.PILOT_HOME || join(homedir(), ".pilotdeck"));
-  const globalPath = join(pilotHome, "research", "settings.json");
+  const rigoriumHome = resolve(input.rigoriumHome?.trim() || process.env.RIGORIUM_HOME || join(homedir(), ".rigorium"));
+  const globalPath = join(rigoriumHome, "research", "settings.json");
   const projectPath = input.projectRoot?.trim()
-    ? join(resolve(input.projectRoot), ".pilotdeck", "research", "settings.json")
+    ? join(resolve(input.projectRoot), ".rigorium", "research", "settings.json")
     : undefined;
   return { globalPath, projectPath };
 }

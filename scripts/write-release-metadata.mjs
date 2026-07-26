@@ -7,7 +7,6 @@ const outputPath = resolve(projectRoot, process.argv[2] || 'dist/release-metadat
 const packageJson = JSON.parse(await readFile(resolve(projectRoot, 'package.json'), 'utf8'));
 const repository = normalizeRepository(
   process.env.RIGORIUM_UPDATE_REPOSITORY
-    || process.env.PILOTDECK_UPDATE_REPOSITORY
     || process.env.GITHUB_REPOSITORY
     || repositoryValue(packageJson.repository),
 );

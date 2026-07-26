@@ -292,7 +292,7 @@ def review_docx(
                         comments_root,
                         str(item.get("match", "")),
                         str(item.get("text", "")),
-                        str(item.get("author", "PilotDeck")),
+                        str(item.get("author", "Rigorium")),
                         str(item.get("date", date_iso)),
                     )
                 )
@@ -308,7 +308,7 @@ def review_docx(
                         document_root,
                         str(item.get("match", "")),
                         str(item.get("replacement", "")),
-                        str(item.get("author", "PilotDeck")),
+                        str(item.get("author", "Rigorium")),
                         str(item.get("date", date_iso)),
                     )
                 )

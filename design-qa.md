@@ -5,14 +5,14 @@
 - Full-view reference: `/var/folders/xt/0thdvc4d0kb_165pd393wz1c0000gn/T/TemporaryItems/NSIRD_screencaptureui_yz9HTD/截屏2026-07-15 15.33.41.png`
 - Dashboard-menu reference: `/var/folders/xt/0thdvc4d0kb_165pd393wz1c0000gn/T/TemporaryItems/NSIRD_screencaptureui_rOzYS1/截屏2026-07-15 15.29.56.png`
 - Active-button reference: `/var/folders/xt/0thdvc4d0kb_165pd393wz1c0000gn/T/TemporaryItems/NSIRD_screencaptureui_ydrPdL/截屏2026-07-15 15.32.28.png`
-- Desktop chat: `/tmp/pilotdeck-design-qa/01-chat-default.png`
-- Dashboard menu: `/tmp/pilotdeck-design-qa/02-dashboard-menu.png`
-- Memory split view: `/tmp/pilotdeck-design-qa/03-memory-panel.png`
-- Router split view: `/tmp/pilotdeck-design-qa/04-routing-panel.png`
-- Final localized Skills detail: `/tmp/pilotdeck-design-qa/09-skills-detail-final.png`
-- Mobile Always-On overlay: `/tmp/pilotdeck-design-qa/06-mobile-always-on.png`
-- Full-view side-by-side comparison: `/tmp/pilotdeck-design-qa/07-reference-vs-memory.png`
-- Focused menu comparison: `/tmp/pilotdeck-design-qa/08-menu-comparison.png`
+- Desktop chat: `/tmp/rigorium-design-qa/01-chat-default.png`
+- Dashboard menu: `/tmp/rigorium-design-qa/02-dashboard-menu.png`
+- Memory split view: `/tmp/rigorium-design-qa/03-memory-panel.png`
+- Router split view: `/tmp/rigorium-design-qa/04-routing-panel.png`
+- Final localized Skills detail: `/tmp/rigorium-design-qa/09-skills-detail-final.png`
+- Mobile Always-On overlay: `/tmp/rigorium-design-qa/06-mobile-always-on.png`
+- Full-view side-by-side comparison: `/tmp/rigorium-design-qa/07-reference-vs-memory.png`
+- Focused menu comparison: `/tmp/rigorium-design-qa/08-menu-comparison.png`
 
 Desktop QA used a 2048×926 viewport. Responsive QA used a 390×844 viewport. The final browser viewport override was reset after testing.
 
@@ -22,7 +22,7 @@ Desktop QA used a 2048×926 viewport. Responsive QA used a 390×844 viewport. Th
 - Menu and active state: the ellipsis menu contains Skills, Router, Memory, and Always-On. Selecting an item replaces the ellipsis with a highlighted icon-and-label button without a chevron. Clicking that button again closes the dashboard and restores the ellipsis.
 - Layout: File continues to use the full workbench. Auxiliary tools open beside the mounted chat surface in a closable, keyboard-accessible, resizable right panel. At mobile width the panel becomes an overlay instead of compressing chat.
 - Density and responsiveness: Skills, Router, and Always-On use compact one-column layouts in the panel; Skills detail replaces the list and provides a localized back action.
-- Visual system: existing PilotDeck typography, neutral surfaces, border radii, shadows, Lucide icons, and dark-mode tokens are preserved. No new raster assets or custom icon artwork were introduced.
+- Visual system: existing Rigorium typography, neutral surfaces, border radii, shadows, Lucide icons, and dark-mode tokens are preserved. No new raster assets or custom icon artwork were introduced.
 - Accessibility: controls expose pressed/expanded states; the menu uses menu semantics; the resize handle is an adjustable separator; close and resize labels are localized; Escape closes the dashboard menu.
 
 ## Interaction checks
@@ -50,12 +50,12 @@ Source visual truth:
 
 Post-fix implementation evidence:
 
-- Desktop file workspace entered from the chat link: `/tmp/pilotdeck-design-qa/15-desktop-file-workspace.png`
-- Desktop chat after closing Files: `/tmp/pilotdeck-design-qa/16-desktop-chat-clean.png`
-- Mobile embedded file workspace: `/tmp/pilotdeck-design-qa/13-mobile-file-workspace.png`
-- Mobile chat after closing Files: `/tmp/pilotdeck-design-qa/14-mobile-chat-clean.png`
-- Full-view file-routing comparison: `/tmp/pilotdeck-design-qa/17-source-vs-file-workspace.png`
-- Focused clean-chat comparison: `/tmp/pilotdeck-design-qa/18-source-vs-clean-chat.png`
+- Desktop file workspace entered from the chat link: `/tmp/rigorium-design-qa/15-desktop-file-workspace.png`
+- Desktop chat after closing Files: `/tmp/rigorium-design-qa/16-desktop-chat-clean.png`
+- Mobile embedded file workspace: `/tmp/rigorium-design-qa/13-mobile-file-workspace.png`
+- Mobile chat after closing Files: `/tmp/rigorium-design-qa/14-mobile-chat-clean.png`
+- Full-view file-routing comparison: `/tmp/rigorium-design-qa/17-source-vs-file-workspace.png`
+- Focused clean-chat comparison: `/tmp/rigorium-design-qa/18-source-vs-clean-chat.png`
 
 States and viewports:
 
@@ -71,7 +71,7 @@ Comparison history:
 
 Fidelity surfaces:
 
-- Typography, colors, tokens, icons, and file-preview assets are unchanged from PilotDeck's existing system.
+- Typography, colors, tokens, icons, and file-preview assets are unchanged from Rigorium's existing system.
 - Layout ownership is now unambiguous: chat is full-width after Files closes; Files owns the explorer, artifact, and compact assistant regions.
 - Existing copy and content are preserved; only navigation and containment behavior changed.
 - No new images, custom SVGs, CSS drawings, or replacement assets were introduced.
@@ -87,13 +87,13 @@ Source visual truth:
 
 Post-fix implementation evidence:
 
-- Compact chat menu, desktop 1440×900: `/tmp/pilotdeck-design-qa/19-chat-menu-final.png`
-- Blue Memory selected state, desktop 1440×900: `/tmp/pilotdeck-design-qa/20-dashboard-active-blue.png`
-- File-workspace menu and blue Files selected state, desktop 1440×900: `/tmp/pilotdeck-design-qa/21-files-menu-final.png`
-- File-workspace menu, mobile 390×844: `/tmp/pilotdeck-design-qa/22-mobile-files-menu-final.png`
-- Menu-width comparison: `/tmp/pilotdeck-design-qa/23-menu-comparison.png`
-- Selected-state comparison: `/tmp/pilotdeck-design-qa/24-active-comparison.png`
-- File stacking comparison: `/tmp/pilotdeck-design-qa/25-files-stacking-comparison.png`
+- Compact chat menu, desktop 1440×900: `/tmp/rigorium-design-qa/19-chat-menu-final.png`
+- Blue Memory selected state, desktop 1440×900: `/tmp/rigorium-design-qa/20-dashboard-active-blue.png`
+- File-workspace menu and blue Files selected state, desktop 1440×900: `/tmp/rigorium-design-qa/21-files-menu-final.png`
+- File-workspace menu, mobile 390×844: `/tmp/rigorium-design-qa/22-mobile-files-menu-final.png`
+- Menu-width comparison: `/tmp/rigorium-design-qa/23-menu-comparison.png`
+- Selected-state comparison: `/tmp/rigorium-design-qa/24-active-comparison.png`
+- File stacking comparison: `/tmp/rigorium-design-qa/25-files-stacking-comparison.png`
 
 Comparison history:
 
@@ -112,12 +112,12 @@ Source visual truth:
 
 Post-fix implementation evidence:
 
-- Empty-chat disabled state, desktop 1440×900: `/tmp/pilotdeck-search-button-qa/01-empty-disabled.png`
-- Search open and selected state, desktop 1440×900: `/tmp/pilotdeck-search-button-qa/02-search-open.png`
-- Search open, mobile 390×844: `/tmp/pilotdeck-search-button-qa/03-mobile-search-open.png`
-- Enabled header state, desktop 1440×900: `/tmp/pilotdeck-search-button-qa/04-enabled-header.png`
-- Focused header comparison: `/tmp/pilotdeck-search-button-qa/05-header-comparison.png`
-- Focused search-overlay comparison: `/tmp/pilotdeck-search-button-qa/06-searchbar-comparison.png`
+- Empty-chat disabled state, desktop 1440×900: `/tmp/rigorium-search-button-qa/01-empty-disabled.png`
+- Search open and selected state, desktop 1440×900: `/tmp/rigorium-search-button-qa/02-search-open.png`
+- Search open, mobile 390×844: `/tmp/rigorium-search-button-qa/03-mobile-search-open.png`
+- Enabled header state, desktop 1440×900: `/tmp/rigorium-search-button-qa/04-enabled-header.png`
+- Focused header comparison: `/tmp/rigorium-search-button-qa/05-header-comparison.png`
+- Focused search-overlay comparison: `/tmp/rigorium-search-button-qa/06-searchbar-comparison.png`
 
 Interaction and comparison history:
 
@@ -127,7 +127,7 @@ Interaction and comparison history:
 - A conversation with no mounted message pane exposes a visible but disabled Search control. Existing conversations enable it automatically.
 - Chinese search copy now uses localized labels and placeholders; keyboard and accessible names remain intact.
 - At 390×844 the header controls and search overlay remain within the viewport without clipping or horizontal overflow.
-- Fonts and typography, spacing/layout rhythm, colors/tokens, existing image assets, icons, and app-specific copy were checked against the source and current PilotDeck design system. No new raster assets, custom SVGs, CSS drawings, or replacement imagery were introduced.
+- Fonts and typography, spacing/layout rhythm, colors/tokens, existing image assets, icons, and app-specific copy were checked against the source and current Rigorium design system. No new raster assets, custom SVGs, CSS drawings, or replacement imagery were introduced.
 - Browser console warnings/errors after the complete interaction flow: none.
 - P0/P1/P2 remaining: none.
 
@@ -140,9 +140,9 @@ Source visual truth:
 
 Post-fix implementation evidence:
 
-- Files selected, desktop 1280×720: `/tmp/pilotdeck-active-state-qa/03-files-active-final.png`
-- Memory selected, desktop 1280×720: `/tmp/pilotdeck-active-state-qa/04-memory-active-final.png`
-- Search selected, desktop 1280×720: `/tmp/pilotdeck-active-state-qa/05-search-active-final.png`
+- Files selected, desktop 1280×720: `/tmp/rigorium-active-state-qa/03-files-active-final.png`
+- Memory selected, desktop 1280×720: `/tmp/rigorium-active-state-qa/04-memory-active-final.png`
+- Search selected, desktop 1280×720: `/tmp/rigorium-active-state-qa/05-search-active-final.png`
 
 Comparison history:
 
@@ -163,9 +163,9 @@ Source visual truth:
 
 Post-fix implementation evidence:
 
-- Files workbench with editor and agent panel visible, desktop 1280×720: `/tmp/pilotdeck-workbench-refactor-qa/01-workbench-final.png`
-- Files workbench with the project sidebar expanded and the narrow-layout agent rail, desktop 1280×720: `/tmp/pilotdeck-workbench-refactor-qa/02-workbench-final-expanded.png`
-- Final deliverable state with the project sidebar collapsed and the agent panel visible, desktop 1280×720: `/tmp/pilotdeck-workbench-refactor-qa/03-workbench-deliverable.png`
+- Files workbench with editor and agent panel visible, desktop 1280×720: `/tmp/rigorium-workbench-refactor-qa/01-workbench-final.png`
+- Files workbench with the project sidebar expanded and the narrow-layout agent rail, desktop 1280×720: `/tmp/rigorium-workbench-refactor-qa/02-workbench-final-expanded.png`
+- Final deliverable state with the project sidebar collapsed and the agent panel visible, desktop 1280×720: `/tmp/rigorium-workbench-refactor-qa/03-workbench-deliverable.png`
 
 Comparison history:
 
@@ -201,8 +201,8 @@ Source visual truth:
 
 Post-fix implementation evidence:
 
-- Multi-tab Files workbench with content directly below the tab/action row, desktop 1280×720: `/tmp/pilotdeck-workbench-refactor-qa/04-toolbar-row-removed.png`
-- Combined source/implementation comparison: `/tmp/pilotdeck-toolbar-comparison.jpg`
+- Multi-tab Files workbench with content directly below the tab/action row, desktop 1280×720: `/tmp/rigorium-workbench-refactor-qa/04-toolbar-row-removed.png`
+- Combined source/implementation comparison: `/tmp/rigorium-toolbar-comparison.jpg`
 
 Comparison history:
 

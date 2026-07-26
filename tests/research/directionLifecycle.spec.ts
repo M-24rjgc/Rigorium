@@ -139,7 +139,7 @@ test("persists the full cue-to-provisional-title lifecycle without a Project ren
   });
   assert.equal(seeded.created, true);
   assert.equal(seeded.persisted, true);
-  assert.match(seeded.path, /\.pilotdeck[\\/]research[\\/]direction-lifecycle\.json$/u);
+  assert.match(seeded.path, /\.rigorium[\\/]research[\\/]direction-lifecycle\.json$/u);
   assert.equal(stageStatus(seeded.state, "cue_classification"), "complete");
   assert.equal(stageStatus(seeded.state, "terminology"), "complete");
   assert.equal(stageStatus(seeded.state, "constraints"), "complete");

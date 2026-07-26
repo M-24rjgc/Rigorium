@@ -33,12 +33,12 @@ PDF_TOOL="$PDF_SKILL_ROOT/scripts/pdf.sh"
 bash "$PDF_TOOL" check || bash "$PDF_TOOL" fix
 ```
 
-`fix` creates an isolated Python environment under `${PDF_SKILL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/pilotdeck-pdf}`. Poppler is a system dependency; if `pdfinfo` or `pdftoppm` is missing, follow the platform-specific hint printed by `fix`.
+`fix` creates an isolated Python environment under `${PDF_SKILL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/rigorium-pdf}`. Poppler is a system dependency; if `pdfinfo` or `pdftoppm` is missing, follow the platform-specific hint printed by `fix`.
 
 Use a task-specific scratch directory outside the skill:
 
 ```bash
-WORKSPACE="${TMPDIR:-/tmp}/pilotdeck-pdf/${CODEX_THREAD_ID:-manual}/<task-slug>"
+WORKSPACE="${TMPDIR:-/tmp}/rigorium-pdf/${CODEX_THREAD_ID:-manual}/<task-slug>"
 mkdir -p "$WORKSPACE/tmp" "$WORKSPACE/qa"
 ```
 

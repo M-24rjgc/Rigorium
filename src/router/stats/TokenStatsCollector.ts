@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { CanonicalUsage } from "../../model/index.js";
 import type { RouterStatsConfig } from "../config/schema.js";
-import { resolvePilotHome } from "../../pilot/paths.js";
+import { resolveRigoriumHome } from "../../rigorium/paths.js";
 import type { RouterDecision } from "../protocol/decision.js";
 import { lookupModelPricing } from "../utils/modelPricing.js";
 
@@ -71,7 +71,7 @@ export class TokenStatsCollector {
     if (this.enabled) {
       const routerDir = config?.filePath
         ? path.dirname(config.filePath)
-        : path.join(resolvePilotHome(), "router");
+        : path.join(resolveRigoriumHome(), "router");
       try { fs.mkdirSync(routerDir, { recursive: true }); } catch { /* ok */ }
 
       this.jsonlPath = path.join(routerDir, "stats.jsonl");

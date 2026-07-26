@@ -1,10 +1,10 @@
-import type { PilotDeckToolDefinition } from "../../tool/index.js";
+import type { RigoriumToolDefinition } from "../../tool/index.js";
 import type { CronCreateInput, CronCreateResult } from "../protocol/types.js";
 import type { GatewayChannelKey } from "../../gateway/index.js";
 import { CRON_SCHEDULE_SCHEMA } from "./CronSchemas.js";
 import type { CronToolRuntime } from "./CronToolRuntime.js";
 
-export function createCronCreateTool(runtime: CronToolRuntime): PilotDeckToolDefinition<CronCreateInput, CronCreateResult> {
+export function createCronCreateTool(runtime: CronToolRuntime): RigoriumToolDefinition<CronCreateInput, CronCreateResult> {
   return {
     name: "cron_create",
     title: "Create Cron Task",

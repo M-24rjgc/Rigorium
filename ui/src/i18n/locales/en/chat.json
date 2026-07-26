@@ -20,7 +20,7 @@
     "error": "Error",
     "tool": "Tool",
     "claude": "Claude",
-    "pilotdeck": "Rigorium",
+    "rigorium": "Rigorium",
     "cursor": "Cursor",
     "codex": "Codex",
     "gemini": "Gemini"
@@ -343,7 +343,7 @@
       "google": "by Google"
     },
     "readyPrompt": {
-      "pilotdeck": "Ready to use Rigorium with {{model}}. Start typing your message below.",
+      "rigorium": "Ready to use Rigorium with {{model}}. Start typing your message below.",
       "cursor": "Ready to use Cursor with {{model}}. Start typing your message below.",
       "codex": "Ready to use Codex with {{model}}. Start typing your message below.",
       "gemini": "Ready to use Gemini with {{model}}. Start typing your message below.",
@@ -412,7 +412,7 @@
     "startCli": "Starting Rigorium CLI in {{projectName}}",
     "defaultCommand": "command"
   },
-  "pilotdeckStatus": {
+  "rigoriumStatus": {
     "actions": {
       "thinking": "Thinking",
       "processing": "Processing",
@@ -468,7 +468,7 @@
       "actions": {
         "settingsDefault": "Check Settings → Model Provider and verify the selected provider, base URL, API key, model name, and timeoutMs. If the provider is slow or the network is unstable, increase timeoutMs or check provider status.",
         "auth": "Update the API key or access permissions for {{provider}} in Settings → Model Provider, or run rigorium setup.",
-        "modelNotFound": "Choose a valid model for {{provider}} in Settings → Model Provider, or add it under model.providers.<id>.models in pilotdeck.yaml.",
+        "modelNotFound": "Choose a valid model for {{provider}} in Settings → Model Provider, or add it under model.providers.<id>.models in rigorium.yaml.",
         "timeout": "Increase timeoutMs for {{provider}} in Settings → Model Provider → Advanced, or check local network/proxy and provider status.",
         "rateLimit": "Wait for the provider rate limit to reset, reduce concurrency, or switch to another provider/model in Settings.",
         "billing": "Top up billing/quota on the provider API side, or switch to another provider/model in Settings.",

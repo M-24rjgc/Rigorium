@@ -1,16 +1,16 @@
-import type { PilotDeckToolResult } from "../protocol/result.js";
-import type { PilotDeckToolCall, PilotDeckToolRuntimeContext } from "../protocol/types.js";
+import type { RigoriumToolResult } from "../protocol/result.js";
+import type { RigoriumToolCall, RigoriumToolRuntimeContext } from "../protocol/types.js";
 import type { ToolRuntime } from "../execution/ToolRuntime.js";
-import type { PilotDeckToolScheduler } from "./ToolScheduler.js";
+import type { RigoriumToolScheduler } from "./ToolScheduler.js";
 
-export class SequentialToolScheduler implements PilotDeckToolScheduler {
+export class SequentialToolScheduler implements RigoriumToolScheduler {
   constructor(private readonly runtime: ToolRuntime) {}
 
   async executeAll(
-    calls: PilotDeckToolCall[],
-    context: PilotDeckToolRuntimeContext,
-  ): Promise<PilotDeckToolResult[]> {
-    const results: PilotDeckToolResult[] = [];
+    calls: RigoriumToolCall[],
+    context: RigoriumToolRuntimeContext,
+  ): Promise<RigoriumToolResult[]> {
+    const results: RigoriumToolResult[] = [];
     for (const call of calls) {
       results.push(await this.runtime.execute(call, context));
     }

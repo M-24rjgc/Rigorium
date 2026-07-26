@@ -137,7 +137,7 @@ def assert_valid_docx(path: str | Path) -> dict[str, Any]:
 def unpacked_copy(source: str | Path) -> Iterator[tuple[Path, Path]]:
     src = require_docx_path(source)
     assert_valid_docx(src)
-    with tempfile.TemporaryDirectory(prefix="pilotdeck_docx_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="rigorium_docx_") as temp_dir:
         root = Path(temp_dir)
         package = root / "package"
         package.mkdir()

@@ -7,7 +7,7 @@ import { createLiteratureMapMaintenanceTool } from '../../src/tool/builtin/liter
 import { createDefaultPermissionContext } from '../../src/permission/protocol/types.js';
 
 test('literature map maintenance tool emits candidate-only result for static source payloads', async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), 'pilotdeck-maintenance-tool-'));
+  const projectRoot = await mkdtemp(join(tmpdir(), 'rigorium-maintenance-tool-'));
   try {
     const tool = createLiteratureMapMaintenanceTool();
     const result = await tool.execute({

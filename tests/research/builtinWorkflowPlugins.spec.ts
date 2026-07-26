@@ -68,7 +68,7 @@ test("workflow builtin enablement preserves and removes new skill contributions 
   const builtinPlugins = loadBuiltinPlugins();
   const defaultRuntime = new PluginRuntime({
     projectRoot: root,
-    pilotHome: join(root, ".pilot"),
+    rigoriumHome: join(root, ".rigorium"),
     builtinPlugins,
   });
   await defaultRuntime.refresh();
@@ -83,7 +83,7 @@ test("workflow builtin enablement preserves and removes new skill contributions 
 
   const disabledRuntime = new PluginRuntime({
     projectRoot: root,
-    pilotHome: join(root, ".pilot-disabled"),
+    rigoriumHome: join(root, ".rigorium-disabled"),
     builtinPlugins,
     builtinPluginsEnabled: {
       "rigorium-experimentation": false,

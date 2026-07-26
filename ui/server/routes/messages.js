@@ -1,5 +1,5 @@
 /**
- * Unified session messages endpoint (PilotDeck-only).
+ * Unified session messages endpoint (Rigorium-only).
  *
  * GET /api/sessions/:sessionId/messages?projectName=&projectPath=&limit=&offset=
  *
@@ -8,15 +8,15 @@
  * `dist/src/web/server/` — that coupled `ui/server/` to compiled
  * artifacts and meant `src/` edits were silently invisible until a
  * `npm run build`. Going through the gateway WebSocket means the
- * standalone `pilotdeck server` process owns the read path and we pick
+ * standalone `rigorium server` process owns the read path and we pick
  * up its in-flight session writes automatically.
  *
  * @module routes/messages
  */
 
 import express from 'express';
-import { getPilotDeckGateway } from '../pilotdeck-bridge.js';
-import { createNormalizedMessage } from '../pilotdeck-message.js';
+import { getRigoriumGateway } from '../rigorium-bridge.js';
+import { createNormalizedMessage } from '../rigorium-message.js';
 
 const router = express.Router();
 const REPO_ROOT = process.cwd();
@@ -36,7 +36,7 @@ router.get('/:sessionId/messages', async (req, res) => {
       : null;
     const offset = parseInt(req.query.offset || '0', 10);
 
-    const gateway = await getPilotDeckGateway();
+    const gateway = await getRigoriumGateway();
     const result = await gateway.readSessionMessages({
       sessionKey: sessionId,
       projectKey: projectPath,
@@ -80,7 +80,7 @@ router.post('/:sessionId/fork', async (req, res) => {
       return res.status(400).json({ error: 'fromEntryId is required' });
     }
 
-    const gateway = await getPilotDeckGateway();
+    const gateway = await getRigoriumGateway();
     const result = await gateway.forkSession({
       sessionKey: sessionId,
       projectKey: projectPath,
@@ -113,7 +113,7 @@ router.get('/:sessionId/subagent/:subagentId/messages', async (req, res) => {
     const { sessionId, subagentId } = req.params;
     const projectPath = String(req.query.projectPath || req.query.projectName || REPO_ROOT);
 
-    const gateway = await getPilotDeckGateway();
+    const gateway = await getRigoriumGateway();
     const result = await gateway.readSubagentMessages({
       sessionKey: sessionId,
       subagentId,
@@ -149,7 +149,7 @@ function mapWebMessageToNormalized(message, sessionId) {
     id: message.id,
     sessionId,
     timestamp: message.createdAt,
-    provider: message.provider || 'pilotdeck',
+    provider: message.provider || 'rigorium',
     ...(message.entryId ? { entryId: message.entryId } : {}),
   };
   switch (message.kind) {

@@ -6,7 +6,7 @@ import { SUBAGENT_DEFINITIONS } from "../../../src/agent/sub/builtinSubagentType
 import { createDefaultPermissionContext } from "../../../src/permission/index.js";
 import {
   ToolRegistry,
-  type PilotDeckToolDefinition,
+  type RigoriumToolDefinition,
 } from "../../../src/tool/index.js";
 import type { AgentRouterRuntime } from "../../../src/agent/runtime/AgentRuntimeDependencies.js";
 
@@ -20,8 +20,8 @@ const FINAL_REPORT = [
 
 function createNoopTool(
   name: string,
-  isReadOnly: PilotDeckToolDefinition["isReadOnly"],
-): PilotDeckToolDefinition {
+  isReadOnly: RigoriumToolDefinition["isReadOnly"],
+): RigoriumToolDefinition {
   return {
     name,
     description: `${name} test tool`,

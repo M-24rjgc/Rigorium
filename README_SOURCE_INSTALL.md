@@ -1,10 +1,10 @@
 # Source Installation Guide
 
-This guide is for developers who want to run PilotDeck directly from source instead of using the one-line installer or Docker.
+This guide is for developers who want to run Rigorium directly from source instead of using the one-line installer or Docker.
 
 ## Prerequisites
 
-PilotDeck requires:
+Rigorium requires:
 
 - Node.js v22.13.0 or newer within the Node.js 22 line, with the built-in `node:sqlite` runtime.
 - Git.
@@ -123,7 +123,7 @@ Windows supports several source-deployment paths. You do **not** need to install
 | Path | Install on Windows | Best for |
 |---|---|---|
 | WSL2 Ubuntu | WSL2, Ubuntu, then Linux build tools inside Ubuntu | Source deployment and development |
-| Docker Desktop | Docker Desktop with WSL2 backend, Git for Windows | Running PilotDeck without local Node/native build setup |
+| Docker Desktop | Docker Desktop with WSL2 backend, Git for Windows | Running Rigorium without local Node/native build setup |
 | Native Windows | Node.js, Git LFS, Python, Visual Studio C++ Build Tools, ripgrep | PowerShell-only development |
 | Portable Node | Official Node.js zip, Git for Windows, Git LFS, ripgrep | Verifying deployment without changing system Node settings |
 
@@ -141,7 +141,7 @@ docker compose version
 wsl --status
 ```
 
-Missing commands mean the corresponding tool still needs to be installed or added to `PATH`. After installing tools, close and reopen PowerShell before checking again. Git for Windows includes Git Bash; PilotDeck uses Git Bash as the default Windows terminal shell when it is available, and falls back to PowerShell only when Git Bash cannot be found.
+Missing commands mean the corresponding tool still needs to be installed or added to `PATH`. After installing tools, close and reopen PowerShell before checking again. Git for Windows includes Git Bash; Rigorium uses Git Bash as the default Windows terminal shell when it is available, and falls back to PowerShell only when Git Bash cannot be found.
 
 #### WSL2 Ubuntu (recommended)
 
@@ -200,15 +200,15 @@ rg --version
 
 Native Windows source installs are tested on x64 Node.js. If `node -p "process.arch"` does not print `x64`, switch to the official x64 Node.js 22 zip or another x64 Node.js runtime before installing dependencies.
 
-Use separate PowerShell lines instead of Bash-style chained commands when following the prerequisite commands above. For PilotDeck's in-app terminal, Git Bash is preferred automatically after Git for Windows is installed. If PowerShell blocks `npm.ps1`, call `npm.cmd` instead of `npm`.
+Use separate PowerShell lines instead of Bash-style chained commands when following the prerequisite commands above. For Rigorium's in-app terminal, Git Bash is preferred automatically after Git for Windows is installed. If PowerShell blocks `npm.ps1`, call `npm.cmd` instead of `npm`.
 
 #### Portable Node for verification
 
-If you want to test PilotDeck before installing Node.js globally, use the official Windows Node.js zip for the current terminal session only:
+If you want to test Rigorium before installing Node.js globally, use the official Windows Node.js zip for the current terminal session only:
 
 ```powershell
 $NodeVersion = '22.23.1'
-$WorkDir = Join-Path $PWD '.pilotdeck-node'
+$WorkDir = Join-Path $PWD '.rigorium-node'
 $ZipPath = Join-Path $WorkDir "node-v$NodeVersion-win-x64.zip"
 $NodeUrl = "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-win-x64.zip"
 
@@ -268,21 +268,21 @@ npm install -g clawhub
 clawhub --version
 ```
 
-On Windows, use `npm.cmd install -g clawhub` if PowerShell blocks `npm.ps1`. With Portable Node, this installs `clawhub` into the portable Node prefix, so keep that Node directory on `PATH` when running PilotDeck.
+On Windows, use `npm.cmd install -g clawhub` if PowerShell blocks `npm.ps1`. With Portable Node, this installs `clawhub` into the portable Node prefix, so keep that Node directory on `PATH` when running Rigorium.
 
 ## First-Run Onboarding
 
-PilotDeck reads `~/.pilotdeck/pilotdeck.yaml`. If you do not already have a config file, prepare the Web UI onboarding flow before starting in production mode:
+Rigorium reads its configuration from `~/.rigorium/rigorium.yaml`. If you do not already have a config file, prepare the Web UI onboarding flow before starting in production mode:
 
 ```bash
-node scripts/bootstrap-pilotdeck-config.mjs
+node scripts/bootstrap-rigorium-config.mjs
 ```
 
-This initializes `~/.pilotdeck/pilotdeck.yaml` for first-run onboarding so the Gateway can boot. Then open the Web UI and finish provider/API key setup in the onboarding/settings panel.
+This initializes `~/.rigorium/rigorium.yaml` for first-run onboarding so the Gateway can boot. Then open the Web UI and finish provider/API key setup in the onboarding/settings panel.
 
 Note: the generated first-run config is a placeholder. It contains `_placeholder/_placeholder`, `https://placeholder.invalid`, and `PLACEHOLDER_RUN_ONBOARDING_TO_REPLACE`. Its purpose is to let the Gateway and Web UI boot; the UI still routes to onboarding until you provide a real provider, API key, and model.
 
-## Start PilotDeck
+## Start Rigorium
 
 Development mode with HMR:
 
@@ -305,7 +305,7 @@ Open <http://localhost:3001>.
 If the default ports are already in use, change them with environment variables, for example:
 
 ```bash
-SERVER_PORT=3002 PILOTDECK_GATEWAY_PORT=18790 PILOTDECK_GATEWAY_URL=ws://127.0.0.1:18790/ws npm run start
+SERVER_PORT=3002 RIGORIUM_GATEWAY_PORT=18790 RIGORIUM_GATEWAY_URL=ws://127.0.0.1:18790/ws npm run start
 ```
 
 ## Troubleshooting
@@ -316,7 +316,7 @@ SERVER_PORT=3002 PILOTDECK_GATEWAY_PORT=18790 PILOTDECK_GATEWAY_URL=ws://127.0.0
 - `pnpm install --frozen-lockfile` times out while downloading npm packages: run `pnpm config set registry https://registry.npmmirror.com`, then retry.
 - `ModuleNotFoundError: No module named 'distutils'` on macOS: the one-line installer tries to auto-select a compatible Python; for manual npm commands, retry with `PYTHON=/usr/bin/python3 corepack pnpm install --frozen-lockfile`, or use another Python that includes `distutils`.
 - Missing compiler tools on macOS: full Xcode is not required, but `xcrun --find clang` must work. Reinstall Xcode Command Line Tools with `xcode-select --install`, or run `sudo xcode-select --reset` if CLT is already installed.
-- `EADDRINUSE` on startup: the default `3001` or `18789` port is already in use. Set `SERVER_PORT`, `PILOTDECK_GATEWAY_PORT`, and `PILOTDECK_GATEWAY_URL`, then retry.
-- `~/.pilotdeck/pilotdeck.yaml` exists but the UI still opens onboarding: check whether the config still contains `PLACEHOLDER_RUN_ONBOARDING_TO_REPLACE` or `_placeholder/_placeholder`; replace them with a real provider, API key, and model.
+- `EADDRINUSE` on startup: the default `3001` or `18789` port is already in use. Set `SERVER_PORT`, `RIGORIUM_GATEWAY_PORT`, and `RIGORIUM_GATEWAY_URL`, then retry.
+- `~/.rigorium/rigorium.yaml` exists but the UI still opens onboarding: check whether the config still contains `PLACEHOLDER_RUN_ONBOARDING_TO_REPLACE` or `_placeholder/_placeholder`; replace them with a real provider, API key, and model.
 - Missing demo images/videos: install Git LFS and run `git lfs pull` from the repo root.
 - `rg` not found: install ripgrep for full file/search tool support.

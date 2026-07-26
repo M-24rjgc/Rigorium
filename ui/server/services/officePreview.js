@@ -6,7 +6,7 @@ import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { promisify } from 'util';
-import { readPilotDeckConfigFile } from './pilotdeckConfig.js';
+import { readRigoriumConfigFile } from './rigoriumConfig.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -14,14 +14,14 @@ const officePreviewConversionLocks = new Map();
 
 export const OFFICE_PREVIEW_SERVICE_NONE = 'none';
 export const OFFICE_PREVIEW_SERVICE_LIBREOFFICE = 'libreoffice';
-export const OFFICE_PREVIEW_CACHE_DIR = path.join(os.tmpdir(), 'pilotdeck-office-preview-cache');
-export const LIBREOFFICE_TIMEOUT_MS = Number(process.env.PILOTDECK_LIBREOFFICE_TIMEOUT_MS || 120000);
+export const OFFICE_PREVIEW_CACHE_DIR = path.join(os.tmpdir(), 'rigorium-office-preview-cache');
+export const LIBREOFFICE_TIMEOUT_MS = Number(process.env.RIGORIUM_LIBREOFFICE_TIMEOUT_MS || 120000);
 const OFFICE_PREVIEW_LOCK_STALE_MS = LIBREOFFICE_TIMEOUT_MS + 30000;
 const OFFICE_PREVIEW_LOCK_RETRY_MS = 100;
 
 export function getConfiguredOfficePreviewService() {
   try {
-    const record = readPilotDeckConfigFile();
+    const record = readRigoriumConfigFile();
     const configured = String(record?.config?.webui?.officePreview?.service || '').trim().toLowerCase();
     return configured === OFFICE_PREVIEW_SERVICE_LIBREOFFICE
       ? OFFICE_PREVIEW_SERVICE_LIBREOFFICE
@@ -34,7 +34,7 @@ export function getConfiguredOfficePreviewService() {
 
 function getConfiguredLibreOfficeBinaryPath() {
   try {
-    const record = readPilotDeckConfigFile();
+    const record = readRigoriumConfigFile();
     return String(record?.config?.webui?.officePreview?.binaryPath || '').trim();
   } catch (error) {
     console.warn('Failed to read LibreOffice binary path config; falling back to auto-detect:', error.message);
@@ -173,7 +173,7 @@ export async function createLibreOfficeConversionWorkspace(cacheDir) {
     // nesting it under the hashed cache/output directory makes LibreOffice's
     // internal profile paths exceed the legacy MAX_PATH limit. In that case
     // soffice exits successfully but silently produces no PDF.
-    const profileDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'pilotdeck-lo-profile-'));
+    const profileDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'rigorium-lo-profile-'));
     return { tempDir, profileDir };
   } catch (error) {
     await fsPromises.rm(tempDir, { recursive: true, force: true }).catch(() => {});

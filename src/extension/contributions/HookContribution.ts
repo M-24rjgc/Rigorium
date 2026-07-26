@@ -1,5 +1,5 @@
-import type { PilotDeckHooksSettings } from "../hooks/protocol/settings.js";
+import type { RigoriumHooksSettings } from "../hooks/protocol/settings.js";
 
 export type HookContribution = {
-  hooks: PilotDeckHooksSettings;
+  hooks: RigoriumHooksSettings;
 };

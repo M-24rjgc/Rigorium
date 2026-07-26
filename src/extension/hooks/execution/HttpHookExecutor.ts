@@ -1,5 +1,5 @@
-import type { PilotDeckHookInput } from "../protocol/input.js";
-import type { PilotDeckHookCommand } from "../protocol/settings.js";
+import type { RigoriumHookInput } from "../protocol/input.js";
+import type { RigoriumHookCommand } from "../protocol/settings.js";
 import { parseHookOutput } from "./parseHookOutput.js";
 import type { CommandHookExecutionResult } from "./CommandHookExecutor.js";
 
@@ -9,8 +9,8 @@ export class HttpHookExecutor {
   constructor(private readonly fetchImpl: HttpHookFetch = fetch) {}
 
   async execute(options: {
-    hook: Extract<PilotDeckHookCommand, { type: "http" }>;
-    hookInput: PilotDeckHookInput;
+    hook: Extract<RigoriumHookCommand, { type: "http" }>;
+    hookInput: RigoriumHookInput;
     env?: NodeJS.ProcessEnv;
     signal?: AbortSignal;
   }): Promise<CommandHookExecutionResult> {

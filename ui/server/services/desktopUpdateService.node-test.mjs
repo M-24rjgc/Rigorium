@@ -7,8 +7,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
+  compareVersions,
   getCurrentDesktopVersion,
   getDesktopDownloadStatus,
+  getDesktopUpdateStatus,
   launchDownloadedDesktopUpdate,
   normalizeRepository,
   parseInstallerSha256,
@@ -32,7 +34,7 @@ test('release metadata supplies the packaged repository, version, commit, and bu
   }), 'utf8');
 
   assert.equal(resolveUpdateRepository({ projectRoot, env: {} }), 'research-team/rigorium');
-  const current = await getCurrentDesktopVersion({ projectRoot, env: { PILOTDECK_DESKTOP: '1' } });
+  const current = await getCurrentDesktopVersion({ projectRoot, env: { RIGORIUM_DESKTOP: '1' } });
   assert.equal(current.version, '0.2.0');
   assert.equal(current.commit, 'abc123');
   assert.equal(current.buildTime, '2026-07-26T00:00:00.000Z');
@@ -56,6 +58,76 @@ test('repository normalization accepts GitHub forms and rejects ambiguous remote
   assert.equal(normalizeRepository('git@github.com:research-team/rigorium.git'), 'research-team/rigorium');
   assert.equal(normalizeRepository('https://example.invalid/research-team/rigorium'), null);
   assert.equal(normalizeRepository('research-team/rigorium?release=1'), null);
+});
+
+test('prerelease builds query the prerelease feed and upgrade to the matching stable release', async (t) => {
+  resetDesktopUpdateStateForTesting();
+  const projectRoot = await createTempDirectory(t, 'rigorium-update-prerelease-');
+  await mkdir(join(projectRoot, 'dist'), { recursive: true });
+  await writeFile(join(projectRoot, 'package.json'), JSON.stringify({
+    repository: 'git+https://github.com/M-24rjgc/Rigorium.git',
+    version: '0.2.0-beta.1',
+  }), 'utf8');
+  await writeFile(join(projectRoot, 'dist', 'release-metadata.json'), JSON.stringify({
+    schemaVersion: 1,
+    repository: 'M-24rjgc/Rigorium',
+    version: '0.2.0-beta.1',
+    channel: 'prerelease',
+  }), 'utf8');
+
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(String(url));
+    return new Response(JSON.stringify([{
+      id: 1,
+      tag_name: 'v0.2.0',
+      name: 'Rigorium v0.2.0',
+      prerelease: false,
+      draft: false,
+      assets: [{ id: 2, name: installerName('0.2.0'), browser_download_url: 'https://example.invalid/installer', size: 1 }],
+    }]), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    resetDesktopUpdateStateForTesting();
+  });
+
+  const status = await getDesktopUpdateStatus({ projectRoot, env: { RIGORIUM_DESKTOP: '1' }, force: true });
+  assert.equal(status.hasUpdate, true);
+  assert.equal(status.checkUnavailable, false);
+  assert.equal(status.latest.version, '0.2.0');
+  assert.match(requests[0], /\/releases\?per_page=10$/u);
+  assert.equal(compareVersions('0.2.0-beta.1', '0.2.0'), -1);
+});
+
+test('newer releases without a compatible installer are not offered as installable updates', async (t) => {
+  resetDesktopUpdateStateForTesting();
+  const projectRoot = await createTempDirectory(t, 'rigorium-update-unsupported-');
+  await writeFile(join(projectRoot, 'package.json'), JSON.stringify({
+    repository: 'git+https://github.com/M-24rjgc/Rigorium.git',
+    version: '0.1.0',
+  }), 'utf8');
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    id: 1,
+    tag_name: 'v0.2.0',
+    name: 'Rigorium v0.2.0',
+    prerelease: false,
+    draft: false,
+    assets: [{ id: 2, name: 'Rigorium-source.zip', browser_download_url: 'https://example.invalid/source', size: 1 }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    resetDesktopUpdateStateForTesting();
+  });
+
+  const status = await getDesktopUpdateStatus({ projectRoot, env: { RIGORIUM_DESKTOP: '1' }, force: true });
+  assert.equal(status.hasUpdate, true);
+  assert.equal(status.checkUnavailable, true);
+  assert.equal(status.status, 'asset-unavailable');
+  assert.match(status.message, /compatible desktop installer/u);
 });
 
 test('private release assets use the GitHub asset API and browser URLs never receive an auth header', () => {
@@ -138,7 +210,7 @@ test('desktop update downloads only an installer that matches its release checks
 
   const started = await startDesktopUpdateDownload({
     status,
-    env: { PILOTDECK_UPDATE_CACHE_DIR: cacheRoot },
+    env: { RIGORIUM_UPDATE_CACHE_DIR: cacheRoot },
   });
   assert.equal(started.state, 'downloading');
   const finished = await waitForDownload();
@@ -149,7 +221,7 @@ test('desktop update downloads only an installer that matches its release checks
 
   await writeFile(finished.filePath, 'replaced after download', 'utf8');
   assert.throws(
-    () => launchDownloadedDesktopUpdate({ filePath: finished.filePath, env: { PILOTDECK_UPDATE_CACHE_DIR: cacheRoot } }),
+    () => launchDownloadedDesktopUpdate({ filePath: finished.filePath, env: { RIGORIUM_UPDATE_CACHE_DIR: cacheRoot } }),
     /changed after verification/u,
   );
 });
@@ -174,7 +246,7 @@ test('checksum mismatch fails closed and removes the downloaded file', async (t)
         selectedAsset: installer,
       },
     },
-    env: { PILOTDECK_UPDATE_CACHE_DIR: cacheRoot },
+    env: { RIGORIUM_UPDATE_CACHE_DIR: cacheRoot },
   });
   const finished = await waitForDownload();
   assert.equal(finished.state, 'failed');
@@ -204,7 +276,7 @@ test('stalled installer downloads time out and clean their partial file', async 
       },
     },
     env: {
-      PILOTDECK_UPDATE_CACHE_DIR: cacheRoot,
+      RIGORIUM_UPDATE_CACHE_DIR: cacheRoot,
       RIGORIUM_UPDATE_DOWNLOAD_IDLE_TIMEOUT_MS: '1000',
     },
   });
@@ -253,7 +325,7 @@ test('installer launch rejects files that were not verified by the active downlo
   const filePath = join(cacheRoot, 'unverified.exe');
   await writeFile(filePath, 'not an installer', 'utf8');
   assert.throws(
-    () => launchDownloadedDesktopUpdate({ filePath, env: { PILOTDECK_UPDATE_CACHE_DIR: cacheRoot } }),
+    () => launchDownloadedDesktopUpdate({ filePath, env: { RIGORIUM_UPDATE_CACHE_DIR: cacheRoot } }),
     /has not passed SHA-256 verification/u,
   );
 });
@@ -325,4 +397,10 @@ async function waitForDownload(timeoutMs = 5_000) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error('Desktop update did not reach a terminal state.');
+}
+
+function installerName(version) {
+  if (process.platform === 'darwin') return `Rigorium-Setup-${version}.dmg`;
+  if (process.platform === 'linux') return `Rigorium-Setup-${version}.AppImage`;
+  return `Rigorium-Setup-${version}.exe`;
 }

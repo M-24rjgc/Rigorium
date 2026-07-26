@@ -14,7 +14,7 @@ function renderToolMessage(message: ChatMessage) {
       message={message}
       prevMessage={null}
       createDiff={() => []}
-      provider="pilotdeck"
+      provider="rigorium"
       onShowSettings={() => {}}
     />,
   );

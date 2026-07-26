@@ -10,7 +10,7 @@
   },
   "scripts": {
     "check:runtime": "node ../scripts/check-node-runtime.mjs",
-    "predev": "npm run check:runtime && node ../scripts/bootstrap-pilotdeck-config.mjs",
+    "predev": "npm run check:runtime && node ../scripts/bootstrap-rigorium-config.mjs",
     "dev": "node ../scripts/dev-launcher.mjs",
     "dev:concurrent": "concurrently --kill-others-on-fail --names gateway,server,client \"npm:dev:gateway\" \"npm:dev:server\" \"npm:dev:client\"",
     "dev:gateway": "npm --prefix .. run server",

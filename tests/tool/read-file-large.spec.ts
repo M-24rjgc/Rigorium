@@ -30,7 +30,7 @@ function textOf(result: Awaited<ReturnType<ReturnType<typeof createReadFileTool>
 }
 
 test("read_file auto-pages large text files instead of failing", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-read-large-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-read-large-"));
   try {
     const lines = Array.from({ length: 5000 }, (_, index) => `line-${index + 1} ${"x".repeat(80)}`);
     await writeFile(join(projectRoot, "large.txt"), lines.join("\n"));
@@ -49,7 +49,7 @@ test("read_file auto-pages large text files instead of failing", async () => {
 });
 
 test("read_file explicit limit reads a large file range without auto paging", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-read-range-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-read-range-"));
   try {
     const lines = Array.from({ length: 5000 }, (_, index) => `line-${index + 1} ${"x".repeat(80)}`);
     await writeFile(join(projectRoot, "large.txt"), lines.join("\n"));
@@ -68,14 +68,14 @@ test("read_file explicit limit reads a large file range without auto paging", as
 });
 
 test("read_file auto-shrinks oversized persisted tool-result ref ranges", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-read-ref-autopage-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-read-ref-autopage-"));
   try {
-    const refPath = join(projectRoot, ".pilotdeck", "tool-results", "refs", "result-0001.txt");
-    await mkdir(join(projectRoot, ".pilotdeck", "tool-results", "refs"), { recursive: true });
+    const refPath = join(projectRoot, ".rigorium", "tool-results", "refs", "result-0001.txt");
+    await mkdir(join(projectRoot, ".rigorium", "tool-results", "refs"), { recursive: true });
     await writeFile(refPath, Array.from({ length: 300 }, (_, index) => `line-${index + 1} ${"x".repeat(1200)}`).join("\n"));
 
     const result = await createReadFileTool().execute({
-      file_path: ".pilotdeck/tool-results/refs/result-0001.txt",
+      file_path: ".rigorium/tool-results/refs/result-0001.txt",
       offset: 1,
       limit: 200,
     }, context(projectRoot));
@@ -83,7 +83,7 @@ test("read_file auto-shrinks oversized persisted tool-result ref ranges", async 
 
     assert.match(text, /^1\|line-1/m);
     assert.match(text, /persisted tool result was too large for the requested range/);
-    assert.match(text, /Continue with read_file\({ file_path: "\.pilotdeck\/tool-results\/refs\/result-0001\.txt", offset: \d+, limit: \d+ }\)/);
+    assert.match(text, /Continue with read_file\({ file_path: "\.rigorium\/tool-results\/refs\/result-0001\.txt", offset: \d+, limit: \d+ }\)/);
     assert.equal((result.data as { autoPaged?: boolean }).autoPaged, true);
     assert.ok((result.data as { endLine?: number }).endLine! < 200);
     assert.ok((result.data as { nextOffset?: number }).nextOffset! > 1);
@@ -94,7 +94,7 @@ test("read_file auto-shrinks oversized persisted tool-result ref ranges", async 
 });
 
 test("read_file keeps explicit oversized ordinary file ranges strict", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-read-ordinary-strict-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-read-ordinary-strict-"));
   try {
     await writeFile(join(projectRoot, "large.txt"), Array.from({ length: 300 }, (_, index) => `line-${index + 1} ${"x".repeat(1200)}`).join("\n"));
 
@@ -108,7 +108,7 @@ test("read_file keeps explicit oversized ordinary file ranges strict", async () 
 });
 
 test("read_file explicit limit records a ranged snapshot for follow-up edits", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-read-range-edit-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-read-range-edit-"));
   try {
     await writeFile(join(projectRoot, "target.txt"), "alpha\nbeta\ngamma\n");
     const runtimeContext = context(projectRoot);
@@ -128,7 +128,7 @@ test("read_file explicit limit records a ranged snapshot for follow-up edits", a
 });
 
 test("read_file auto-paged large files record a ranged snapshot for follow-up edits", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-read-autopage-edit-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-read-autopage-edit-"));
   try {
     const lines = Array.from({ length: 5000 }, (_, index) => `line-${index + 1} ${"x".repeat(80)}`);
     await writeFile(join(projectRoot, "large.txt"), lines.join("\n"));
@@ -149,7 +149,7 @@ test("read_file auto-paged large files record a ranged snapshot for follow-up ed
 });
 
 test("read_file returns a head-tail preview for a single oversized line", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-read-long-line-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-read-long-line-"));
   try {
     await writeFile(join(projectRoot, "one-line.txt"), `prefix-${"x".repeat(250_000)}-suffix`);
 

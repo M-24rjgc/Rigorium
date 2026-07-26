@@ -1,6 +1,6 @@
-import type { PilotDeckHookEvent } from "./events.js";
+import type { RigoriumHookEvent } from "./events.js";
 
-export type PilotDeckHookCommand =
+export type RigoriumHookCommand =
   | {
       type: "command";
       command: string;
@@ -47,12 +47,12 @@ export type PilotDeckHookCommand =
       statusMessage?: string;
     };
 
-export type PilotDeckHookMatcher = {
+export type RigoriumHookMatcher = {
   matcher?: string;
-  hooks: PilotDeckHookCommand[];
+  hooks: RigoriumHookCommand[];
   pluginName?: string;
   pluginId?: string;
   pluginRoot?: string;
 };
 
-export type PilotDeckHooksSettings = Partial<Record<PilotDeckHookEvent, PilotDeckHookMatcher[]>>;
+export type RigoriumHooksSettings = Partial<Record<RigoriumHookEvent, RigoriumHookMatcher[]>>;

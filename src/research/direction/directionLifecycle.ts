@@ -145,7 +145,7 @@ export class ResearchDirectionLifecycleRepositoryError extends Error {
 
 export type ProjectResearchDirectionLifecyclePaths = Readonly<{
   projectRoot: string;
-  pilotDeckDir: string;
+  rigoriumDir: string;
   researchDir: string;
   lifecyclePath: string;
 }>;
@@ -162,13 +162,13 @@ export function getProjectResearchDirectionLifecyclePaths(input: {
   projectRoot: string;
 }): ProjectResearchDirectionLifecyclePaths {
   const projectRoot = resolveProjectRoot(input.projectRoot);
-  const pilotDeckDir = join(projectRoot, ".pilotdeck");
-  const researchDir = join(pilotDeckDir, "research");
+  const rigoriumDir = join(projectRoot, ".rigorium");
+  const researchDir = join(rigoriumDir, "research");
   const lifecyclePath = join(researchDir, "direction-lifecycle.json");
-  for (const candidate of [pilotDeckDir, researchDir, lifecyclePath]) {
+  for (const candidate of [rigoriumDir, researchDir, lifecyclePath]) {
     assertWithinProject(projectRoot, candidate);
   }
-  return Object.freeze({ projectRoot, pilotDeckDir, researchDir, lifecyclePath });
+  return Object.freeze({ projectRoot, rigoriumDir, researchDir, lifecyclePath });
 }
 
 /** Loads the lifecycle without manufacturing a missing project artifact. */
@@ -692,8 +692,8 @@ function resolveProjectRoot(value: string): string {
 
 async function assertReadableRepository(paths: ProjectResearchDirectionLifecyclePaths): Promise<boolean> {
   await assertProjectRootDirectory(paths.projectRoot);
-  const hasPilotDeckDirectory = await assertExistingSafeDirectory(paths.projectRoot, paths.pilotDeckDir);
-  if (!hasPilotDeckDirectory) return false;
+  const hasRigoriumDirectory = await assertExistingSafeDirectory(paths.projectRoot, paths.rigoriumDir);
+  if (!hasRigoriumDirectory) return false;
   const hasResearchDirectory = await assertExistingSafeDirectory(paths.projectRoot, paths.researchDir);
   if (!hasResearchDirectory) return false;
   return true;
@@ -701,7 +701,7 @@ async function assertReadableRepository(paths: ProjectResearchDirectionLifecycle
 
 async function ensureRepositoryDirectories(paths: ProjectResearchDirectionLifecyclePaths): Promise<void> {
   await assertProjectRootDirectory(paths.projectRoot);
-  await ensureSafeDirectory(paths.projectRoot, paths.pilotDeckDir);
+  await ensureSafeDirectory(paths.projectRoot, paths.rigoriumDir);
   await ensureSafeDirectory(paths.projectRoot, paths.researchDir);
 }
 

@@ -1,4 +1,4 @@
-export const CHAT_DRAFT_INSERT_EVENT = 'pilotdeck:insert-chat-draft';
+export const CHAT_DRAFT_INSERT_EVENT = 'rigorium:insert-chat-draft';
 
 export type ChatDraftInsertDetail = {
   text: string;

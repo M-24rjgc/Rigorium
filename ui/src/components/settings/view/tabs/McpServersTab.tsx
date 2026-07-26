@@ -193,7 +193,7 @@ export default function McpServersTab({ projects = [] }: { projects?: SettingsPr
           </div>
           <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-            {t('pilotDeckConfig.actions.refresh')}
+            {t('rigoriumConfig.actions.refresh')}
           </Button>
         </div>
       </div>
@@ -258,7 +258,7 @@ export default function McpServersTab({ projects = [] }: { projects?: SettingsPr
         {loading ? (
           <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {t('pilotDeckConfig.loading')}
+            {t('rigoriumConfig.loading')}
           </div>
         ) : parsedError ? (
           <div className="space-y-4 p-4">
@@ -303,7 +303,7 @@ export default function McpServersTab({ projects = [] }: { projects?: SettingsPr
       <div className="flex justify-end">
         <Button onClick={() => void save()} disabled={saving || loading || (scope === 'project' && !projectPath)}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          {t('pilotDeckConfig.actions.saveAndReload')}
+          {t('rigoriumConfig.actions.saveAndReload')}
         </Button>
       </div>
     </div>
@@ -446,7 +446,7 @@ function ServerFormCard({
       <div className="flex justify-end border-t border-border bg-muted/20 px-4 py-3">
         <Button variant="ghost" size="sm" onClick={onRemove} className="text-destructive hover:text-destructive">
           <Trash2 className="h-4 w-4" />
-          {t('pilotDeckConfig.actions.remove')}
+          {t('rigoriumConfig.actions.remove')}
         </Button>
       </div>
     </details>

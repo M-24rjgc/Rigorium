@@ -8,13 +8,13 @@ import { createAgentProjectSessionStorage } from "../../src/session/storage/Proj
 import { readWebSessionMessages } from "../../src/web/server/readSessionMessages.js";
 
 test("history replay preserves agent status i18n metadata and user hint", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-status-i18n-project-"));
-  const pilotHome = await mkdtemp(join(tmpdir(), "pilotdeck-status-i18n-home-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-status-i18n-project-"));
+  const rigoriumHome = await mkdtemp(join(tmpdir(), "rigorium-status-i18n-home-"));
   try {
     const sessionKey = "web:s_status_i18n";
     const storage = createAgentProjectSessionStorage({
       projectRoot,
-      pilotHome,
+      rigoriumHome,
       sessionId: sessionKey,
       now: () => new Date("2026-07-09T00:00:00.000Z"),
     });
@@ -35,7 +35,7 @@ test("history replay preserves agent status i18n metadata and user hint", async 
       },
     });
 
-    const replay = await readWebSessionMessages({ sessionKey }, { projectRoot, pilotHome });
+    const replay = await readWebSessionMessages({ sessionKey }, { projectRoot, rigoriumHome });
     const message = replay.messages.find((item) => item.kind === "error");
 
     assert.ok(message, "expected replayed error status message");
@@ -48,18 +48,18 @@ test("history replay preserves agent status i18n metadata and user hint", async 
     assert.equal((message.payload as { detail?: { userHint?: string } }).detail?.userHint, "Check Settings.");
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
-    await rm(pilotHome, { recursive: true, force: true });
+    await rm(rigoriumHome, { recursive: true, force: true });
   }
 });
 
 test("history token usage restores latest non-empty turn past latest empty turn result", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-token-usage-project-"));
-  const pilotHome = await mkdtemp(join(tmpdir(), "pilotdeck-token-usage-home-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-token-usage-project-"));
+  const rigoriumHome = await mkdtemp(join(tmpdir(), "rigorium-token-usage-home-"));
   try {
     const sessionKey = "web:s_token_usage_restore";
     const storage = createAgentProjectSessionStorage({
       projectRoot,
-      pilotHome,
+      rigoriumHome,
       sessionId: sessionKey,
       now: () => new Date("2026-07-09T00:00:00.000Z"),
     });
@@ -99,7 +99,7 @@ test("history token usage restores latest non-empty turn past latest empty turn 
 
     const replay = await readWebSessionMessages(
       { sessionKey },
-      { projectRoot, pilotHome, maxContextTokens: 1000 },
+      { projectRoot, rigoriumHome, maxContextTokens: 1000 },
     );
 
     assert.equal(replay.tokenUsage?.used, 35);
@@ -107,18 +107,18 @@ test("history token usage restores latest non-empty turn past latest empty turn 
     assert.equal(replay.tokenUsage?.total, 1000);
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
-    await rm(pilotHome, { recursive: true, force: true });
+    await rm(rigoriumHome, { recursive: true, force: true });
   }
 });
 
 test("history token usage prefers persisted context budget snapshot", async () => {
-  const projectRoot = await mkdtemp(join(tmpdir(), "pilotdeck-token-budget-project-"));
-  const pilotHome = await mkdtemp(join(tmpdir(), "pilotdeck-token-budget-home-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-token-budget-project-"));
+  const rigoriumHome = await mkdtemp(join(tmpdir(), "rigorium-token-budget-home-"));
   try {
     const sessionKey = "web:s_token_budget_restore";
     const storage = createAgentProjectSessionStorage({
       projectRoot,
-      pilotHome,
+      rigoriumHome,
       sessionId: sessionKey,
       now: () => new Date("2026-07-09T00:00:00.000Z"),
     });
@@ -152,7 +152,7 @@ test("history token usage prefers persisted context budget snapshot", async () =
 
     const replay = await readWebSessionMessages(
       { sessionKey },
-      { projectRoot, pilotHome, maxContextTokens: 1000 },
+      { projectRoot, rigoriumHome, maxContextTokens: 1000 },
     );
 
     assert.equal(replay.tokenUsage?.used, 60);
@@ -162,6 +162,6 @@ test("history token usage prefers persisted context budget snapshot", async () =
     assert.equal(replay.tokenUsage?.effectiveTotal, 450);
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
-    await rm(pilotHome, { recursive: true, force: true });
+    await rm(rigoriumHome, { recursive: true, force: true });
   }
 });

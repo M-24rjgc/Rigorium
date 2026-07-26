@@ -1,7 +1,7 @@
 import type { PermissionDecision, PermissionDecisionReason, PermissionMode } from "../../permission/index.js";
-import type { PilotDeckToolErrorCode } from "../protocol/errors.js";
+import type { RigoriumToolErrorCode } from "../protocol/errors.js";
 
-export type PilotDeckPermissionAuditRecord = {
+export type RigoriumPermissionAuditRecord = {
   type: "permission";
   sessionId: string;
   turnId: string;
@@ -13,20 +13,20 @@ export type PilotDeckPermissionAuditRecord = {
   createdAt: string;
 };
 
-export type PilotDeckToolAuditRecord = {
+export type RigoriumToolAuditRecord = {
   type: "tool";
   sessionId: string;
   turnId: string;
   toolCallId: string;
   toolName: string;
   status: "success" | "error";
-  errorCode?: PilotDeckToolErrorCode;
+  errorCode?: RigoriumToolErrorCode;
   startedAt: string;
   completedAt: string;
   durationMs: number;
 };
 
-export type PilotDeckToolAuditRecorder = {
-  recordPermission(record: PilotDeckPermissionAuditRecord): void | Promise<void>;
-  recordTool(record: PilotDeckToolAuditRecord): void | Promise<void>;
+export type RigoriumToolAuditRecorder = {
+  recordPermission(record: RigoriumPermissionAuditRecord): void | Promise<void>;
+  recordTool(record: RigoriumToolAuditRecord): void | Promise<void>;
 };

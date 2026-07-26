@@ -16,7 +16,7 @@ import type { TelemetryClient } from "../../telemetry/index.js";
 
 export type CreateApplyHandlerDeps = {
   gateway: Gateway;
-  pilotHome: string;
+  rigoriumHome: string;
   sessionOverrides: SessionConfigOverrides;
   onTurnEvent?: DiscoveryFireDependencies["onTurnEvent"];
   alwaysOnConfig?: AlwaysOnConfig;
@@ -34,7 +34,7 @@ export function createApplyHandler(
 ): (input: AlwaysOnApplyInput) => Promise<AlwaysOnApplyResult> {
   return async (input) => {
     const paths = resolveAlwaysOnPaths({
-      pilotHome: deps.pilotHome,
+      rigoriumHome: deps.rigoriumHome,
       projectKey: input.projectKey,
     });
 

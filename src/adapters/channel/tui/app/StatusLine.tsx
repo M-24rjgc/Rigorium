@@ -1,8 +1,8 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { TuiAppState } from "./types.js";
-import { pilotDeckDarkBlueTheme } from "./theme.js";
-import { CondensedLogo } from "./PilotDeckLogo.js";
+import { rigoriumDarkBlueTheme } from "./theme.js";
+import { CondensedLogo } from "./RigoriumLogo.js";
 
 export function StatusLine(props: {
   state: TuiAppState;
@@ -13,12 +13,12 @@ export function StatusLine(props: {
   const connection =
     props.state.connection === "remote" ? `server ${props.serverUrl ?? "connected"}` : "local in-process";
   return (
-    <Box borderStyle="single" borderColor={pilotDeckDarkBlueTheme.border} paddingX={1} justifyContent="space-between">
+    <Box borderStyle="single" borderColor={rigoriumDarkBlueTheme.border} paddingX={1} justifyContent="space-between">
       <Box gap={1}>
         <CondensedLogo />
-        <Text color={pilotDeckDarkBlueTheme.subtle}>v0.1.0</Text>
+        <Text color={rigoriumDarkBlueTheme.subtle}>v0.1.0</Text>
       </Box>
-      <Text color={pilotDeckDarkBlueTheme.subtle}>
+      <Text color={rigoriumDarkBlueTheme.subtle}>
         {props.model ?? "model"} · {props.state.mode} · {shortenPath(props.cwd)} · {connection}
       </Text>
     </Box>

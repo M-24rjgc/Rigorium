@@ -5,9 +5,9 @@ import {
   type TitleConfirmationResult,
 } from "../../research/direction/titleConfirmation.js";
 import type { DirectionEvidence } from "../../research/direction/directionAssessment.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
-import type { PilotDeckToolDefinition, PilotDeckToolExecutionOutput } from "../protocol/types.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
+import type { RigoriumToolDefinition, RigoriumToolExecutionOutput } from "../protocol/types.js";
 
 export type ResearchTitleConfirmationArtifact = Readonly<{
   schemaVersion: 1;
@@ -28,7 +28,7 @@ export type CreateResearchTitleConfirmationToolOptions = Readonly<{
  */
 export function createResearchTitleConfirmationTool(
   options: CreateResearchTitleConfirmationToolOptions = {},
-): PilotDeckToolDefinition<TitleConfirmationInput, ResearchTitleConfirmationArtifact> {
+): RigoriumToolDefinition<TitleConfirmationInput, ResearchTitleConfirmationArtifact> {
   return {
     name: "research_title_confirm",
     title: "Confirm Research Title",
@@ -41,13 +41,13 @@ Use this only after the conversation has supplied the candidate direction, evide
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
     isOpenWorld: () => false,
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => validateInput(input),
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => validateInput(input),
     execute: async (input, context) => {
       let result: TitleConfirmationResult;
       try {
         result = confirmProvisionalTitle(input);
       } catch (error) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           `Invalid research title confirmation input: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -98,14 +98,14 @@ function inputSchema() {
   };
 }
 
-function validateInput(input: unknown): PilotDeckToolValidationResult {
+function validateInput(input: unknown): RigoriumToolValidationResult {
   try {
     if (!isRecord(input)) throw new Error("input must be an object.");
     const normalized = normalizeInput(input);
     confirmProvisionalTitle(normalized);
     return { ok: true, input: normalized };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = {
+    const issue: RigoriumToolValidationIssue = {
       path: "$",
       code: "invalid_schema",
       message: error instanceof Error ? error.message : String(error),
@@ -126,7 +126,7 @@ function normalizeInput(input: Record<string, unknown>): TitleConfirmationInput 
 
 function formatOutput(
   artifact: ResearchTitleConfirmationArtifact,
-): PilotDeckToolExecutionOutput<ResearchTitleConfirmationArtifact> {
+): RigoriumToolExecutionOutput<ResearchTitleConfirmationArtifact> {
   const title = artifact.result.title.text ?? "no title accepted";
   return {
     content: [

@@ -399,7 +399,7 @@ async function verifyResearchOpenAlexExpansion() {
     limitPerDirection: 2,
   }, {
     cwd: join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY, RESEARCH_VERIFICATION_DIRECTORY, 'project'),
-    env: { PILOT_HOME: process.env.PILOT_HOME },
+    env: { RIGORIUM_HOME: process.env.RIGORIUM_HOME },
     now: () => new Date('2026-07-22T00:00:00.000Z'),
   });
   const artifact = output?.data;
@@ -605,7 +605,7 @@ async function verifyResearchTerminology() {
   const defaults = settingsModule.DEFAULT_RESEARCH_SETTINGS;
   await settingsModule.writeResearchSettings({
     scope: 'project',
-    pilotHome: process.env.PILOT_HOME,
+    rigoriumHome: process.env.RIGORIUM_HOME,
     projectRoot: verificationProjectRoot,
     settings: {
       ...defaults,
@@ -626,7 +626,7 @@ async function verifyResearchTerminology() {
     limit: 1,
   }, {
     cwd: verificationProjectRoot,
-    env: { PILOT_HOME: process.env.PILOT_HOME },
+    env: { RIGORIUM_HOME: process.env.RIGORIUM_HOME },
     now: () => new Date(retrievedAt),
   });
   const artifact = toolOutput?.data;
@@ -719,7 +719,7 @@ async function verifyResearchOpenAlexExpansionLiveTool(toolModule) {
       limitPerDirection: 1,
     }, {
       cwd: join(app.getPath('userData'), ZOTERO_CREDENTIALS_DIRECTORY, RESEARCH_VERIFICATION_DIRECTORY, 'live-project'),
-      env: { PILOT_HOME: process.env.PILOT_HOME },
+      env: { RIGORIUM_HOME: process.env.RIGORIUM_HOME },
       now: () => new Date(),
     });
     const artifact = output?.data;
@@ -983,7 +983,7 @@ async function startServices() {
   const appRoot = app.getAppPath();
   const gateway = startNodeProcess(
     'gateway',
-    [join(appRoot, 'dist', 'src', 'cli', 'pilotdeck.js'), 'server', '--port', '0'],
+    [join(appRoot, 'dist', 'src', 'cli', 'rigorium.js'), 'server', '--port', '0'],
     {
       HOST: LOCAL_HOST,
     },
@@ -1003,10 +1003,10 @@ async function startServices() {
     {
       HOST: LOCAL_HOST,
       SERVER_PORT: '0',
-      PILOTDECK_DESKTOP: '1',
-      PILOTDECK_SKIP_BROWSER_OPEN: '1',
-      PILOTDECK_GATEWAY_PORT: String(gatewayPort),
-      PILOTDECK_GATEWAY_URL: `ws://${LOCAL_HOST}:${gatewayPort}/ws`,
+      RIGORIUM_DESKTOP: '1',
+      RIGORIUM_SKIP_BROWSER_OPEN: '1',
+      RIGORIUM_GATEWAY_PORT: String(gatewayPort),
+      RIGORIUM_GATEWAY_URL: `ws://${LOCAL_HOST}:${gatewayPort}/ws`,
     },
     /Server URL:[\s\S]{0,40}?https?:\/\/(?:127\.0\.0\.1|localhost):(\d+)/i,
     {

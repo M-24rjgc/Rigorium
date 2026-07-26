@@ -1,4 +1,4 @@
-export const ADD_WORKSPACE_FILE_MENTION_EVENT = 'pilotdeck:add-workspace-file-mention';
+export const ADD_WORKSPACE_FILE_MENTION_EVENT = 'rigorium:add-workspace-file-mention';
 
 export type WorkspaceFileMentionRequest = {
   projectName: string;

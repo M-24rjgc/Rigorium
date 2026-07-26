@@ -1,6 +1,6 @@
 import type { Project, ProjectSession } from '../../../types/app';
-import type { ChatAttachment, ChatRunMode, PilotDeckSettings, PermissionMode } from '../types/types';
-import { getPilotDeckSettings, safeLocalStorage } from './chatStorage';
+import type { ChatAttachment, ChatRunMode, RigoriumSettings, PermissionMode } from '../types/types';
+import { getRigoriumSettings, safeLocalStorage } from './chatStorage';
 
 type StartSessionOptions = {
   sendMessage: (message: unknown) => void;
@@ -15,7 +15,7 @@ type StartSessionOptions = {
   model?: string;
   thinking?: unknown;
   sessionSummary?: string | null;
-  toolsSettings?: PilotDeckSettings;
+  toolsSettings?: RigoriumSettings;
   images?: unknown[];
   attachments?: ChatAttachment[];
   alwaysOnPlanId?: string;
@@ -92,7 +92,7 @@ export function startSessionCommand({
   model,
   thinking,
   sessionSummary,
-  toolsSettings = getPilotDeckSettings(),
+  toolsSettings = getRigoriumSettings(),
   images,
   attachments,
   alwaysOnPlanId,
@@ -105,7 +105,7 @@ export function startSessionCommand({
   const resolvedProjectPath = getSelectedProjectPath(selectedProject);
 
   sendMessage({
-    type: 'pilotdeck-command',
+    type: 'rigorium-command',
     command,
     options: {
       ...(sessionId ? { sessionId, resume: true } : {}),

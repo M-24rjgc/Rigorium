@@ -71,7 +71,7 @@ export type CachedMicroCompactionOptions = {
  *   M3 Subagent skip: forked agents share state with main loop, so we never
  *      run the engine inside a subagent (cache_control is a per-turn signal).
  *   M4 Returns eligible tool_call_ids for telemetry / debugging.
- *   M5 Disabled by default; gated on `pilotdeck.context.cachedMicrocompactEnabled`.
+ *   M5 Disabled by default; gated on `rigorium.context.cachedMicrocompactEnabled`.
  *   M6 Cache breakpoint goes on the message *immediately preceding* the
  *      eligible tool_result message, not on the eligible message itself.
  *   M7 `validateCacheHit(usage)` returns true when `cacheReadTokens > 0`,

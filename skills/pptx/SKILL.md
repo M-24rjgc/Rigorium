@@ -40,7 +40,7 @@ Use an external scratch directory for project-backed work. If the host does not 
 
 ```bash
 SCRATCH_ROOT="$(node -p "require('node:os').tmpdir()")"
-WORKSPACE="$SCRATCH_ROOT/pilotdeck-pptx/${CODEX_THREAD_ID:-manual}/<task-slug>"
+WORKSPACE="$SCRATCH_ROOT/rigorium-pptx/${CODEX_THREAD_ID:-manual}/<task-slug>"
 mkdir -p "$WORKSPACE/tmp" "$WORKSPACE/qa"
 ```
 
@@ -51,7 +51,7 @@ Put the builder, source notes, renders, manifests, maps, and QA reports in `WORK
 Choose exactly one route:
 
 1. Existing PPTX to inspect or answer questions about: inspect the entire deck; do not edit unless requested.
-2. Net-new PPTX without a template: use the PilotDeck layout library unless the user gives explicit visual direction.
+2. Net-new PPTX without a template: use the Rigorium layout library unless the user gives explicit visual direction.
 3. Net-new PPTX with explicit visual direction: build a custom composition; do not combine it with the default library.
 4. Template-based creation or edit: use only the supplied source deck as the visual system and follow template mode.
 
@@ -80,7 +80,7 @@ Create the executable builder:
 bash "$PPTX" scaffold --out "$WORKSPACE/tmp/deck.mjs"
 ```
 
-Edit the builder so its default export receives the PilotDeck toolkit and returns a PptxGenJS presentation. Use plain `.mjs`; do not add a transpiler. Set PptxGenJS `objectName` values for anything likely to be edited later.
+Edit the builder so its default export receives the Rigorium toolkit and returns a PptxGenJS presentation. Use plain `.mjs`; do not add a transpiler. Set PptxGenJS `objectName` values for anything likely to be edited later.
 
 Build the PPTX:
 

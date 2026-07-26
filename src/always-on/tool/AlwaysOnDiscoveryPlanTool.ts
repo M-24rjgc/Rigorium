@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { PilotDeckToolRuntimeError } from "../../tool/protocol/errors.js";
-import type { PilotDeckToolDefinition } from "../../tool/protocol/types.js";
+import { RigoriumToolRuntimeError } from "../../tool/protocol/errors.js";
+import type { RigoriumToolDefinition } from "../../tool/protocol/types.js";
 import { parsePlanMarkdown, type PlanContractOptions } from "../contracts/PlanContract.js";
 import { AlwaysOnError } from "../protocol/errors.js";
 import type { DiscoveryPlanRecord } from "../protocol/types.js";
@@ -32,7 +32,7 @@ export const ALWAYS_ON_PLAN_TOOL_NAME = "always_on_discovery_plan";
 
 export function createAlwaysOnDiscoveryPlanTool(
   options: CreateAlwaysOnDiscoveryPlanToolOptions,
-): PilotDeckToolDefinition<AlwaysOnDiscoveryPlanInput, AlwaysOnDiscoveryPlanOutput> {
+): RigoriumToolDefinition<AlwaysOnDiscoveryPlanInput, AlwaysOnDiscoveryPlanOutput> {
   const now = options.now ?? (() => new Date());
   const uuid = options.uuid ?? randomUUID;
 
@@ -59,7 +59,7 @@ export function createAlwaysOnDiscoveryPlanTool(
     execute: async (input, context) => {
       const ctx = options.runContexts.getDiscovery(context.sessionId);
       if (!ctx) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "tool_execution_failed",
           `${ALWAYS_ON_PLAN_TOOL_NAME} called outside of an Always-On discovery turn.`,
         );
@@ -67,7 +67,7 @@ export function createAlwaysOnDiscoveryPlanTool(
 
       ctx.planCallCount += 1;
       if (ctx.plan) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "tool_execution_failed",
           "plan_quota_exhausted: Always-On discovery permits at most one plan per fire.",
         );
@@ -78,7 +78,7 @@ export function createAlwaysOnDiscoveryPlanTool(
         parsed = parsePlanMarkdown(input.content, options.contract);
       } catch (error) {
         if (error instanceof AlwaysOnError) {
-          throw new PilotDeckToolRuntimeError(
+          throw new RigoriumToolRuntimeError(
             "tool_execution_failed",
             `plan_invalid: ${error.message}`,
           );

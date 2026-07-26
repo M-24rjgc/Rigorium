@@ -358,7 +358,7 @@ export async function renderManuscript(
     ? await readPdfPageCount(pdfInfoProbe.executable ?? "pdfinfo", pdfPath, workspace, timeoutMs, runner, env, input.signal)
     : undefined;
   const aux = await readTextIfExists(join(buildDirectory, "main.aux"));
-  const mainMatterPage = readAuxLabelPage(aux, "pilotdeck-main-matter-end");
+  const mainMatterPage = readAuxLabelPage(aux, "rigorium-main-matter-end");
   const checks = buildComplianceChecks({
     manuscript: input.manuscript,
     citationSet: input.citationSet,
@@ -513,7 +513,7 @@ function pageLimitCheck(
     return check("page_limit", "pass", [`Total PDF length is ${pageCount} pages, within the ${limit}-page main-matter limit.`]);
   }
   return check("page_limit", "warning", [
-    `Main-matter page marker \\label{pilotdeck-main-matter-end} was not resolved${pageCount === undefined ? "" : `; total PDF length is ${pageCount}`}.`,
+    `Main-matter page marker \\label{rigorium-main-matter-end} was not resolved${pageCount === undefined ? "" : `; total PDF length is ${pageCount}`}.`,
   ]);
 }
 
@@ -541,8 +541,8 @@ function appendixCheck(manuscript: ManuscriptVersionArtifact): ManuscriptComplia
   const appendix = manuscript.payload.appendix;
   if (!appendix.enabled) return check("appendix", "not_checked", ["No appendix command is present."]);
   if (!appendix.afterBibliography) return check("appendix", "fail", ["Appendix begins before the bibliography boundary."]);
-  const hasMarker = new RegExp(`\\\\label\\{pilotdeck-appendix-start\\}`, "u").test(stripLatexComments(manuscript.payload.source.content));
-  return check("appendix", hasMarker ? "pass" : "warning", hasMarker ? [] : ["Appendix is ordered correctly but lacks the pilotdeck-appendix-start marker."]);
+  const hasMarker = new RegExp(`\\\\label\\{rigorium-appendix-start\\}`, "u").test(stripLatexComments(manuscript.payload.source.content));
+  return check("appendix", hasMarker ? "pass" : "warning", hasMarker ? [] : ["Appendix is ordered correctly but lacks the rigorium-appendix-start marker."]);
 }
 
 function templateCheck(manuscript: ManuscriptVersionArtifact, probe: TemplateProbe | undefined): ManuscriptComplianceCheck {

@@ -3,8 +3,8 @@
  * contract that `ui/src/components/main-content-v2/SkillsV2.tsx` was
  * built against into the gateway's `skill_*` RPCs. The gateway is the
  * authoritative skill manager (see `src/extension/skills/SkillManager.ts`)
- * backed by release-bundled skills, `~/.pilotdeck/skills/`, and
- * `<project>/.pilotdeck/skills/`,
+ * backed by release-bundled skills, `~/.rigorium/skills/`, and
+ * `<project>/.rigorium/skills/`,
  * so the UI and the agent always read from the same place.
  *
  * Two endpoints stay file-based for now because they don't map cleanly
@@ -18,7 +18,7 @@
  *
  *   - `/clawhub/*` — shells out to the `clawhub` CLI which writes its
  *     output to disk by itself. We just retarget the install root to
- *     `~/.pilotdeck/skills/` so installs end up where the agent looks.
+ *     `~/.rigorium/skills/` so installs end up where the agent looks.
  *
  * Anything else (list/read/write/create/delete/import/validate/scan) is
  * a one-line forward to the gateway. Errors raised by `SkillManagerError`
@@ -34,8 +34,8 @@ import { fileURLToPath } from 'url';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import multer from 'multer';
-import { getPilotDeckGateway } from '../pilotdeck-bridge.js';
-import { resolvePilotHome } from '../utils/pilotPaths.js';
+import { getRigoriumGateway } from '../rigorium-bridge.js';
+import { resolveRigoriumHome } from '../utils/rigoriumPaths.js';
 import { moveDirectoryAcrossDevicesSafe } from '../utils/fileMoves.js';
 
 const execFileAsync = promisify(execFile);
@@ -58,11 +58,11 @@ const upload = multer({
 // ---------------------------------------------------------------------------
 
 const SLUG_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/;
-const PILOT_HOME = resolvePilotHome(process.env);
-const PROJECT_DIR = '.pilotdeck';
+const RIGORIUM_HOME = resolveRigoriumHome(process.env);
+const PROJECT_DIR = '.rigorium';
 const SKILLS_SUBDIR = 'skills';
 const BUNDLED_SKILLS_ROOT = path.resolve(
-  process.env.PILOTDECK_BUNDLED_SKILLS_DIR ||
+  process.env.RIGORIUM_BUNDLED_SKILLS_DIR ||
     path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'skills'),
 );
 
@@ -70,7 +70,7 @@ function safeSlug(slug) {
   return typeof slug === 'string' && SLUG_RE.test(slug) && !slug.includes('..');
 }
 
-const GENERAL_CWD_PATHS = [path.resolve(PILOT_HOME)];
+const GENERAL_CWD_PATHS = [path.resolve(RIGORIUM_HOME)];
 
 function isGeneralCwd(projectPath) {
   if (!projectPath) return false;
@@ -110,7 +110,7 @@ function resolveRequestedScope(scope, projectPath, { defaultToProjectWhenAvailab
 }
 
 function userSkillsRoot() {
-  return path.join(PILOT_HOME, SKILLS_SUBDIR);
+  return path.join(RIGORIUM_HOME, SKILLS_SUBDIR);
 }
 
 function projectSkillsRoot(projectPath) {
@@ -209,7 +209,7 @@ function sendGatewayError(res, err) {
  * timeout) surface as plain `Error` and route to the 500 fallback.
  */
 async function callGateway(method, params) {
-  const gw = await getPilotDeckGateway();
+  const gw = await getRigoriumGateway();
   return gw[method](params);
 }
 
@@ -352,8 +352,8 @@ router.post('/scan', async (req, res) => {
 // ---------------------------------------------------------------------------
 // /import-upload — multipart picker upload. Multipart bodies don't fit the
 // WS RPC, so we stage on disk and then ask the gateway to validate. The
-// final move lands in `~/.pilotdeck/skills/<slug>` or
-// `<project>/.pilotdeck/skills/<slug>` so the agent picks it up on next
+// final move lands in `~/.rigorium/skills/<slug>` or
+// `<project>/.rigorium/skills/<slug>` so the agent picks it up on next
 // session refresh.
 // ---------------------------------------------------------------------------
 
@@ -487,7 +487,7 @@ router.post('/import-upload', upload.array('files', 500), async (req, res) => {
 // ---------------------------------------------------------------------------
 // ClawHub passthrough — kept here because the binary writes to disk and
 // reading it back into the gateway would just add a layer.  We retarget
-// the install root to `~/.pilotdeck/skills/` (or `<project>/.pilotdeck/
+// the install root to `~/.rigorium/skills/` (or `<project>/.rigorium/
 // skills/`) so installed skills end up where the agent looks.
 // ---------------------------------------------------------------------------
 
@@ -558,7 +558,7 @@ router.post('/clawhub/install', async (req, res) => {
       workdir = resolved.projectPath;
       dir = path.join(PROJECT_DIR, SKILLS_SUBDIR);
     } else {
-      workdir = PILOT_HOME;
+      workdir = RIGORIUM_HOME;
       dir = SKILLS_SUBDIR;
     }
     const installPath = path.join(workdir, dir, slug);

@@ -51,8 +51,8 @@ vi.mock('../../../hooks/useUiPreferences', () => ({
   useUiPreferences: () => ({ preferences: {}, setPreference: vi.fn() }),
 }));
 
-vi.mock('../../../hooks/usePilotDeckConfig', () => ({
-  usePilotDeckConfig: () => ({ raw: '{}', setRaw: vi.fn(), save: vi.fn(), loading: false }),
+vi.mock('../../../hooks/useRigoriumConfig', () => ({
+  useRigoriumConfig: () => ({ raw: '{}', setRaw: vi.fn(), save: vi.fn(), loading: false }),
 }));
 
 vi.mock('../hooks/useSettingsController', () => ({
@@ -69,7 +69,7 @@ vi.mock('../../../hooks/useDesktopVersion', () => ({
   useDesktopVersion: () => mocks.desktopVersion,
 }));
 
-vi.mock('./tabs/PilotDeckConfigTab', () => ({ default: () => null }));
+vi.mock('./tabs/RigoriumConfigTab', () => ({ default: () => null }));
 vi.mock('./tabs/McpServersTab', () => ({ default: () => null }));
 vi.mock('./tabs/PermissionsSettingsTab', () => ({ default: () => null }));
 vi.mock('./tabs/GatewaySettingsTab', () => ({ default: () => null }));
@@ -81,7 +81,7 @@ const renderSettings = (initialTab = 'appearance') => render(
 
 describe('desktop update settings entry point', () => {
   beforeEach(() => {
-    Object.defineProperty(window, 'pilotdeckDesktop', { configurable: true, value: {} });
+    Object.defineProperty(window, 'rigoriumDesktop', { configurable: true, value: {} });
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
       configurable: true,
       value: mocks.scrollIntoView,
@@ -101,7 +101,7 @@ describe('desktop update settings entry point', () => {
 
   afterEach(() => {
     cleanup();
-    Reflect.deleteProperty(window, 'pilotdeckDesktop');
+    Reflect.deleteProperty(window, 'rigoriumDesktop');
   });
 
   it('scrolls directly to the desktop update section and shows a verified installer', async () => {

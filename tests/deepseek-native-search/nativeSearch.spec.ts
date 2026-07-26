@@ -5,9 +5,9 @@ import {
   DeepSeekNativeSearchError,
   searchDeepSeekNative,
 } from "../../src/deepseek-native-search/index.js";
-import { resolveDeepSeekNativeSearchConfig } from "../../src/pilot/config/resolveDeepSeekNativeSearch.js";
-import { parseToolsConfig } from "../../src/pilot/config/parseToolsConfig.js";
-import type { PilotConfigDiagnostic } from "../../src/pilot/config/types.js";
+import { resolveDeepSeekNativeSearchConfig } from "../../src/rigorium/config/resolveDeepSeekNativeSearch.js";
+import { parseToolsConfig } from "../../src/rigorium/config/parseToolsConfig.js";
+import type { RigoriumConfigDiagnostic } from "../../src/rigorium/config/types.js";
 import { createDeepSeekNativeSearchTool } from "../../src/tool/builtin/deepseekNativeSearch.js";
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -107,7 +107,7 @@ test("automatic credentials never authorize a custom native-search endpoint", as
 });
 
 test("tools config parses native search independently from web_search", () => {
-  const diagnostics: PilotConfigDiagnostic[] = [];
+  const diagnostics: RigoriumConfigDiagnostic[] = [];
   const config = parseToolsConfig({
     deepseekNativeSearch: {
       apiKey: "dedicated-key",

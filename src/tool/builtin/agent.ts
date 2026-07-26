@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { CanonicalModelRequest, CanonicalUsage } from "../../model/index.js";
 import type { PermissionResult } from "../../permission/index.js";
 import { SUBAGENT_DEFINITIONS } from "../../agent/sub/builtinSubagentTypes.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
 import type {
-  PilotDeckSubagentForkApi,
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolModelClient,
-  PilotDeckToolRuntimeContext,
+  RigoriumSubagentForkApi,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolModelClient,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 
 /**
@@ -97,7 +97,7 @@ export type CreateAgentToolOptions = {
    * Override the model client for the *fallback* single-shot path. The full
    * fork path uses `context.subagent.fork(...)` and ignores this option.
    */
-  model?: PilotDeckToolModelClient;
+  model?: RigoriumToolModelClient;
   /** Override which fallback subagent presets are available. */
   subagents?: Record<string, AgentSubagentDefinition>;
   provider?: string;
@@ -107,14 +107,14 @@ export type CreateAgentToolOptions = {
 };
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 65_536;
-const DEFAULT_PROVIDER_FALLBACK = "pilotdeck";
+const DEFAULT_PROVIDER_FALLBACK = "rigorium";
 const DEFAULT_MODEL_FALLBACK = "moonshotai/kimi-k2.6";
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 60 * 60_000;
 const PUBLIC_SUBAGENT_TYPES = ["general-purpose", "explore", "plan"] as const;
 
 export function createAgentTool(
   options: CreateAgentToolOptions = {},
-): PilotDeckToolDefinition<AgentToolInput, AgentToolOutput> {
+): RigoriumToolDefinition<AgentToolInput, AgentToolOutput> {
   const fallbackPresets = options.subagents ?? BUILTIN_SUBAGENTS;
   const description = buildAgentToolDescription();
 
@@ -317,23 +317,23 @@ function normalizeRequestedSubagentType(value: string | undefined): string | und
 
 async function runFullFork(args: {
   input: AgentToolInput;
-  context: PilotDeckToolRuntimeContext;
+  context: RigoriumToolRuntimeContext;
   requestedType: string;
   directive: string;
-  fork: PilotDeckSubagentForkApi;
-}): Promise<PilotDeckToolExecutionOutput<AgentToolOutput>> {
+  fork: RigoriumSubagentForkApi;
+}): Promise<RigoriumToolExecutionOutput<AgentToolOutput>> {
   const { input, context, requestedType, directive, fork } = args;
 
   if (!fork.isAllowedDefinition(requestedType)) {
     const allowed = fork.listDefinitions().map((d) => d.id).join(", ");
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       `Unknown subagent_type "${requestedType}". Available: ${allowed}.`,
     );
   }
   const currentDepth = context.subagentDepth ?? fork.depth ?? 0;
   if (currentDepth >= fork.maxSubagentDepth) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `subagent_depth_exceeded (depth=${currentDepth}, max=${fork.maxSubagentDepth}); nested fork rejected.`,
       { errorCode: "subagent_depth_exceeded" },
@@ -353,20 +353,20 @@ async function runFullFork(args: {
     });
   } catch (error) {
     if (context.abortSignal?.aborted) {
-      throw new PilotDeckToolRuntimeError(
+      throw new RigoriumToolRuntimeError(
         "tool_aborted",
         "agent subagent aborted before completion.",
       );
     }
     const message = error instanceof Error ? error.message : String(error);
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_execution_failed",
       `agent subagent failed: ${message}`,
       { errorCode: "subagent_execution_failed" },
     );
   }
   if (context.abortSignal?.aborted) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "tool_aborted",
       "agent subagent aborted before completion.",
     );
@@ -401,16 +401,16 @@ async function runFullFork(args: {
 
 async function runFallback(args: {
   input: AgentToolInput;
-  context: PilotDeckToolRuntimeContext;
+  context: RigoriumToolRuntimeContext;
   requestedType: string;
   directive: string;
   presets: Record<string, AgentSubagentDefinition>;
-  model?: PilotDeckToolModelClient;
+  model?: RigoriumToolModelClient;
   provider: string;
   modelId: string;
   maxOutputTokens: number;
   temperature: number;
-}): Promise<PilotDeckToolExecutionOutput<AgentToolOutput>> {
+}): Promise<RigoriumToolExecutionOutput<AgentToolOutput>> {
   const {
     input,
     context,
@@ -426,7 +426,7 @@ async function runFallback(args: {
 
   const preset = presets[requestedType];
   if (!preset) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "invalid_tool_input",
       `Unknown subagent_type "${requestedType}". Available: ${Object.keys(
         presets,
@@ -435,7 +435,7 @@ async function runFallback(args: {
   }
   const model = explicitModel ?? context.model;
   if (!model) {
-    throw new PilotDeckToolRuntimeError(
+    throw new RigoriumToolRuntimeError(
       "unsupported_tool",
       "agent tool requires a model client. Configure dependencies.model on AgentRuntimeDependencies, pass createAgentTool({ model }), or wire context.subagent for full-fork mode.",
     );
@@ -454,7 +454,7 @@ async function runFallback(args: {
   let usage: CanonicalUsage | undefined;
   for await (const event of model.stream(request, context.abortSignal)) {
     if (context.abortSignal?.aborted) {
-      throw new PilotDeckToolRuntimeError(
+      throw new RigoriumToolRuntimeError(
         "tool_aborted",
         "agent subagent aborted before completion.",
       );
@@ -467,7 +467,7 @@ async function runFallback(args: {
         usage = event.usage;
         break;
       case "error":
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "tool_execution_failed",
           `agent subagent model error: ${event.error.message}`,
           { errorCode: event.error.code },

@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import type { Stats } from "node:fs";
 import { createInterface } from "node:readline";
 import { readFile, stat } from "node:fs/promises";
-import { PilotDeckToolRuntimeError } from "../../protocol/errors.js";
+import { RigoriumToolRuntimeError } from "../../protocol/errors.js";
 
 export type ReadFileRangeResult = {
   content: string;
@@ -27,12 +27,12 @@ export async function readFileInRange(
 ): Promise<ReadFileRangeResult> {
   const fileStat = await stat(filePath).catch((error: unknown) => {
     if (isNodeError(error) && error.code === "ENOENT") {
-      throw new PilotDeckToolRuntimeError("file_not_found", `File ${filePath} does not exist.`);
+      throw new RigoriumToolRuntimeError("file_not_found", `File ${filePath} does not exist.`);
     }
     throw error;
   });
   if (!fileStat.isFile()) {
-    throw new PilotDeckToolRuntimeError("file_conflict", `${filePath} is not a regular file.`);
+    throw new RigoriumToolRuntimeError("file_conflict", `${filePath} is not a regular file.`);
   }
 
   if (limit !== undefined) {
@@ -41,7 +41,7 @@ export async function readFileInRange(
 
   const buffer = await readFile(filePath);
   if (buffer.includes(0)) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", `${filePath} appears to be a binary file.`);
+    throw new RigoriumToolRuntimeError("invalid_tool_input", `${filePath} appears to be a binary file.`);
   }
 
   const text = stripBom(buffer.toString("utf8"));
@@ -106,7 +106,7 @@ async function readFileLineRange(
   }
 
   if (sawNul) {
-    throw new PilotDeckToolRuntimeError("invalid_tool_input", `${filePath} appears to be a binary file.`);
+    throw new RigoriumToolRuntimeError("invalid_tool_input", `${filePath} appears to be a binary file.`);
   }
 
   const content = selected.join("\n");

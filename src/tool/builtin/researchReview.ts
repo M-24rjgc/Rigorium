@@ -6,12 +6,12 @@ import {
   type ReviewRoundPackage,
   type RevisionDecisionInput,
 } from "../../research/review/index.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 
 export type ResearchReviewToolInput =
@@ -28,7 +28,7 @@ export type CreateResearchReviewToolOptions = Readonly<{
 
 export function createResearchReviewTool(
   options: CreateResearchReviewToolOptions = {},
-): PilotDeckToolDefinition<ResearchReviewToolInput, ResearchReviewToolResult> {
+): RigoriumToolDefinition<ResearchReviewToolInput, ResearchReviewToolResult> {
   return {
     name: "research_review",
     title: "Run Independent Research Reviews",
@@ -46,7 +46,7 @@ Use action=run_review with the manuscript module's versioned manuscript, render,
       try {
         return formatOutput(executeAction(input, context));
       } catch (error) {
-        throw new PilotDeckToolRuntimeError("invalid_tool_input", `Invalid research review action: ${messageOf(error)}`);
+        throw new RigoriumToolRuntimeError("invalid_tool_input", `Invalid research review action: ${messageOf(error)}`);
       }
     },
   };
@@ -54,7 +54,7 @@ Use action=run_review with the manuscript module's versioned manuscript, render,
 
 function executeAction(
   input: ResearchReviewToolInput,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
 ): ResearchReviewToolResult {
   requireActionInput(input);
   const now = context.now?.();
@@ -73,7 +73,7 @@ function executeAction(
   });
 }
 
-async function validateInput(input: ResearchReviewToolInput): Promise<PilotDeckToolValidationResult> {
+async function validateInput(input: ResearchReviewToolInput): Promise<RigoriumToolValidationResult> {
   try {
     requireActionInput(input);
     const validationDate = new Date("2000-01-01T00:00:00.000Z");
@@ -87,7 +87,7 @@ async function validateInput(input: ResearchReviewToolInput): Promise<PilotDeckT
     }
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = { path: "$", code: "invalid_schema", message: messageOf(error) };
+    const issue: RigoriumToolValidationIssue = { path: "$", code: "invalid_schema", message: messageOf(error) };
     return { ok: false, issues: [issue] };
   }
 }
@@ -129,7 +129,7 @@ function researchReviewInputSchema() {
   };
 }
 
-function formatOutput(result: ResearchReviewToolResult): PilotDeckToolExecutionOutput<ResearchReviewToolResult> {
+function formatOutput(result: ResearchReviewToolResult): RigoriumToolExecutionOutput<ResearchReviewToolResult> {
   if (result.action === "run_review") {
     const round = result.review.reviewRound;
     return {

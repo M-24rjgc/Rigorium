@@ -11,10 +11,10 @@ import {
 import { extractProjectDirectory } from '../projects.js';
 import {
   buildMemoryDefaults,
-  readPilotDeckConfigFile,
-} from './pilotdeckConfig.js';
+  readRigoriumConfigFile,
+} from './rigoriumConfig.js';
 
-const MEMORY_ROOT_DIR = path.join(process.env.PILOT_HOME || path.join(os.homedir(), '.pilotdeck'), 'memory');
+const MEMORY_ROOT_DIR = path.join(process.env.RIGORIUM_HOME || path.join(os.homedir(), '.rigorium'), 'memory');
 const MEMORY_WORKSPACES_ROOT = path.join(MEMORY_ROOT_DIR, 'workspaces');
 const MEMORY_GLOBAL_ROOT = path.join(MEMORY_ROOT_DIR, 'global');
 const MEMORY_SCHEDULER_INTERVAL_MS = 60_000;
@@ -39,7 +39,7 @@ function resolveWorkspaceDataDir(projectPath) {
 function buildServiceForDataDir(dataDir, workspaceDir = dataDir) {
   let memoryDefaults = {};
   try {
-    memoryDefaults = buildMemoryDefaults(readPilotDeckConfigFile().config);
+    memoryDefaults = buildMemoryDefaults(readRigoriumConfigFile().config);
   } catch {
     memoryDefaults = {};
   }
@@ -48,7 +48,7 @@ function buildServiceForDataDir(dataDir, workspaceDir = dataDir) {
     rootDir: MEMORY_ROOT_DIR,
     dbPath: path.join(dataDir, 'control.sqlite'),
     memoryDir: path.join(dataDir, 'memory'),
-    source: 'pilotdeck',
+    source: 'rigorium',
     ...memoryDefaults,
   });
   if (memoryDefaults.defaultIndexingSettings) {
@@ -391,7 +391,7 @@ export async function rollbackLastMemoryDream(service, dataDir) {
 
 export async function runMemorySchedulerCycle() {
   try {
-    if (!readPilotDeckConfigFile().config.memory?.enabled) {
+    if (!readRigoriumConfigFile().config.memory?.enabled) {
       return null;
     }
   } catch {
@@ -420,7 +420,7 @@ export async function runMemorySchedulerCycle() {
 
 export function startMemoryScheduler() {
   try {
-    if (!readPilotDeckConfigFile().config.memory?.enabled) {
+    if (!readRigoriumConfigFile().config.memory?.enabled) {
       return;
     }
   } catch {
@@ -453,7 +453,7 @@ export function getMemorySchedulerStatus() {
   let enabled = true;
   let configError = null;
   try {
-    enabled = readPilotDeckConfigFile().config.memory?.enabled !== false;
+    enabled = readRigoriumConfigFile().config.memory?.enabled !== false;
   } catch (error) {
     configError = error instanceof Error ? error.message : String(error);
   }

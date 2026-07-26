@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { DEFAULT_RESEARCH_SETTINGS, writeResearchSettings } from "../../../src/research/settings.js";
 import { createLiteratureExpandTool } from "../../../src/tool/builtin/literatureExpand.js";
-import { PilotDeckToolRuntimeError } from "../../../src/tool/protocol/errors.js";
+import { RigoriumToolRuntimeError } from "../../../src/tool/protocol/errors.js";
 
 const OPENALEX_TEST_ENDPOINT = "https://openalex.test/works";
 
@@ -42,10 +42,10 @@ const referenceTwo = work("W2", "Reference two");
 const referenceThree = work("W3", "Reference three");
 const citing = work("W4", "Citing paper", ["W1"]);
 
-function testContext(name: string, pilotHome = join(tmpdir(), `${name}-home`), abortSignal?: AbortSignal) {
+function testContext(name: string, rigoriumHome = join(tmpdir(), `${name}-home`), abortSignal?: AbortSignal) {
   return {
     cwd: join(tmpdir(), `${name}-project`),
-    env: { PILOT_HOME: pilotHome },
+    env: { RIGORIUM_HOME: rigoriumHome },
     now: () => new Date("2026-07-22T00:00:00.000Z"),
     ...(abortSignal ? { abortSignal } : {}),
   } as any;
@@ -69,7 +69,7 @@ test("literature_expand rejects missing or malformed strong seed identities befo
   ]) {
     await assert.rejects(
       () => tool.execute({ seed: invalidSeed }, testContext("rigorium-expand-invalid-seed")),
-      (error: unknown) => error instanceof PilotDeckToolRuntimeError && error.code === "invalid_tool_input",
+      (error: unknown) => error instanceof RigoriumToolRuntimeError && error.code === "invalid_tool_input",
     );
   }
   assert.equal(calls, 0);
@@ -92,7 +92,7 @@ test("literature_expand rejects conflicting strong identities without producing 
       { seed: { openAlexId: "W1", doi: "10.1000/conflicting-doi" } },
       testContext("rigorium-expand-conflicting-seed"),
     ),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError && error.code === "tool_execution_failed",
+    (error: unknown) => error instanceof RigoriumToolRuntimeError && error.code === "tool_execution_failed",
   );
   assert.equal(requested.length, 1);
   assert.equal(new URL(requested[0]).searchParams.get("filter"), null);
@@ -115,7 +115,7 @@ test("literature_expand rejects malicious or noncanonical OpenAlex seed response
         { seed: { doi: "10.1000/seed" } },
         testContext(`rigorium-expand-invalid-provider-seed-${index}`),
       ),
-      (error: unknown) => error instanceof PilotDeckToolRuntimeError
+      (error: unknown) => error instanceof RigoriumToolRuntimeError
         && error.code === "tool_execution_failed"
         && /canonical OpenAlex W identifier/i.test(error.message),
     );
@@ -131,7 +131,7 @@ test("literature_expand reports a null seed payload as a controlled provider fai
 
   await assert.rejects(
     () => tool.execute({ seed: { openAlexId: "W1" } }, testContext("rigorium-expand-null-seed")),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError
+    (error: unknown) => error instanceof RigoriumToolRuntimeError
       && error.code === "tool_execution_failed"
       && /malformed seed response/i.test(error.message),
   );
@@ -184,10 +184,10 @@ test("literature_expand uses no more than OpenAlex's 100-ID OR filter and report
   const references = Array.from({ length: 101 }, (_, index) => `W${index + 2}`);
   const largeSeed = work("W1", "Large seed", references);
   const root = await mkdtemp(join(tmpdir(), "rigorium-expand-or-limit-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -212,7 +212,7 @@ test("literature_expand uses no more than OpenAlex's 100-ID OR filter and report
 
   const result = await tool.execute(
     { seed: { openAlexId: "W1" }, directions: ["references"], limitPerDirection: 100 },
-    testContext("rigorium-expand-batch", pilotHome),
+    testContext("rigorium-expand-batch", rigoriumHome),
   );
 
   const direction = result.data?.directions[0];
@@ -416,10 +416,10 @@ test("literature_expand enforces the per-direction budget when a provider over-r
 
 test("literature_expand bounds each direction by the Research Settings budget", async () => {
   const root = await mkdtemp(join(tmpdir(), "rigorium-expand-budget-"));
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -445,7 +445,7 @@ test("literature_expand bounds each direction by the Research Settings budget", 
 
   const result = await tool.execute(
     { seed: { openAlexId: "W1" }, limitPerDirection: 99 },
-    testContext("rigorium-expand-budget", pilotHome),
+    testContext("rigorium-expand-budget", rigoriumHome),
   );
   assert.equal(result.data?.plan.limitPerDirection, 1);
   assert.deepEqual(perPageValues, ["1", "1"]);
@@ -489,7 +489,7 @@ test("literature_expand does not retry a seed 429 with a nonzero Retry-After", a
 
   await assert.rejects(
     () => tool.execute({ seed: { openAlexId: "W1" } }, testContext("rigorium-expand-seed-rate")),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError
+    (error: unknown) => error instanceof RigoriumToolRuntimeError
       && error.code === "tool_execution_failed"
       && /429/.test(error.message),
   );

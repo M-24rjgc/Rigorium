@@ -1,10 +1,10 @@
 import path from 'path';
-import { resolvePilotHome, resolveProjectStorageId } from '../utils/pilotPaths.js';
+import { resolveRigoriumHome, resolveProjectStorageId } from '../utils/rigoriumPaths.js';
 
 export function getAlwaysOnRoot(projectRoot) {
-  const pilotHome = resolvePilotHome();
-  const projectId = resolveProjectStorageId(path.resolve(projectRoot), pilotHome);
-  return path.join(pilotHome, 'always-on', 'projects', projectId);
+  const rigoriumHome = resolveRigoriumHome();
+  const projectId = resolveProjectStorageId(path.resolve(projectRoot), rigoriumHome);
+  return path.join(rigoriumHome, 'always-on', 'projects', projectId);
 }
 
 export function getAlwaysOnDiscoveryLockPath(projectRoot) {

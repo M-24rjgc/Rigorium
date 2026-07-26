@@ -1,2 +1,2 @@
-export { startPilotDeckServer, type StartPilotDeckServerOptions } from "./pilotdeckServer.js";
+export { startRigoriumServer, type StartRigoriumServerOptions } from "./rigoriumServer.js";
 export { createLocalGateway, type CreateLocalGatewayOptions } from "./createLocalGateway.js";

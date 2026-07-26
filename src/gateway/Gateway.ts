@@ -8,7 +8,7 @@ import type { Gateway, GatewayCronController, GatewayServerInfo } from "./protoc
 
 export type GatewayProjectStorageOptions = {
   projectRoot: string;
-  pilotHome: string;
+  rigoriumHome: string;
 };
 
 export type CreateGatewayOptions = {

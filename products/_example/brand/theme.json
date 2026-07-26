@@ -1,5 +1,5 @@
 {
-  "_comment": "品牌主题覆盖。待 PilotConfig.brand 贡献点就绪后，此文件将被配置系统读取。",
+  "_comment": "品牌主题覆盖。待 RigoriumConfig.brand 贡献点就绪后，此文件将被配置系统读取。",
   "brand": "rgb(0,120,212)",
   "brandAccent": "rgb(0,150,255)",
   "background": "rgb(10,10,30)",

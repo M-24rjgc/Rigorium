@@ -1,6 +1,6 @@
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
-import { getPilotExtensionPaths } from "../pilot/index.js";
+import { getRigoriumExtensionPaths } from "../rigorium/index.js";
 
 export type ExtensionWatchScope =
   | { kind: "global" }
@@ -12,7 +12,7 @@ export type ExtensionWatchEvent = {
 };
 
 export type ExtensionWatchManagerOptions = {
-  pilotHome: string;
+  rigoriumHome: string;
   builtinSkillsRoot?: string;
   debounceMs?: number;
   onChange(event: ExtensionWatchEvent): void;
@@ -96,14 +96,14 @@ export class ExtensionWatchManager {
   private getWatchedPaths(scope: ExtensionWatchScope): string[] {
     if (scope.kind === "global") {
       return [
-        resolve(this.options.pilotHome, "mcp.json"),
-        resolve(this.options.pilotHome, "plugins"),
-        resolve(this.options.pilotHome, "skills"),
+        resolve(this.options.rigoriumHome, "mcp.json"),
+        resolve(this.options.rigoriumHome, "plugins"),
+        resolve(this.options.rigoriumHome, "skills"),
         ...(this.options.builtinSkillsRoot ? [resolve(this.options.builtinSkillsRoot)] : []),
       ];
     }
-    const paths = getPilotExtensionPaths(scope.projectRoot, this.options.pilotHome);
-    return [resolve(scope.projectRoot, ".pilotdeck", "mcp.json"), paths.projectPluginsDir, paths.projectSkillsDir];
+    const paths = getRigoriumExtensionPaths(scope.projectRoot, this.options.rigoriumHome);
+    return [resolve(scope.projectRoot, ".rigorium", "mcp.json"), paths.projectPluginsDir, paths.projectSkillsDir];
   }
 
   private createWatchers(scope: ExtensionWatchScope, watchedPaths: string[]): FSWatcher[] {

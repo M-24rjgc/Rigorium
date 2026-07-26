@@ -10,12 +10,12 @@ import {
 import { createZoteroLibraryProvider } from "../../research/library/zoteroProvider.js";
 import { readResearchSettings } from "../../research/settings.js";
 import type { LiteratureSearchArtifact, ResearchPaper, ResearchRelationEdge } from "../../research/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 import {
   createLiteratureSearchTool,
@@ -61,7 +61,7 @@ export type CreateLiteratureMapMaintenanceToolOptions = Readonly<{
  */
 export function createLiteratureMapMaintenanceTool(
   options: CreateLiteratureMapMaintenanceToolOptions = {},
-): PilotDeckToolDefinition<LiteratureMapMaintenanceInput, LiteratureMaintenanceResult> {
+): RigoriumToolDefinition<LiteratureMapMaintenanceInput, LiteratureMaintenanceResult> {
   const searchTool = createLiteratureSearchTool(options.search);
   return {
     name: "literature_map_maintenance",
@@ -76,7 +76,7 @@ Use this when a search result, Zotero library change, newly found paper, or natu
     isConcurrencySafe: () => false,
     isDestructive: () => false,
     isOpenWorld: (input) => Boolean(input?.query || input?.trigger === "natural_language" || input?.trigger === "zotero_changed"),
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => validateInput(input),
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => validateInput(input),
     checkPermissions: async (input, context): Promise<PermissionResult> => {
       if (typeof input?.query === "string" && input.query.trim()) {
         return searchTool.checkPermissions?.({ query: input.query }, context)
@@ -120,11 +120,11 @@ Use this when a search result, Zotero library change, newly found paper, or natu
 
       if (normalized.trigger === "zotero_changed" && providers.length === 0) {
         const settingsSnapshot = await readResearchSettings({
-          pilotHome: context.env?.PILOT_HOME,
+          rigoriumHome: context.env?.RIGORIUM_HOME,
           projectRoot: normalized.projectRoot,
         });
         if (!settingsSnapshot.effective.zotero.enabled) {
-          throw new PilotDeckToolRuntimeError("setup_required", "Zotero is disabled in Research Settings.");
+          throw new RigoriumToolRuntimeError("setup_required", "Zotero is disabled in Research Settings.");
         }
         const zotero = createZoteroLibraryProvider({
           baseUrl: settingsSnapshot.effective.zotero.baseUrl,
@@ -138,7 +138,7 @@ Use this when a search result, Zotero library change, newly found paper, or natu
       }
 
       if (providers.length === 0) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           "Provide sources, a query, or trigger zotero_changed to run literature maintenance.",
         );
@@ -159,8 +159,8 @@ Use this when a search result, Zotero library change, newly found paper, or natu
         });
         return formatOutput(result);
       } catch (error) {
-        if (error instanceof PilotDeckToolRuntimeError) throw error;
-        throw new PilotDeckToolRuntimeError(
+        if (error instanceof RigoriumToolRuntimeError) throw error;
+        throw new RigoriumToolRuntimeError(
           "tool_execution_failed",
           `Literature map maintenance failed: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -212,12 +212,12 @@ function inputSchema() {
   };
 }
 
-function validateInput(input: unknown): PilotDeckToolValidationResult {
+function validateInput(input: unknown): RigoriumToolValidationResult {
   try {
     normalizeInput(input);
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = {
+    const issue: RigoriumToolValidationIssue = {
       path: "$",
       code: "invalid_schema",
       message: error instanceof Error ? error.message : String(error),
@@ -295,12 +295,12 @@ function normalizeBudget(value: unknown): LiteratureMapMaintenanceInput["budget"
 
 function requireLiteratureSearchArtifact(value: unknown): LiteratureSearchArtifact {
   if (!isRecord(value) || value.kind !== "literature_search" || !Array.isArray(value.papers) || !Array.isArray(value.edges)) {
-    throw new PilotDeckToolRuntimeError("tool_execution_failed", "literature_search returned an invalid artifact.");
+    throw new RigoriumToolRuntimeError("tool_execution_failed", "literature_search returned an invalid artifact.");
   }
   return value as unknown as LiteratureSearchArtifact;
 }
 
-function formatOutput(result: LiteratureMaintenanceResult): PilotDeckToolExecutionOutput<LiteratureMaintenanceResult> {
+function formatOutput(result: LiteratureMaintenanceResult): RigoriumToolExecutionOutput<LiteratureMaintenanceResult> {
   const states = result.refresh.sources.map((source) => `${source.sourceId} (${source.state})`).join(", ");
   const candidates = result.candidateReview.pendingCandidatePaperIds.length;
   const lines = [
@@ -328,7 +328,7 @@ function formatOutput(result: LiteratureMaintenanceResult): PilotDeckToolExecuti
   };
 }
 
-function childContext(context: PilotDeckToolRuntimeContext, cwd: string): PilotDeckToolRuntimeContext {
+function childContext(context: RigoriumToolRuntimeContext, cwd: string): RigoriumToolRuntimeContext {
   return { ...context, cwd };
 }
 

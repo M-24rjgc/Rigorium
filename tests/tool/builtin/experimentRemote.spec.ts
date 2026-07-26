@@ -26,14 +26,14 @@ import {
   createExperimentRemoteTool,
   type ExperimentRemoteInput,
 } from "../../../src/tool/builtin/experimentRemote.js";
-import { PilotDeckToolRuntimeError } from "../../../src/tool/protocol/errors.js";
-import type { PilotDeckToolRuntimeContext } from "../../../src/tool/protocol/types.js";
+import { RigoriumToolRuntimeError } from "../../../src/tool/protocol/errors.js";
+import type { RigoriumToolRuntimeContext } from "../../../src/tool/protocol/types.js";
 
 const TEST_ROOT_PREFIX = "rigorium-experiment-remote-tool-";
 const testRoots = new Set<string>();
 const NOW = new Date("2026-07-25T12:00:00.000Z");
-const workspaceRoot = "/srv/pilotdeck/workspaces";
-const stateRoot = "/srv/pilotdeck/state";
+const workspaceRoot = "/srv/rigorium/workspaces";
+const stateRoot = "/srv/rigorium/state";
 
 after(async () => {
   for (const root of [...testRoots].reverse()) await removeValidatedTestRoot(root);
@@ -121,23 +121,23 @@ test("experiment_remote distinguishes local stage preflight from authorized netw
 
   await assert.rejects(
     tool.execute({ ...stage, workdir: "/outside-workspace/run" }, runtime),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError && error.code === "invalid_tool_input",
+    (error: unknown) => error instanceof RigoriumToolRuntimeError && error.code === "invalid_tool_input",
   );
   await assert.rejects(
     tool.execute({ ...stage, connectionId: "unregistered" }, runtime),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError && error.code === "file_not_found",
+    (error: unknown) => error instanceof RigoriumToolRuntimeError && error.code === "file_not_found",
   );
 
   await assert.rejects(
     tool.execute(submit(planOnly, "job-plan"), runtime),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError && error.code === "permission_denied",
+    (error: unknown) => error instanceof RigoriumToolRuntimeError && error.code === "permission_denied",
   );
   assert.equal(transport.count("submit"), 0);
 
   const confirmSubmission = submit(confirmEach, "job-confirm");
   await assert.rejects(
     tool.execute(confirmSubmission, runtime),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError && error.code === "permission_denied",
+    (error: unknown) => error instanceof RigoriumToolRuntimeError && error.code === "permission_denied",
   );
   await tool.execute({ operation: "confirm", grantId: confirmEach, jobId: "job-confirm", confirmed: true }, runtime);
   const confirmedRun = await tool.execute(confirmSubmission, runtime);
@@ -146,7 +146,7 @@ test("experiment_remote distinguishes local stage preflight from authorized netw
   const automaticSubmission = submit(budgetAuto, "job-auto");
   await assert.rejects(
     tool.execute(automaticSubmission, runtime),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError && error.code === "permission_denied",
+    (error: unknown) => error instanceof RigoriumToolRuntimeError && error.code === "permission_denied",
   );
   const automaticRun = await tool.execute(submit(budgetAuto, "job-auto", true), runtime);
   assert.equal(automaticRun.data?.result?.job.status, "queued");
@@ -154,7 +154,7 @@ test("experiment_remote distinguishes local stage preflight from authorized netw
 
   await assert.rejects(
     tool.execute({ ...submit(budgetAuto, "job-auto", true), argv: ["python3", "other.py"] }, runtime),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError && error.code === "invalid_tool_input",
+    (error: unknown) => error instanceof RigoriumToolRuntimeError && error.code === "invalid_tool_input",
   );
   assert.equal(transport.count("submit"), 2, "a stable jobId cannot be rebound to new execution terms");
 
@@ -204,7 +204,7 @@ test("experiment_remote rejects malformed stage and confirmation input before ex
 
   await assert.rejects(
     tool.execute({ operation: "list", jobId: "job-ignored" } as never, runtime),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError
+    (error: unknown) => error instanceof RigoriumToolRuntimeError
       && error.code === "invalid_tool_input"
       && /operation=list does not accept jobId/u.test(error.message),
   );
@@ -261,7 +261,7 @@ class RecordingTransport implements RemoteExecutionTransport {
   }
 }
 
-function context(cwd: string): PilotDeckToolRuntimeContext {
+function context(cwd: string): RigoriumToolRuntimeContext {
   return {
     sessionId: "experiment-remote-tool-test",
     turnId: "turn-1",

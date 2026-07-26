@@ -1,11 +1,11 @@
 import type { CanonicalToolSchema } from "../../model/index.js";
-import type { PilotDeckToolDefinition } from "../protocol/types.js";
+import type { RigoriumToolDefinition } from "../protocol/types.js";
 
 export class ToolRegistry {
-  private readonly toolsByName = new Map<string, PilotDeckToolDefinition>();
+  private readonly toolsByName = new Map<string, RigoriumToolDefinition>();
   private readonly aliases = new Map<string, string>();
 
-  register(tool: PilotDeckToolDefinition): void {
+  register(tool: RigoriumToolDefinition): void {
     if (this.toolsByName.has(tool.name)) {
       throw new Error(`Tool ${tool.name} is already registered.`);
     }
@@ -29,7 +29,7 @@ export class ToolRegistry {
     }
   }
 
-  get(name: string): PilotDeckToolDefinition | undefined {
+  get(name: string): RigoriumToolDefinition | undefined {
     const realName = this.aliases.get(name) ?? name;
     return this.toolsByName.get(realName);
   }
@@ -38,7 +38,7 @@ export class ToolRegistry {
     return this.get(name) !== undefined;
   }
 
-  list(): PilotDeckToolDefinition[] {
+  list(): RigoriumToolDefinition[] {
     return [...this.toolsByName.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -86,7 +86,7 @@ export class ToolRegistry {
    * exist).  Aliases from the *previous* definition are removed and
    * replaced with those from the new one.
    */
-  replace(tool: PilotDeckToolDefinition): void {
+  replace(tool: RigoriumToolDefinition): void {
     const existing = this.toolsByName.get(tool.name);
     if (!existing) {
       throw new Error(`Tool ${tool.name} is not registered — cannot replace.`);

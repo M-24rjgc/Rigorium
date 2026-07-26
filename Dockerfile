@@ -67,14 +67,14 @@ COPY --from=builder /build/ui/scripts/ ui/scripts/
 COPY --from=builder /build/ui/shared/ ui/shared/
 COPY --from=builder /build/ui/vite.config.js ui/vite.config.js
 
-# Create PilotDeck state/workspace directories used by the gateway, UI server,
+# Create Rigorium state/workspace directories used by the gateway, UI server,
 # permissions, skills/plugins, memory, auth, and router stats.
 RUN mkdir -p \
-    /root/.pilotdeck/projects \
-    /root/.pilotdeck/router \
-    /root/.pilotdeck/skills \
-    /root/.pilotdeck/plugins \
-    /root/.pilotdeck/memory \
+    /root/.rigorium/projects \
+    /root/.rigorium/router \
+    /root/.rigorium/skills \
+    /root/.rigorium/plugins \
+    /root/.rigorium/memory \
     /workspace
 
 # Entrypoint
@@ -82,10 +82,10 @@ COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 ENV NODE_ENV=production
-ENV PILOT_HOME=/root/.pilotdeck
+ENV RIGORIUM_HOME=/root/.rigorium
 ENV HOST=0.0.0.0
 ENV SERVER_PORT=3001
-ENV PILOTDECK_GATEWAY_PORT=18789
+ENV RIGORIUM_GATEWAY_PORT=18789
 
 EXPOSE 3001
 

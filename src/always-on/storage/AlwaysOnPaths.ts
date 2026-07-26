@@ -1,11 +1,11 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { resolveProjectStorageId } from "../../pilot/paths.js";
+import { resolveProjectStorageId } from "../../rigorium/paths.js";
 
 const ROOT_DIR_NAME = "always-on";
 
 export type AlwaysOnPaths = {
-  pilotHome: string;
+  rigoriumHome: string;
   projectKey: string;
   projectId: string;
   rootDir: string;
@@ -26,15 +26,15 @@ export type AlwaysOnPaths = {
 };
 
 export function resolveAlwaysOnPaths(input: {
-  pilotHome: string;
+  rigoriumHome: string;
   projectKey: string;
   worktreesBaseDir?: string;
   snapshotsBaseDir?: string;
 }): AlwaysOnPaths {
-  const pilotHome = resolve(input.pilotHome);
+  const rigoriumHome = resolve(input.rigoriumHome);
   const projectKey = resolve(input.projectKey);
-  const projectId = resolveProjectStorageId(projectKey, pilotHome);
-  const rootDir = resolve(pilotHome, ROOT_DIR_NAME);
+  const projectId = resolveProjectStorageId(projectKey, rigoriumHome);
+  const rootDir = resolve(rigoriumHome, ROOT_DIR_NAME);
   const projectDir = resolve(rootDir, "projects", projectId);
   const worktreesBaseDir = resolveBaseDir(input.worktreesBaseDir, resolve(rootDir, "worktrees"));
   const snapshotsBaseDir = resolveBaseDir(input.snapshotsBaseDir, resolve(rootDir, "snapshots"));
@@ -42,7 +42,7 @@ export function resolveAlwaysOnPaths(input: {
   const snapshotsDir = resolve(snapshotsBaseDir, projectId);
 
   return {
-    pilotHome,
+    rigoriumHome,
     projectKey,
     projectId,
     rootDir,

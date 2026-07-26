@@ -10,8 +10,8 @@ import {
   submitLocalExperimentRun,
 } from "../../../src/research/experimentation/index.js";
 import { createExperimentAnalysisTool } from "../../../src/tool/builtin/experimentAnalysis.js";
-import { PilotDeckToolRuntimeError } from "../../../src/tool/protocol/errors.js";
-import type { PilotDeckToolRuntimeContext } from "../../../src/tool/protocol/types.js";
+import { RigoriumToolRuntimeError } from "../../../src/tool/protocol/errors.js";
+import type { RigoriumToolRuntimeContext } from "../../../src/tool/protocol/types.js";
 import {
   ANALYSIS_TEST_NOW,
   metricObservation,
@@ -24,7 +24,7 @@ after(async () => {
   for (const root of ledgerRoots) await removeLedgerRoot(root);
 });
 
-function context(cwd = "D:\\synthetic-project"): PilotDeckToolRuntimeContext {
+function context(cwd = "D:\\synthetic-project"): RigoriumToolRuntimeContext {
   return {
     sessionId: "experiment-analysis-tool-test",
     turnId: "turn-1",
@@ -92,7 +92,7 @@ test("experiment_analysis rejects host metadata, unknown fields, and corrupt env
   const corruptMetric = { ...corrupt.metricObservations[0]!, contentHash: `sha256:${"0".repeat(64)}` };
   await assert.rejects(
     tool.execute({ ...corrupt, metricObservations: [corruptMetric] }, context()),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError
+    (error: unknown) => error instanceof RigoriumToolRuntimeError
       && error.code === "invalid_tool_input"
       && /contentHash does not match/u.test(error.message),
   );
@@ -144,7 +144,7 @@ test("experiment_analysis defaults to the persisted project ledger and rejects c
       ...input,
       trialDescriptors: [{ attemptId: "run-caller", routeId: "caller-route" }],
     } as never, context(root)),
-    (error: unknown) => error instanceof PilotDeckToolRuntimeError
+    (error: unknown) => error instanceof RigoriumToolRuntimeError
       && error.code === "invalid_tool_input"
       && /trialDescriptors/u.test(error.message),
   );

@@ -1,21 +1,21 @@
-import type { PilotDeckHookEffect, PilotDeckLifecycleError } from "../../../lifecycle/protocol/effects.js";
+import type { RigoriumHookEffect, RigoriumLifecycleError } from "../../../lifecycle/protocol/effects.js";
 import { matchHookMatcher } from "../config/matchHook.js";
 import { matchHookCondition } from "../config/matchHookCondition.js";
-import type { PilotDeckHookEvent } from "../protocol/events.js";
-import type { PilotDeckHookInput } from "../protocol/input.js";
-import type { PilotDeckHookOutput, PilotDeckHookSyncOutput } from "../protocol/output.js";
-import type { PilotDeckHookCommand, PilotDeckHooksSettings } from "../protocol/settings.js";
-import { CommandHookExecutor, PILOTDECK_SESSION_END_HOOK_TIMEOUT_MS } from "./CommandHookExecutor.js";
+import type { RigoriumHookEvent } from "../protocol/events.js";
+import type { RigoriumHookInput } from "../protocol/input.js";
+import type { RigoriumHookOutput, RigoriumHookSyncOutput } from "../protocol/output.js";
+import type { RigoriumHookCommand, RigoriumHooksSettings } from "../protocol/settings.js";
+import { CommandHookExecutor, RIGORIUM_SESSION_END_HOOK_TIMEOUT_MS } from "./CommandHookExecutor.js";
 import { PromptHookExecutor } from "./PromptHookExecutor.js";
 import { HttpHookExecutor } from "./HttpHookExecutor.js";
 import { AgentHookExecutor } from "./AgentHookExecutor.js";
 import { AsyncHookRegistry } from "./AsyncHookRegistry.js";
 import { CallbackHookExecutor } from "./CallbackHookExecutor.js";
-import { HookExecutionEventBus, type PilotDeckHookExecutionEvent } from "../events/HookExecutionEventBus.js";
+import { HookExecutionEventBus, type RigoriumHookExecutionEvent } from "../events/HookExecutionEventBus.js";
 
 export type HookRuntimeRunInput = {
-  event: PilotDeckHookEvent;
-  hookInput: PilotDeckHookInput;
+  event: RigoriumHookEvent;
+  hookInput: RigoriumHookInput;
   matchQuery?: string;
   cwd: string;
   env?: NodeJS.ProcessEnv;
@@ -23,15 +23,15 @@ export type HookRuntimeRunInput = {
 };
 
 export type HookRuntimeRunResult = {
-  effects: PilotDeckHookEffect[];
-  events: PilotDeckHookExecutionEvent[];
-  blockingErrors: PilotDeckLifecycleError[];
-  nonBlockingErrors: PilotDeckLifecycleError[];
+  effects: RigoriumHookEffect[];
+  events: RigoriumHookExecutionEvent[];
+  blockingErrors: RigoriumLifecycleError[];
+  nonBlockingErrors: RigoriumLifecycleError[];
 };
 
 export class HookRuntime {
   constructor(
-    private readonly settings: PilotDeckHooksSettings = {},
+    private readonly settings: RigoriumHooksSettings = {},
     private readonly commandExecutor = new CommandHookExecutor(),
     private readonly eventBus = new HookExecutionEventBus(),
     private readonly asyncRegistry = new AsyncHookRegistry(),
@@ -51,14 +51,14 @@ export class HookRuntime {
   }
 
   async run(input: HookRuntimeRunInput): Promise<HookRuntimeRunResult> {
-    const effects: PilotDeckHookEffect[] = [];
-    const events: PilotDeckHookExecutionEvent[] = [];
-    const blockingErrors: PilotDeckLifecycleError[] = [];
-    const nonBlockingErrors: PilotDeckLifecycleError[] = [];
+    const effects: RigoriumHookEffect[] = [];
+    const events: RigoriumHookExecutionEvent[] = [];
+    const blockingErrors: RigoriumLifecycleError[] = [];
+    const nonBlockingErrors: RigoriumLifecycleError[] = [];
 
     for (const { matcher, hook } of this.matchHooks(input)) {
       const hookName = matcher.pluginName ? `${matcher.pluginName}:${hook.type}` : hook.type;
-      const started: PilotDeckHookExecutionEvent = {
+      const started: RigoriumHookExecutionEvent = {
         type: "started",
         hookName,
         hookEvent: input.event,
@@ -67,7 +67,7 @@ export class HookRuntime {
       this.eventBus.emit(started);
 
       const result = await this.executeHook(hook, input, matcher.pluginRoot);
-      const response: PilotDeckHookExecutionEvent = {
+      const response: RigoriumHookExecutionEvent = {
         type: "response",
         hookName,
         hookEvent: input.event,
@@ -120,8 +120,8 @@ export class HookRuntime {
   }
 
   private *matchHooks(input: HookRuntimeRunInput): Generator<{
-    matcher: NonNullable<PilotDeckHooksSettings[PilotDeckHookEvent]>[number];
-    hook: PilotDeckHookCommand;
+    matcher: NonNullable<RigoriumHooksSettings[RigoriumHookEvent]>[number];
+    hook: RigoriumHookCommand;
   }> {
     for (const matcher of this.settings[input.event] ?? []) {
       if (!matchHookMatcher(matcher.matcher, input.matchQuery)) {
@@ -141,7 +141,7 @@ export class HookRuntime {
   }
 
   private executeHook(
-    hook: PilotDeckHookCommand,
+    hook: RigoriumHookCommand,
     input: HookRuntimeRunInput,
     pluginRoot: string | undefined,
   ) {
@@ -153,7 +153,7 @@ export class HookRuntime {
           cwd: pluginRoot ?? input.cwd,
           env: input.env,
           signal: input.signal,
-          timeoutMs: input.event === "SessionEnd" ? PILOTDECK_SESSION_END_HOOK_TIMEOUT_MS : undefined,
+          timeoutMs: input.event === "SessionEnd" ? RIGORIUM_SESSION_END_HOOK_TIMEOUT_MS : undefined,
         });
       case "prompt":
         return this.promptExecutor.execute({ hook, hookInput: input.hookInput, signal: input.signal });
@@ -167,12 +167,12 @@ export class HookRuntime {
   }
 }
 
-function effectsFromHookOutput(output: PilotDeckHookOutput, hookName: string): PilotDeckHookEffect[] {
+function effectsFromHookOutput(output: RigoriumHookOutput, hookName: string): RigoriumHookEffect[] {
   if (output.type === "async") {
     return [];
   }
 
-  const effects: PilotDeckHookEffect[] = [];
+  const effects: RigoriumHookEffect[] = [];
   if (output.systemMessage) {
     effects.push({ type: "system_message", content: output.systemMessage });
   }
@@ -221,6 +221,6 @@ function effectsFromHookOutput(output: PilotDeckHookOutput, hookName: string): P
   return effects;
 }
 
-function isBlockingOutput(output: PilotDeckHookSyncOutput): boolean {
+function isBlockingOutput(output: RigoriumHookSyncOutput): boolean {
   return output.continue === false || output.decision === "block";
 }

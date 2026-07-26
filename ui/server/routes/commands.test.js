@@ -10,19 +10,19 @@ const tempDirs = [];
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
-  delete process.env.PILOT_HOME;
+  delete process.env.RIGORIUM_HOME;
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 describe('commands routes', () => {
-  it('executes user commands discovered under custom PILOT_HOME', async () => {
-    const pilotHome = mkdtempSync(join(tmpdir(), 'pilotdeck-commands-route-'));
-    tempDirs.push(pilotHome);
-    process.env.PILOT_HOME = pilotHome;
+  it('executes user commands discovered under custom RIGORIUM_HOME', async () => {
+    const rigoriumHome = mkdtempSync(join(tmpdir(), 'rigorium-commands-route-'));
+    tempDirs.push(rigoriumHome);
+    process.env.RIGORIUM_HOME = rigoriumHome;
 
-    const commandsDir = join(pilotHome, 'commands');
+    const commandsDir = join(rigoriumHome, 'commands');
     mkdirSync(commandsDir, { recursive: true });
     const commandPath = join(commandsDir, 'hello.md');
     writeFileSync(commandPath, '---\ndescription: Says hello\n---\nHello $1', 'utf8');
@@ -34,7 +34,7 @@ describe('commands routes', () => {
       body: JSON.stringify({
         commandName: '/hello',
         commandPath,
-        args: ['PilotDeck'],
+        args: ['Rigorium'],
       }),
     });
 
@@ -42,7 +42,55 @@ describe('commands routes', () => {
     expect(result.body).toMatchObject({
       type: 'custom',
       command: '/hello',
-      content: 'Hello PilotDeck',
+      content: 'Hello Rigorium',
+    });
+  });
+
+  it('loads project commands through native Windows separators', async () => {
+    const projectRoot = mkdtempSync(join(process.cwd(), 'rigorium-project-command-'));
+    tempDirs.push(projectRoot);
+    const commandsDir = join(projectRoot, '.rigorium', 'commands');
+    mkdirSync(commandsDir, { recursive: true });
+    const commandPath = join(commandsDir, 'focus.md');
+    writeFileSync(commandPath, '---\ndescription: Focus work\n---\nFocus', 'utf8');
+
+    const { request } = await createCommandsApp();
+    const result = await request('/api/commands/load', {
+      method: 'POST',
+      body: JSON.stringify({ commandPath }),
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      path: commandPath,
+      content: 'Focus',
+    });
+  });
+
+  it('keeps project Skills on the passthrough path with native Windows separators', async () => {
+    const projectRoot = mkdtempSync(join(process.cwd(), 'rigorium-project-skill-'));
+    tempDirs.push(projectRoot);
+    const skillDir = join(projectRoot, '.rigorium', 'skills', 'focus');
+    mkdirSync(skillDir, { recursive: true });
+    const commandPath = join(skillDir, 'SKILL.md');
+    writeFileSync(commandPath, '# Focus\n', 'utf8');
+
+    const { request } = await createCommandsApp();
+    const result = await request('/api/commands/execute', {
+      method: 'POST',
+      body: JSON.stringify({
+        commandName: '/focus',
+        commandPath,
+        args: ['now'],
+      }),
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      type: 'custom',
+      command: '/focus',
+      content: '/focus now',
+      metadata: { type: 'skill', passthrough: true },
     });
   });
 });
@@ -56,8 +104,8 @@ async function createCommandsApp() {
     getClaudeRuntimeModelConfig: vi.fn(() => ({})),
     getClaudeRuntimeModelValues: vi.fn(() => []),
   }));
-  vi.doMock('../services/pilotdeckConfig.js', () => ({
-    readPilotDeckConfigFile: vi.fn(() => ({ config: {} })),
+  vi.doMock('../services/rigoriumConfig.js', () => ({
+    readRigoriumConfigFile: vi.fn(() => ({ config: {} })),
     resolveModel: vi.fn((model) => model),
   }));
   vi.doMock('../turnkey-slash.js', () => ({

@@ -79,7 +79,7 @@ export class LiteratureMapRepositoryError extends Error {
 
 export type ProjectLiteratureMapPaths = Readonly<{
   projectRoot: string;
-  pilotDeckDir: string;
+  rigoriumDir: string;
   researchDir: string;
   snapshotsDir: string;
   liveMapPath: string;
@@ -118,16 +118,16 @@ export type ProjectLiteratureMapNodeStateInput = Readonly<{
 
 export function getProjectLiteratureMapPaths(input: { projectRoot: string }): ProjectLiteratureMapPaths {
   const projectRoot = resolveProjectRoot(input.projectRoot);
-  const pilotDeckDir = join(projectRoot, ".pilotdeck");
-  const researchDir = join(pilotDeckDir, "research");
+  const rigoriumDir = join(projectRoot, ".rigorium");
+  const researchDir = join(rigoriumDir, "research");
   const snapshotsDir = join(researchDir, "snapshots");
   const liveMapPath = join(researchDir, "live-map.json");
 
-  for (const candidate of [pilotDeckDir, researchDir, snapshotsDir, liveMapPath]) {
+  for (const candidate of [rigoriumDir, researchDir, snapshotsDir, liveMapPath]) {
     assertWithinProject(projectRoot, candidate);
   }
 
-  return Object.freeze({ projectRoot, pilotDeckDir, researchDir, snapshotsDir, liveMapPath });
+  return Object.freeze({ projectRoot, rigoriumDir, researchDir, snapshotsDir, liveMapPath });
 }
 
 export function getProjectLiteratureMapSnapshotPath(input: {
@@ -532,7 +532,7 @@ function assertExpectedRevision(actualRevision: number, expectedRevision: number
 
 async function assertReadableRepository(paths: ProjectLiteratureMapPaths, needSnapshotsDirectory: boolean): Promise<boolean> {
   await assertProjectRootDirectory(paths.projectRoot);
-  if (!await assertExistingSafeDirectory(paths.projectRoot, paths.pilotDeckDir)) return false;
+  if (!await assertExistingSafeDirectory(paths.projectRoot, paths.rigoriumDir)) return false;
   if (!await assertExistingSafeDirectory(paths.projectRoot, paths.researchDir)) return false;
   if (needSnapshotsDirectory && !await assertExistingSafeDirectory(paths.projectRoot, paths.snapshotsDir)) return false;
   return true;
@@ -540,7 +540,7 @@ async function assertReadableRepository(paths: ProjectLiteratureMapPaths, needSn
 
 async function ensureRepositoryDirectories(paths: ProjectLiteratureMapPaths, needSnapshotsDirectory: boolean): Promise<void> {
   await assertProjectRootDirectory(paths.projectRoot);
-  await ensureSafeDirectory(paths.projectRoot, paths.pilotDeckDir);
+  await ensureSafeDirectory(paths.projectRoot, paths.rigoriumDir);
   await ensureSafeDirectory(paths.projectRoot, paths.researchDir);
   if (needSnapshotsDirectory) await ensureSafeDirectory(paths.projectRoot, paths.snapshotsDir);
 }

@@ -9,18 +9,18 @@ import {
   createLiteratureCloseoutTool,
   type LiteratureCloseoutInput,
 } from "../../../src/tool/builtin/literatureCloseout.js";
-import type { PilotDeckToolRuntimeContext } from "../../../src/tool/protocol/types.js";
+import type { RigoriumToolRuntimeContext } from "../../../src/tool/protocol/types.js";
 
 const NOW = new Date("2026-07-25T02:03:04.000Z");
 
-function context(projectRoot: string, pilotHome: string): PilotDeckToolRuntimeContext {
+function context(projectRoot: string, rigoriumHome: string): RigoriumToolRuntimeContext {
   return {
     sessionId: "literature-closeout-test",
     turnId: "turn-1",
     cwd: projectRoot,
     permissionMode: "default",
     permissionContext: createDefaultPermissionContext({ cwd: projectRoot }),
-    env: { PILOT_HOME: pilotHome },
+    env: { RIGORIUM_HOME: rigoriumHome },
     now: () => NOW,
   };
 }
@@ -28,13 +28,13 @@ function context(projectRoot: string, pilotHome: string): PilotDeckToolRuntimeCo
 async function workspace(prefix: string) {
   const root = await mkdtemp(join(tmpdir(), prefix));
   const projectRoot = join(root, "project");
-  const pilotHome = join(root, "pilot-home");
+  const rigoriumHome = join(root, "rigorium-home");
   await mkdir(projectRoot, { recursive: true });
-  return { root, projectRoot, pilotHome };
+  return { root, projectRoot, rigoriumHome };
 }
 
 test("literature_closeout creates a hashed evidence-pack artifact without a formal write", async () => {
-  const { projectRoot, pilotHome } = await workspace("rigorium-closeout-evidence-");
+  const { projectRoot, rigoriumHome } = await workspace("rigorium-closeout-evidence-");
   const tool = createLiteratureCloseoutTool();
   const input: LiteratureCloseoutInput = {
     action: "evidence_pack",
@@ -49,7 +49,7 @@ test("literature_closeout creates a hashed evidence-pack artifact without a form
   };
 
   assert.equal(tool.isReadOnly(input), true);
-  const output = await tool.execute(input, context(projectRoot, pilotHome));
+  const output = await tool.execute(input, context(projectRoot, rigoriumHome));
 
   assert.equal(output.data?.action, "evidence_pack");
   if (output.data?.action !== "evidence_pack") assert.fail("expected evidence_pack result");
@@ -65,7 +65,7 @@ test("literature_closeout creates a hashed evidence-pack artifact without a form
 });
 
 test("literature_closeout captures Zotero attachment evidence through read-only Local API calls", async () => {
-  const { projectRoot, pilotHome } = await workspace("rigorium-closeout-zotero-evidence-");
+  const { projectRoot, rigoriumHome } = await workspace("rigorium-closeout-zotero-evidence-");
   const calls: Array<{ url: string; method: string }> = [];
   const tool = createLiteratureCloseoutTool({
     zoteroFetchImpl: async (input, init) => {
@@ -104,7 +104,7 @@ test("literature_closeout captures Zotero attachment evidence through read-only 
       locator: { page: 2, paragraph: 1 },
       quote: "exact quoted evidence",
     },
-  }, context(projectRoot, pilotHome));
+  }, context(projectRoot, rigoriumHome));
 
   if (output.data?.action !== "evidence_pack") assert.fail("expected evidence_pack result");
   assert.equal(output.data.artifact.payload.entries[0]?.locator.sourceId, "zotero");
@@ -114,10 +114,10 @@ test("literature_closeout captures Zotero attachment evidence through read-only 
 });
 
 test("literature_closeout rescans a candidate across enabled official sources and merges identity", async () => {
-  const { projectRoot, pilotHome } = await workspace("rigorium-closeout-novelty-");
+  const { projectRoot, rigoriumHome } = await workspace("rigorium-closeout-novelty-");
   await writeResearchSettings({
     scope: "global",
-    pilotHome,
+    rigoriumHome,
     settings: {
       ...DEFAULT_RESEARCH_SETTINGS,
       literature: {
@@ -175,7 +175,7 @@ test("literature_closeout rescans a candidate across enabled official sources an
     candidates: [{ id: "direction-1", summary: title }],
     noveltySourceIds: ["openalex", "crossref"],
     limitPerSource: 3,
-  }, context(projectRoot, pilotHome));
+  }, context(projectRoot, rigoriumHome));
 
   if (output.data?.action !== "novelty_rescan") assert.fail("expected novelty_rescan result");
   assert.equal(output.data.artifact.kind, "literature_novelty_rescan");
@@ -190,7 +190,7 @@ test("literature_closeout rescans a candidate across enabled official sources an
 });
 
 test("literature_closeout polls and diffs a candidate-only Zotero ledger without connector or map writes", async () => {
-  const { projectRoot, pilotHome } = await workspace("rigorium-closeout-monitor-");
+  const { projectRoot, rigoriumHome } = await workspace("rigorium-closeout-monitor-");
   let title = "First candidate title";
   const calls: Array<{ url: string; method: string }> = [];
   const tool = createLiteratureCloseoutTool({
@@ -222,10 +222,10 @@ test("literature_closeout polls and diffs a candidate-only Zotero ledger without
 
   assert.equal(tool.isReadOnly(input), false);
   assert.equal(tool.isConcurrencySafe(input), false);
-  const first = await tool.execute(input, context(projectRoot, pilotHome));
-  const second = await tool.execute(input, context(projectRoot, pilotHome));
+  const first = await tool.execute(input, context(projectRoot, rigoriumHome));
+  const second = await tool.execute(input, context(projectRoot, rigoriumHome));
   title = "Updated candidate title";
-  const third = await tool.execute(input, context(projectRoot, pilotHome));
+  const third = await tool.execute(input, context(projectRoot, rigoriumHome));
 
   if (first.data?.action !== "candidate_monitor_poll") assert.fail("expected monitor result");
   if (second.data?.action !== "candidate_monitor_poll") assert.fail("expected monitor result");
@@ -253,13 +253,13 @@ test("literature_closeout polls and diffs a candidate-only Zotero ledger without
 });
 
 test("literature_closeout rejects action-specific input before execution", async () => {
-  const { projectRoot, pilotHome } = await workspace("rigorium-closeout-validation-");
+  const { projectRoot, rigoriumHome } = await workspace("rigorium-closeout-validation-");
   const tool = createLiteratureCloseoutTool();
   const validation = await tool.validateInput!({
     action: "evidence_pack",
     entries: [],
     query: "must not be silently ignored",
-  } as never, context(projectRoot, pilotHome));
+  } as never, context(projectRoot, rigoriumHome));
 
   assert.equal(validation.ok, false);
   if (validation.ok) assert.fail("expected validation failure");

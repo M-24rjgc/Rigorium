@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../../contexts/TaskMasterContext', () => ({
   useTaskMaster: () => ({
-    currentProject: { name: 'pilotdeck' },
+    currentProject: { name: 'rigorium' },
     setCurrentProject: vi.fn(),
   }),
 }));
@@ -46,18 +46,18 @@ vi.mock('../../code-editor/hooks/useEditorSidebar', () => ({
       id: 'editor-tab-0',
       fileStack: [{
         name: 'report.pdf',
-        path: '/workspace/PilotDeck/report.pdf',
-        projectName: 'pilotdeck',
+        path: '/workspace/Rigorium/report.pdf',
+        projectName: 'rigorium',
         diffInfo: null,
       }],
       dirty: false,
     }],
     activeEditorTabId: 'editor-tab-0',
-    activeFilePath: '/workspace/PilotDeck/report.pdf',
+    activeFilePath: '/workspace/Rigorium/report.pdf',
     editingFile: {
       name: 'report.pdf',
-      path: '/workspace/PilotDeck/report.pdf',
-      projectName: 'pilotdeck',
+      path: '/workspace/Rigorium/report.pdf',
+      projectName: 'rigorium',
       diffInfo: null,
     },
     editorWidth: 600,
@@ -83,7 +83,7 @@ vi.mock('../../code-editor/view/EditorSidebar', () => ({
 
 vi.mock('../../chat-v2/ChatInterfaceV2', () => ({
   default: ({ onFileOpen }: { onFileOpen: (filePath: string) => void }) => (
-    <button type="button" onClick={() => onFileOpen('/workspace/PilotDeck/generated.pptx')}>
+    <button type="button" onClick={() => onFileOpen('/workspace/Rigorium/generated.pptx')}>
       Open workspace file
     </button>
   ),
@@ -108,9 +108,9 @@ class ResizeObserverMock {
 }
 
 const project: Project = {
-  name: 'pilotdeck',
-  displayName: 'PilotDeck',
-  fullPath: '/workspace/PilotDeck',
+  name: 'rigorium',
+  displayName: 'Rigorium',
+  fullPath: '/workspace/Rigorium',
 };
 
 function propsFor(activeTab: AppTab, setActiveTab = vi.fn()) {
@@ -166,7 +166,7 @@ describe('MainContent file workspace routing', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open workspace file' }));
     expect(mocks.handleFileOpen).toHaveBeenCalledWith(
-      '/workspace/PilotDeck/generated.pptx',
+      '/workspace/Rigorium/generated.pptx',
       null,
     );
     expect(setActiveTab).toHaveBeenCalledWith('files');
@@ -177,14 +177,14 @@ describe('MainContent file workspace routing', () => {
     render(
       <MainContent
         {...propsFor('chat', setActiveTab)}
-        misroutedFileFromUrl="/workspace/PilotDeck/report.pdf"
+        misroutedFileFromUrl="/workspace/Rigorium/report.pdf"
         onMisroutedFileUrlHandled={mocks.onMisroutedFileUrlHandled}
       />,
     );
 
     await waitFor(() => {
       expect(mocks.handleFileOpen).toHaveBeenCalledWith(
-        '/workspace/PilotDeck/report.pdf',
+        '/workspace/Rigorium/report.pdf',
         null,
       );
     });
@@ -209,7 +209,7 @@ describe('MainContent file workspace routing', () => {
     fireEvent.keyDown(resizeHandle, { key: 'ArrowLeft' });
     expect(resizeHandle.getAttribute('aria-valuenow')).toBe('396');
     await waitFor(() => {
-      expect(localStorage.getItem('pilotdeck:files-assistant-width')).toBe('396');
+      expect(localStorage.getItem('rigorium:files-assistant-width')).toBe('396');
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'filesWorkbench.collapseAssistant' }));
@@ -240,7 +240,7 @@ describe('MainContent file workspace routing', () => {
     expect(screen.queryByTestId('research-intent-activation')).toBeNull();
 
     fireEvent(window, new CustomEvent(RESEARCH_PANEL_ACTIVATE_EVENT, {
-      detail: { activation, projectPath: '/WORKSPACE\\PILOTDECK\\' },
+      detail: { activation, projectPath: '/WORKSPACE\\RIGORIUM\\' },
     }));
     expect(await screen.findByTestId('research-intent-activation')).not.toBeNull();
   });

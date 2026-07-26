@@ -1,5 +1,5 @@
-import type { PilotDeckToolErrorCode } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue } from "../protocol/schema.js";
+import type { RigoriumToolErrorCode } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue } from "../protocol/schema.js";
 
 export type ToolErrorFailureClass =
   | "fix_input"
@@ -24,7 +24,7 @@ export type ToolErrorRecoveryResult = {
 };
 
 export function buildToolErrorRecovery(options: {
-  code: PilotDeckToolErrorCode;
+  code: RigoriumToolErrorCode;
   toolName: string;
   message: string;
   cwd: string;
@@ -60,7 +60,7 @@ export function buildToolErrorRecovery(options: {
 }
 
 function formatRecoveryMessage(
-  code: PilotDeckToolErrorCode,
+  code: RigoriumToolErrorCode,
   toolName: string,
   advice: ToolErrorRecoveryAdvice,
 ): string {
@@ -95,7 +95,7 @@ function formatRecoveryMessage(
 }
 
 function summarizeError(
-  code: PilotDeckToolErrorCode,
+  code: RigoriumToolErrorCode,
   toolName: string,
   rawMessage: string,
   evidence: string[],
@@ -131,7 +131,7 @@ function summarizeError(
 }
 
 function classifyError(
-  code: PilotDeckToolErrorCode,
+  code: RigoriumToolErrorCode,
   toolName: string,
   rawMessage: string,
   details?: Record<string, unknown>,
@@ -187,7 +187,7 @@ function classifyError(
 }
 
 function classifyWebFetchError(
-  code: PilotDeckToolErrorCode,
+  code: RigoriumToolErrorCode,
   rawMessage: string,
   details?: Record<string, unknown>,
 ): ToolErrorFailureClass | undefined {
@@ -223,7 +223,7 @@ function classifyWebFetchError(
 }
 
 function baseNextActions(
-  code: PilotDeckToolErrorCode,
+  code: RigoriumToolErrorCode,
   toolName: string,
   context: { cwd: string; permissionMode: string },
   rawMessage: string,
@@ -361,7 +361,7 @@ function invalidToolInputNextActions(
 }
 
 function webFetchNextActions(
-  code: PilotDeckToolErrorCode,
+  code: RigoriumToolErrorCode,
   details?: Record<string, unknown>,
 ): string[] {
   if (code === "invalid_tool_input") {
@@ -405,7 +405,7 @@ function webFetchNextActions(
   return [];
 }
 
-function defaultAvoidRetryReason(code: PilotDeckToolErrorCode): string | undefined {
+function defaultAvoidRetryReason(code: RigoriumToolErrorCode): string | undefined {
   switch (code) {
     case "permission_required":
       return "This tool requires user approval; repeated calls cannot grant approval.";
@@ -458,12 +458,12 @@ function extractSalientEvidence(rawMessage: string, details?: Record<string, unk
   return uniqueStrings(evidence.filter(Boolean).map(trimSentence));
 }
 
-function readValidationIssues(details?: Record<string, unknown>): PilotDeckToolValidationIssue[] {
+function readValidationIssues(details?: Record<string, unknown>): RigoriumToolValidationIssue[] {
   const issues = details?.issues;
   if (!Array.isArray(issues)) {
     return [];
   }
-  return issues.flatMap((issue): PilotDeckToolValidationIssue[] => {
+  return issues.flatMap((issue): RigoriumToolValidationIssue[] => {
     if (!issue || typeof issue !== "object") {
       return [];
     }
@@ -478,7 +478,7 @@ function readValidationIssues(details?: Record<string, unknown>): PilotDeckToolV
   });
 }
 
-function isValidationIssueCode(value: string): value is PilotDeckToolValidationIssue["code"] {
+function isValidationIssueCode(value: string): value is RigoriumToolValidationIssue["code"] {
   return value === "required"
     || value === "unknown_property"
     || value === "invalid_type"
@@ -486,7 +486,7 @@ function isValidationIssueCode(value: string): value is PilotDeckToolValidationI
     || value === "invalid_schema";
 }
 
-function formatIssueEvidence(issue: PilotDeckToolValidationIssue): string {
+function formatIssueEvidence(issue: RigoriumToolValidationIssue): string {
   return `${cleanIssuePath(issue.path)}: ${issue.message}`;
 }
 

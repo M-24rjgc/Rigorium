@@ -32,10 +32,10 @@ import type {
   SearchQueryVariant,
   SearchQueryVariantCategory,
 } from "../../research/types.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
 } from "../protocol/types.js";
 
 export type LiteratureSearchInput = {
@@ -101,7 +101,7 @@ export type CreateLiteratureSearchToolOptions = {
 
 export function createLiteratureSearchTool(
   options: CreateLiteratureSearchToolOptions = {},
-): PilotDeckToolDefinition<LiteratureSearchInput, LiteratureSearchArtifact> {
+): RigoriumToolDefinition<LiteratureSearchInput, LiteratureSearchArtifact> {
   return {
     name: "literature_search",
     title: "Search Academic Literature",
@@ -271,22 +271,22 @@ The result includes normalized paper identities, source provenance, real citatio
     execute: async (input, context) => {
       const query = input.query?.trim();
       if (!query) {
-        throw new PilotDeckToolRuntimeError("invalid_tool_input", "literature_search requires a non-empty query.");
+        throw new RigoriumToolRuntimeError("invalid_tool_input", "literature_search requires a non-empty query.");
       }
 
       const settingsSnapshot = await readResearchSettings({
-        pilotHome: context.env?.PILOT_HOME,
+        rigoriumHome: context.env?.RIGORIUM_HOME,
         projectRoot: context.cwd,
       });
       const settings = settingsSnapshot.effective;
       if (!settings.literature.enabled) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "setup_required",
           "Academic literature search is disabled in Research Settings.",
         );
       }
       if (!settings.privacy.allowRemoteMetadataSearch) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "permission_denied",
           "Remote metadata search is disabled by Research Settings privacy controls.",
         );
@@ -298,13 +298,13 @@ The result includes normalized paper identities, source provenance, real citatio
       const fromYear = boundedSearchYear(input.fromYear, settings.literature.search.fromYear);
       const toYear = boundedSearchYear(input.toYear, settings.literature.search.toYear);
       if (fromYear && toYear && fromYear > toYear) {
-        throw new PilotDeckToolRuntimeError("invalid_tool_input", "fromYear cannot be after toYear.");
+        throw new RigoriumToolRuntimeError("invalid_tool_input", "fromYear cannot be after toYear.");
       }
       let classifications: string[];
       try {
         classifications = normalizeArxivClassifications(input.classifications);
       } catch (error) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           "Invalid arXiv classifications: " + (error instanceof Error ? error.message : String(error)),
         );
@@ -313,7 +313,7 @@ The result includes normalized paper identities, source provenance, real citatio
       try {
         venueSet = normalizeVenueSet(input.venueSet);
       } catch (error) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "invalid_tool_input",
           "Invalid venue set: " + (error instanceof Error ? error.message : String(error)),
         );
@@ -403,7 +403,7 @@ The result includes normalized paper identities, source provenance, real citatio
         };
       }
       if (sources.length === 0) {
-        throw new PilotDeckToolRuntimeError(
+        throw new RigoriumToolRuntimeError(
           "setup_required",
           "No academic metadata source is enabled in Research Settings.",
         );
@@ -506,7 +506,7 @@ The result includes normalized paper identities, source provenance, real citatio
   };
 }
 
-function formatToolOutput(artifact: LiteratureSearchArtifact): PilotDeckToolExecutionOutput<LiteratureSearchArtifact> {
+function formatToolOutput(artifact: LiteratureSearchArtifact): RigoriumToolExecutionOutput<LiteratureSearchArtifact> {
   const sourceSummary = artifact.sources.map((source) => `${source.name} (${source.status})`).join(", ");
   const variantCoverage = artifact.coverageAudit?.queryVariants ?? [];
   const lines = [
@@ -598,7 +598,7 @@ export function buildLiteratureSearchSemantics(
     };
   } catch (error) {
     if (error instanceof LiteratureSearchSemanticsError) {
-      throw new PilotDeckToolRuntimeError("invalid_tool_input", error.message);
+      throw new RigoriumToolRuntimeError("invalid_tool_input", error.message);
     }
     throw error;
   }

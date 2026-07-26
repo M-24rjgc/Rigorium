@@ -84,7 +84,7 @@ test("project monitor persistence writes only the candidate ledger", async () =>
     now: () => times[0]!,
   });
   assert.equal(result.persisted, true);
-  assert.match(result.path, /\.pilotdeck[\\/]research[\\/]candidate-monitor\.json$/u);
+  assert.match(result.path, /\.rigorium[\\/]research[\\/]candidate-monitor\.json$/u);
   const stored = JSON.parse(await readFile(result.path, "utf8")) as Record<string, unknown>;
   assert.equal(stored.kind, "literature_candidate_monitor");
   assert.equal("mapId" in stored, false);

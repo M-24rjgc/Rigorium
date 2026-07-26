@@ -15,8 +15,8 @@ describe('getWorkspaceRelativePath', () => {
 
   it('normalizes Windows paths and compares drive paths case-insensitively', () => {
     expect(getWorkspaceRelativePath(
-      'C:\\Work\\PilotDeck\\docs\\report.docx',
-      'c:\\work\\pilotdeck',
+      'C:\\Work\\Rigorium\\docs\\report.docx',
+      'c:\\work\\rigorium',
     )).toBe('docs/report.docx');
   });
 

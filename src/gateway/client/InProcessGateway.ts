@@ -112,13 +112,13 @@ export type InProcessGatewayOptions = {
   /**
    * Pluggable config-reload handler wired by `createLocalGateway`.
    * When set, `reloadConfig()` delegates to this callback which owns
-   * the PilotConfigStore + ProjectRuntimeRegistry lifecycle.
+   * the RigoriumConfigStore + ProjectRuntimeRegistry lifecycle.
    */
   reloadConfig?: () => Promise<ReloadConfigResult>;
   prepareWeixinLogin?: () => Promise<PrepareWeixinLoginResult>;
   /**
    * Pluggable extension/MCP reload handler wired by `createLocalGateway`.
-   * Unlike `reloadConfig`, this does not depend on `pilotdeck.yaml` changing.
+   * Unlike `reloadConfig`, this does not depend on `rigorium.yaml` changing.
    */
   reloadExtensions?: (input?: import("../protocol/types.js").ReloadExtensionsInput) => Promise<import("../protocol/types.js").ReloadExtensionsResult>;
   /**
@@ -129,7 +129,7 @@ export type InProcessGatewayOptions = {
    * take effect on the very next message even when fs watchers miss the
    * change (network mounts, debounce gaps, container snapshots).
    *
-   * Cheap and singleton-deduped — `PilotConfigStore.reload` is a no-op
+   * Cheap and singleton-deduped — `RigoriumConfigStore.reload` is a no-op
    * when the yaml hasn't changed and only re-runs the
    * invalidate-runtimes / mark-sessions-dirty path when something
    * actually moved.
@@ -617,7 +617,7 @@ export class InProcessGateway implements Gateway {
     try {
       await this.options.recordAgentStatusMessage(input);
     } catch (error) {
-      console.warn("[pilotdeck] failed to record gateway status message:", error);
+      console.warn("[rigorium] failed to record gateway status message:", error);
     }
   }
 
@@ -1360,7 +1360,7 @@ function mapAgentEventForTurn(event: AgentEvent, runId: string): GatewayEvent[] 
       if (totalBytes > PERSIST_THRESHOLD) {
         const dir = resolve(
           tmpdir(),
-          "pilotdeck-tool-results",
+          "rigorium-tool-results",
           safeGatewayPathPart(event.sessionId),
           safeGatewayPathPart(event.turnId),
         );

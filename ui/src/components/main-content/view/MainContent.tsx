@@ -78,8 +78,8 @@ const FILES_ASSISTANT_MIN_WIDTH = 320;
 const FILES_ASSISTANT_MAX_WIDTH = 480;
 const FILES_ARTIFACT_MIN_WIDTH = 480;
 const FILES_NARROW_BREAKPOINT = 1040;
-const FILES_ASSISTANT_STORAGE_KEY = 'pilotdeck:files-assistant-width';
-const TOOL_PANEL_STORAGE_KEY = 'pilotdeck:dashboard-panel-width';
+const FILES_ASSISTANT_STORAGE_KEY = 'rigorium:files-assistant-width';
+const TOOL_PANEL_STORAGE_KEY = 'rigorium:dashboard-panel-width';
 const TOOL_PANEL_DEFAULT_WIDTH = 480;
 const TOOL_PANEL_MIN_WIDTH = 360;
 const TOOL_PANEL_MAX_WIDTH = 720;
@@ -289,7 +289,7 @@ function MainContent({
     getProjectSessions(project).find((session) => session.id === sessionId)
   ), [getProjectSessions]);
 
-  const loadPilotDeckSession = useCallback(async (projectName: string, sessionId: string) => {
+  const loadRigoriumSession = useCallback(async (projectName: string, sessionId: string) => {
     const response = await api.sessions(projectName, Number.MAX_SAFE_INTEGER, 0);
     if (!response.ok) {
       return null;
@@ -316,7 +316,7 @@ function MainContent({
 
       const existingSession =
         findSessionInProject(targetProject, target.sessionId) ??
-        await loadPilotDeckSession(lookupProjectName, target.sessionId);
+        await loadRigoriumSession(lookupProjectName, target.sessionId);
 
       if (!existingSession) {
         flashToast({ kind: 'error', text: missingMessage });
@@ -340,7 +340,7 @@ function MainContent({
 
     const existingSession =
       findSessionInProject(selectedProject, target.sessionId) ??
-      await loadPilotDeckSession(selectedProject.name, target.sessionId);
+      await loadRigoriumSession(selectedProject.name, target.sessionId);
 
     if (!existingSession) {
       flashToast({ kind: 'error', text: missingMessage });
@@ -374,7 +374,7 @@ function MainContent({
     findSessionInProject,
     flashToast,
     i18n,
-    loadPilotDeckSession,
+    loadRigoriumSession,
     onNavigateToSession,
     onSelectSession,
     projects,

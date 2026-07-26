@@ -1,8 +1,8 @@
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import type { PilotDeckLoadedPlugin } from "../protocol/plugin.js";
-import type { PilotDeckPluginManifest } from "../protocol/manifest.js";
+import type { RigoriumLoadedPlugin } from "../protocol/plugin.js";
+import type { RigoriumPluginManifest } from "../protocol/manifest.js";
 import { parsePluginManifest } from "../config/parsePluginManifest.js";
 import {
   getPluginCommandName,
@@ -14,16 +14,16 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const BUILTIN_DIR = resolve(__filename, "..");
 
-let _cache: PilotDeckLoadedPlugin[] | undefined;
+let _cache: RigoriumLoadedPlugin[] | undefined;
 
-export function loadBuiltinPlugins(): PilotDeckLoadedPlugin[] {
+export function loadBuiltinPlugins(): RigoriumLoadedPlugin[] {
   if (_cache) return _cache;
   _cache = loadBuiltinPluginsFromDirectory(BUILTIN_DIR);
   return _cache;
 }
 
-export function loadBuiltinPluginsFromDirectory(builtinDir: string): PilotDeckLoadedPlugin[] {
-  const plugins: PilotDeckLoadedPlugin[] = [];
+export function loadBuiltinPluginsFromDirectory(builtinDir: string): RigoriumLoadedPlugin[] {
+  const plugins: RigoriumLoadedPlugin[] = [];
   try {
     for (const name of readdirSync(builtinDir).sort((left, right) => left.localeCompare(right, "en"))) {
       const pluginPath = resolve(builtinDir, name);
@@ -54,7 +54,7 @@ export function loadBuiltinPluginsFromDirectory(builtinDir: string): PilotDeckLo
 
 function loadConfiguredMarkdownSync(
   pluginPath: string,
-  manifest: PilotDeckPluginManifest,
+  manifest: RigoriumPluginManifest,
   configured: string | string[] | undefined,
   fallbackDir: "commands" | "skills" | "output-styles",
 ): LoadedPluginCommand[] {

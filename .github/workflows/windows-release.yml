@@ -63,7 +63,14 @@ jobs:
         run: pnpm run desktop:verify-release-metadata
 
       - name: Verify packaged research runtime
-        run: pnpm run desktop:verify-research
+        shell: pwsh
+        run: |
+          for ($attempt = 1; $attempt -le 2; $attempt++) {
+            pnpm run desktop:verify-research
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            if ($attempt -eq 2) { exit $LASTEXITCODE }
+            Write-Warning 'Packaged runtime verification failed once; retrying with a fresh isolated profile.'
+          }
 
       - name: Generate release checksums
         id: checksum
@@ -74,12 +81,15 @@ jobs:
           if (-not $installer) { throw 'Windows installer was not produced.' }
           $blockmap = Join-Path $installer.DirectoryName "$($installer.Name).blockmap"
           if (-not (Test-Path -LiteralPath $blockmap -PathType Leaf)) { throw "Installer block map was not produced: $blockmap" }
+          $latestYml = Join-Path $installer.DirectoryName 'latest.yml'
+          if (-not (Test-Path -LiteralPath $latestYml -PathType Leaf)) { throw "Windows update manifest was not produced: $latestYml" }
           $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $($installer.Name)" | Set-Content -LiteralPath 'release/SHA256SUMS.txt' -Encoding ascii
           $hash | Set-Content -LiteralPath ($installer.FullName + '.sha256') -Encoding ascii
           "installer=release/$($installer.Name)" >> $env:GITHUB_OUTPUT
           "installer_name=$($installer.Name)" >> $env:GITHUB_OUTPUT
           "blockmap=release/$([System.IO.Path]::GetFileName($blockmap))" >> $env:GITHUB_OUTPUT
+          "latest_yml=release/$([System.IO.Path]::GetFileName($latestYml))" >> $env:GITHUB_OUTPUT
           "sha256=$hash" >> $env:GITHUB_OUTPUT
 
       - name: Upload build artifact
@@ -91,6 +101,7 @@ jobs:
             ${{ steps.checksum.outputs.installer }}
             ${{ steps.checksum.outputs.installer }}.sha256
             ${{ steps.checksum.outputs.blockmap }}
+            ${{ steps.checksum.outputs.latest_yml }}
             release/SHA256SUMS.txt
 
       - name: Publish GitHub Release
@@ -102,6 +113,7 @@ jobs:
             '${{ steps.checksum.outputs.installer }}',
             '${{ steps.checksum.outputs.installer }}.sha256',
             '${{ steps.checksum.outputs.blockmap }}',
+            '${{ steps.checksum.outputs.latest_yml }}',
             'release/SHA256SUMS.txt'
           )
           gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null

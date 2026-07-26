@@ -234,7 +234,7 @@ const UI_STRINGS = {
     "actions.back": "← 返回",
     "error.authRequired": "需要登录后才能访问当前项目的 Memory Dashboard。",
     "error.missingProjectPath": "缺少 projectPath，无法加载当前项目的 Memory Dashboard。",
-    "error.bundleDownloadReturnedHtml": "导出接口返回了 HTML 页面，而不是记忆 JSON。通常是服务未重启或路由未生效，请重启 PilotDeck 后重新导出。",
+    "error.bundleDownloadReturnedHtml": "导出接口返回了 HTML 页面，而不是记忆 JSON。通常是服务未重启或路由未生效，请重启 Rigorium 后重新导出。",
     "error.bundleDownloadInvalidJson": "导出接口返回的不是合法 JSON，无法生成记忆导出文件。",
     "error.apiReturnedHtml": "接口返回了 HTML 页面，而不是预期的 JSON。通常是服务未重启或路由未生效。",
     "error.apiReturnedInvalidJson": "接口返回的不是合法 JSON。",

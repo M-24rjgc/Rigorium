@@ -5,7 +5,7 @@
  * W5 (60 s timeout), W6 (10 redirect hops), W7 (permitted redirect),
  * W8 (LRU cache + TTL), W9 (egress proxy detection — skipped, see notes
  * in §5.2), W10 (binary persistence — minimal stub: persistedPath set to
- * `undefined` because PilotDeck's MCP storage is feature-gated; behaviour
+ * `undefined` because Rigorium's MCP storage is feature-gated; behaviour
  * intentional_difference recorded in checklist), W11 (HTML→Markdown via
  * turndown), W12 (truncation at 100 KB).
  */

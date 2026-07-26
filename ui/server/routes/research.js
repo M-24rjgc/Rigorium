@@ -27,7 +27,7 @@ router.use('/zotero/cloud', (req, res, next) => {
 }, protectedZoteroJsonParser);
 
 router.use('/zotero/import', (req, res, next) => {
-  if (process.env.PILOTDECK_DESKTOP !== '1') return next();
+  if (process.env.RIGORIUM_DESKTOP !== '1') return next();
   if (!isAuthorizedDesktopZoteroCloudRequest(req.get('x-rigorium-zotero-cloud-session'))) {
     return res.status(401).set('Cache-Control', 'no-store').json({ error: 'Unauthorized.' });
   }
@@ -39,7 +39,7 @@ router.get('/settings', async (req, res) => {
   try {
     const projectRoot = await validatedProjectRoot(req.query.projectPath);
     const snapshot = await readResearchSettings({
-      pilotHome: process.env.PILOT_HOME,
+      rigoriumHome: process.env.RIGORIUM_HOME,
       ...(projectRoot ? { projectRoot } : {}),
     });
     res.json(snapshot);
@@ -58,7 +58,7 @@ router.put('/settings', async (req, res) => {
     const snapshot = await writeResearchSettings({
       scope,
       settings: req.body?.settings,
-      pilotHome: process.env.PILOT_HOME,
+      rigoriumHome: process.env.RIGORIUM_HOME,
       ...(projectRoot ? { projectRoot } : {}),
       ...(scope === 'project' ? { projectOverrideEnabled: req.body?.projectOverrideEnabled !== false } : {}),
     });
@@ -72,7 +72,7 @@ router.get('/zotero/status', async (req, res) => {
   try {
     const projectRoot = await validatedProjectRoot(req.query.projectPath);
     const snapshot = await readResearchSettings({
-      pilotHome: process.env.PILOT_HOME,
+      rigoriumHome: process.env.RIGORIUM_HOME,
       ...(projectRoot ? { projectRoot } : {}),
     });
     if (!snapshot.effective.zotero.enabled) {
@@ -338,7 +338,7 @@ router.post('/zotero/import', async (req, res) => {
     }
     const projectRoot = await validatedProjectRoot(req.body?.projectPath);
     const snapshot = await readResearchSettings({
-      pilotHome: process.env.PILOT_HOME,
+      rigoriumHome: process.env.RIGORIUM_HOME,
       ...(projectRoot ? { projectRoot } : {}),
     });
     if (!snapshot.effective.zotero.enabled) {
@@ -374,7 +374,7 @@ async function validatedProjectRoot(value, required = false) {
 async function zoteroContext(projectPath) {
   const projectRoot = await validatedProjectRoot(projectPath);
   const snapshot = await readResearchSettings({
-    pilotHome: process.env.PILOT_HOME,
+    rigoriumHome: process.env.RIGORIUM_HOME,
     ...(projectRoot ? { projectRoot } : {}),
   });
   return {
@@ -392,7 +392,7 @@ async function zoteroContext(projectPath) {
 async function zoteroCloudContext(projectPath) {
   const projectRoot = await validatedProjectRoot(projectPath);
   const snapshot = await readResearchSettings({
-    pilotHome: process.env.PILOT_HOME,
+    rigoriumHome: process.env.RIGORIUM_HOME,
     ...(projectRoot ? { projectRoot } : {}),
   });
   const config = snapshot.effective.zotero.cloud;

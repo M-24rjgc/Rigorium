@@ -181,7 +181,7 @@ async function walkDirectory(rootDir: string, visit: (path: string) => Promise<v
 }
 
 async function collectMemorySignals(projectName: string) {
-  const projectStoreDir = join(homedir(), ".pilotdeck", "projects", projectName);
+  const projectStoreDir = join(homedir(), ".rigorium", "projects", projectName);
   const candidates: { entryPath: string; modifiedAt: string }[] = [];
 
   await walkDirectory(projectStoreDir, async (entryPath) => {

@@ -17,19 +17,19 @@ async function writeSkill(root: string, slug: string, description: string): Prom
 }
 
 test("SkillManager lists built-ins separately and describes override relationships", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pilotdeck-skill-manager-builtin-"));
+  const root = await mkdtemp(join(tmpdir(), "rigorium-skill-manager-builtin-"));
   try {
-    const pilotHome = join(root, "pilot-home");
+    const rigoriumHome = join(root, "rigorium-home");
     const projectRoot = join(root, "project");
     const builtinSkillsRoot = join(root, "bundled-skills");
 
     await writeSkill(builtinSkillsRoot, "pdf", "Built-in PDF");
     await writeSkill(builtinSkillsRoot, "docx", "Built-in DOCX");
-    await writeSkill(join(pilotHome, "skills"), "pdf", "User PDF override");
-    await writeSkill(join(projectRoot, ".pilotdeck", "skills"), "docx", "Project DOCX override");
-    await writeSkill(join(projectRoot, ".pilotdeck", "skills"), "custom", "Project custom skill");
+    await writeSkill(join(rigoriumHome, "skills"), "pdf", "User PDF override");
+    await writeSkill(join(projectRoot, ".rigorium", "skills"), "docx", "Project DOCX override");
+    await writeSkill(join(projectRoot, ".rigorium", "skills"), "custom", "Project custom skill");
 
-    const manager = new SkillManager({ pilotHome, builtinSkillsRoot });
+    const manager = new SkillManager({ rigoriumHome, builtinSkillsRoot });
     const result = await manager.list({ projectKey: projectRoot });
 
     assert.deepEqual(result.builtin.map((skill) => skill.slug), ["docx", "pdf"]);
@@ -45,12 +45,12 @@ test("SkillManager lists built-ins separately and describes override relationshi
 });
 
 test("SkillManager permits reading but rejects mutations of built-in skills", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pilotdeck-skill-manager-readonly-"));
+  const root = await mkdtemp(join(tmpdir(), "rigorium-skill-manager-readonly-"));
   try {
-    const pilotHome = join(root, "pilot-home");
+    const rigoriumHome = join(root, "rigorium-home");
     const builtinSkillsRoot = join(root, "bundled-skills");
     await writeSkill(builtinSkillsRoot, "pdf", "Built-in PDF");
-    const manager = new SkillManager({ pilotHome, builtinSkillsRoot });
+    const manager = new SkillManager({ rigoriumHome, builtinSkillsRoot });
 
     const read = await manager.read({ scope: "builtin", slug: "pdf" });
     assert.match(read.content, /Built-in PDF/);

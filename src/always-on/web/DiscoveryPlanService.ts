@@ -108,7 +108,7 @@ export type StateManager = {
 };
 
 export type DiscoveryPlanServiceDeps = {
-  pilotHome: string;
+  rigoriumHome: string;
   resolveProjectId: (projectRoot: string) => string;
   paths: ProjectPathResolver;
   sessions: SessionLister;
@@ -122,9 +122,9 @@ export type DiscoveryPlanServiceDeps = {
 // Paths (mirrors ui/server/discovery-plans.js helpers)
 // ---------------------------------------------------------------------------
 
-function resolveProjectDir(pilotHome: string, resolveProjectId: (root: string) => string, projectRoot: string): string {
+function resolveProjectDir(rigoriumHome: string, resolveProjectId: (root: string) => string, projectRoot: string): string {
   const projectId = resolveProjectId(resolve(projectRoot));
-  return join(pilotHome, "always-on", "projects", projectId);
+  return join(rigoriumHome, "always-on", "projects", projectId);
 }
 
 function indexPath(projectDir: string): string {
@@ -318,7 +318,7 @@ export class DiscoveryPlanService {
   }
 
   private projectDir(projectRoot: string): string {
-    return resolveProjectDir(this.deps.pilotHome, this.deps.resolveProjectId, projectRoot);
+    return resolveProjectDir(this.deps.rigoriumHome, this.deps.resolveProjectId, projectRoot);
   }
 
   async getPlansOverview(projectName: string) {

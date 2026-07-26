@@ -340,7 +340,7 @@ async function runResearchChain(entry: "discover" | "complete"): Promise<void> {
     latex: `\\documentclass{article}
 \\begin{document}
 Adaptive aggregation is evaluated against prior work \\citep{prior2025}.
-\\label{pilotdeck-main-matter-end}
+\\label{rigorium-main-matter-end}
 \\bibliographystyle{plain}
 \\bibliography{references}
 \\end{document}`,

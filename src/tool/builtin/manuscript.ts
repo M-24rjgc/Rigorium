@@ -31,12 +31,12 @@ import {
   type ZoteroCitationData,
 } from "../../research/manuscript/index.js";
 import type { EvidencePackArtifact } from "../../research/literature/evidencePack.js";
-import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
-import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
+import { RigoriumToolRuntimeError } from "../protocol/errors.js";
+import type { RigoriumToolValidationIssue, RigoriumToolValidationResult } from "../protocol/schema.js";
 import type {
-  PilotDeckToolDefinition,
-  PilotDeckToolExecutionOutput,
-  PilotDeckToolRuntimeContext,
+  RigoriumToolDefinition,
+  RigoriumToolExecutionOutput,
+  RigoriumToolRuntimeContext,
 } from "../protocol/types.js";
 
 const TOOL_NAME = "manuscript_latex";
@@ -146,7 +146,7 @@ export type CreateManuscriptToolOptions = Readonly<{
 
 export function createManuscriptTool(
   options: CreateManuscriptToolOptions = {},
-): PilotDeckToolDefinition<ManuscriptToolInput, ManuscriptToolResult> {
+): RigoriumToolDefinition<ManuscriptToolInput, ManuscriptToolResult> {
   return {
     name: TOOL_NAME,
     title: "Build and Render Evidence-Aware LaTeX Manuscripts",
@@ -161,7 +161,7 @@ Use whichever action matches the current natural-language request; there is no r
     isDestructive: (input) => input?.action === "render" && input.export?.confirmed === true && input.export.overwrite === true,
     requiresUserInteraction: (input) => input?.action === "render" && input.export !== undefined,
     isOpenWorld: () => false,
-    validateInput: async (input): Promise<PilotDeckToolValidationResult> => validateInput(input),
+    validateInput: async (input): Promise<RigoriumToolValidationResult> => validateInput(input),
     checkPermissions: async (): Promise<PermissionResult> => ({ type: "passthrough" }),
     execute: async (rawInput, context) => {
       let input: ManuscriptToolInput;
@@ -174,9 +174,9 @@ Use whichever action matches the current natural-language request; there is no r
         const result = await executeAction(input, context, options);
         return formatOutput(result);
       } catch (error) {
-        if (error instanceof PilotDeckToolRuntimeError) throw error;
+        if (error instanceof RigoriumToolRuntimeError) throw error;
         if (error instanceof TypeError) throw invalidInput(error);
-        throw new PilotDeckToolRuntimeError("tool_execution_failed", errorMessage(error));
+        throw new RigoriumToolRuntimeError("tool_execution_failed", errorMessage(error));
       }
     },
   };
@@ -184,7 +184,7 @@ Use whichever action matches the current natural-language request; there is no r
 
 async function executeAction(
   input: ManuscriptToolInput,
-  context: PilotDeckToolRuntimeContext,
+  context: RigoriumToolRuntimeContext,
   options: CreateManuscriptToolOptions,
 ): Promise<ManuscriptToolResult> {
   const now = context.now?.() ?? new Date();
@@ -229,7 +229,7 @@ async function executeAction(
     });
     const verification = await verifyFigureTableArtifactFiles({ projectRoot: context.cwd, artifact });
     if (verification.status !== "verified") {
-      throw new PilotDeckToolRuntimeError(
+      throw new RigoriumToolRuntimeError(
         "invalid_tool_input",
         `Figure/table provenance verification failed: ${verification.files.filter((file) => file.status !== "verified").map((file) => `${file.path}:${file.status}`).join(", ")}.`,
       );
@@ -334,7 +334,7 @@ function normalizeInput(value: unknown): ManuscriptToolInput {
   return value as unknown as ManuscriptRenderInput;
 }
 
-function validateInput(input: unknown): PilotDeckToolValidationResult {
+function validateInput(input: unknown): RigoriumToolValidationResult {
   try {
     const normalized = normalizeInput(input);
     if (normalized.action === "citation_set") {
@@ -358,12 +358,12 @@ function validateInput(input: unknown): PilotDeckToolValidationResult {
     }
     return { ok: true, input };
   } catch (error) {
-    const issue: PilotDeckToolValidationIssue = { path: "$", code: "invalid_schema", message: errorMessage(error) };
+    const issue: RigoriumToolValidationIssue = { path: "$", code: "invalid_schema", message: errorMessage(error) };
     return { ok: false, issues: [issue] };
   }
 }
 
-function inputSchema(): PilotDeckToolDefinition["inputSchema"] {
+function inputSchema(): RigoriumToolDefinition["inputSchema"] {
   const object = { type: "object", additionalProperties: true } as const;
   return {
     type: "object",
@@ -427,7 +427,7 @@ function resolveProjectPath(projectRoot: string, value: string): string {
   return resolveWithin(projectRoot, resolve(projectRoot, value), "Project path");
 }
 
-function formatOutput(result: ManuscriptToolResult): PilotDeckToolExecutionOutput<ManuscriptToolResult> {
+function formatOutput(result: ManuscriptToolResult): RigoriumToolExecutionOutput<ManuscriptToolResult> {
   const lines = [`Manuscript/LaTeX: ${result.action}`];
   if (result.action === "citation_set") lines.push(`Citations: ${result.artifact.payload.entries.length}`, `Artifact: ${result.artifact.artifactId}`);
   else if (result.action === "section_audit") lines.push(`Sections: ${result.audits.length}`, `Blocked: ${result.audits.filter((audit) => audit.status === "blocked").length}`);
@@ -447,10 +447,10 @@ function positiveInteger(value: number | undefined): number | undefined {
   return value !== undefined && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
-function invalidInput(error: unknown): PilotDeckToolRuntimeError {
-  return error instanceof PilotDeckToolRuntimeError
+function invalidInput(error: unknown): RigoriumToolRuntimeError {
+  return error instanceof RigoriumToolRuntimeError
     ? error
-    : new PilotDeckToolRuntimeError("invalid_tool_input", errorMessage(error));
+    : new RigoriumToolRuntimeError("invalid_tool_input", errorMessage(error));
 }
 
 function errorMessage(error: unknown): string {

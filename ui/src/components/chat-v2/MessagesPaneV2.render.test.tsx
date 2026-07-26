@@ -63,7 +63,7 @@ function createPaneElement({
       loadAllMessages={() => {}}
       allMessagesLoaded
       isLoadingAllMessages={false}
-      provider="pilotdeck"
+      provider="rigorium"
       selectedProject={null}
       selectedSession={null}
       createDiff={() => []}

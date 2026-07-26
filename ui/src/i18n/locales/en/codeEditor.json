@@ -80,7 +80,7 @@
     "file": "File"
   },
   "selection": {
-    "chatInPilotDeck": "Chat in Rigorium",
+    "chatInRigorium": "Chat in Rigorium",
     "noSelectableText": "This preview does not contain selectable text."
   }
 }

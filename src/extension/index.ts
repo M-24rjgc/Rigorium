@@ -1,28 +1,28 @@
 export {
-  PILOTDECK_HOOK_EVENTS,
-  PILOTDECK_NOT_APPLICABLE_LEGACY_HOOK_EVENTS,
-  isPilotDeckHookEvent,
-  type PilotDeckHookEvent,
-  type PilotDeckNotApplicableLegacyHookEvent,
+  RIGORIUM_HOOK_EVENTS,
+  RIGORIUM_NOT_APPLICABLE_LEGACY_HOOK_EVENTS,
+  isRigoriumHookEvent,
+  type RigoriumHookEvent,
+  type RigoriumNotApplicableLegacyHookEvent,
 } from "./hooks/protocol/events.js";
-export type { PilotDeckHookBaseInput, PilotDeckHookInput } from "./hooks/protocol/input.js";
+export type { RigoriumHookBaseInput, RigoriumHookInput } from "./hooks/protocol/input.js";
 export { createHookInput, toLegacyHookInput } from "./hooks/protocol/input.js";
 export type {
-  PilotDeckHookAsyncOutput,
-  PilotDeckHookOutput,
-  PilotDeckHookSpecificOutput,
-  PilotDeckHookSyncOutput,
-  PilotDeckPermissionHookDecision,
+  RigoriumHookAsyncOutput,
+  RigoriumHookOutput,
+  RigoriumHookSpecificOutput,
+  RigoriumHookSyncOutput,
+  RigoriumPermissionHookDecision,
 } from "./hooks/protocol/output.js";
-export type { PilotDeckHookCommand, PilotDeckHookMatcher, PilotDeckHooksSettings } from "./hooks/protocol/settings.js";
+export type { RigoriumHookCommand, RigoriumHookMatcher, RigoriumHooksSettings } from "./hooks/protocol/settings.js";
 export { parseHooksConfig, type ParseHooksConfigResult } from "./hooks/config/parseHooksConfig.js";
 export { matchHookMatcher } from "./hooks/config/matchHook.js";
 export { matchHookCondition } from "./hooks/config/matchHookCondition.js";
 export { parseHookOutput } from "./hooks/execution/parseHookOutput.js";
 export {
   CommandHookExecutor,
-  PILOTDECK_HOOK_TIMEOUT_MS,
-  PILOTDECK_SESSION_END_HOOK_TIMEOUT_MS,
+  RIGORIUM_HOOK_TIMEOUT_MS,
+  RIGORIUM_SESSION_END_HOOK_TIMEOUT_MS,
   type CommandHookExecutionOptions,
   type CommandHookExecutionResult,
 } from "./hooks/execution/CommandHookExecutor.js";
@@ -32,12 +32,12 @@ export { AgentHookExecutor, type AgentHookRunner } from "./hooks/execution/Agent
 export { CallbackHookExecutor, type CallbackHookHandler } from "./hooks/execution/CallbackHookExecutor.js";
 export { HookRuntime, type HookRuntimeRunInput, type HookRuntimeRunResult } from "./hooks/execution/HookRuntime.js";
 export { AsyncHookRegistry, type AsyncHookResponse, type PendingAsyncHook } from "./hooks/execution/AsyncHookRegistry.js";
-export { HookExecutionEventBus, type PilotDeckHookExecutionEvent } from "./hooks/events/HookExecutionEventBus.js";
+export { HookExecutionEventBus, type RigoriumHookExecutionEvent } from "./hooks/events/HookExecutionEventBus.js";
 
-export type { PilotDeckPluginManifest } from "./plugins/protocol/manifest.js";
-export type { PilotDeckMarketplaceReference } from "./plugins/protocol/manifest.js";
-export type { PilotDeckLoadedPlugin, PilotDeckPluginSourceKind } from "./plugins/protocol/plugin.js";
-export { resolveMarketplaceReference, type PilotDeckMarketplaceResolution, type PilotDeckPluginMarketplaceStatus } from "./plugins/protocol/marketplace.js";
+export type { RigoriumPluginManifest } from "./plugins/protocol/manifest.js";
+export type { RigoriumMarketplaceReference } from "./plugins/protocol/manifest.js";
+export type { RigoriumLoadedPlugin, RigoriumPluginSourceKind } from "./plugins/protocol/plugin.js";
+export { resolveMarketplaceReference, type RigoriumMarketplaceResolution, type RigoriumPluginMarketplaceStatus } from "./plugins/protocol/marketplace.js";
 export { parsePluginManifest } from "./plugins/config/parsePluginManifest.js";
 export { validateMarketplaceName } from "./plugins/config/validateMarketplaceName.js";
 export { validatePluginSourcePath } from "./plugins/config/validatePluginSource.js";
@@ -51,8 +51,8 @@ export {
   PluginRuntime,
   type PluginRuntimeOptions,
   type PluginRefreshResult,
-  type PilotDeckMcpInstructionEntry,
-  type PilotDeckMcpServerStaticSpec,
+  type RigoriumMcpInstructionEntry,
+  type RigoriumMcpServerStaticSpec,
 } from "./plugins/runtime/PluginRuntime.js";
 export {
   MAX_MCP_INSTRUCTION_LENGTH,

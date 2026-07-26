@@ -12,8 +12,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
-  delete process.env.PILOT_HOME;
-  delete process.env.PILOTDECK_CONFIG_PATH;
+  delete process.env.RIGORIUM_HOME;
+  delete process.env.RIGORIUM_CONFIG_PATH;
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -338,8 +338,8 @@ describe('config routes invalid YAML fallback', () => {
   });
 
   it('rejects reload without applying defaults when YAML is invalid', async () => {
-    const reloadPilotDeckConfig = vi.fn(async () => ({ processEnv: { reloaded: true } }));
-    const { request } = await createInvalidYamlConfigApp('schemaVersion: 1\nmodel:\n  providers: [\n', { reloadPilotDeckConfig });
+    const reloadRigoriumConfig = vi.fn(async () => ({ processEnv: { reloaded: true } }));
+    const { request } = await createInvalidYamlConfigApp('schemaVersion: 1\nmodel:\n  providers: [\n', { reloadRigoriumConfig });
 
     const response = await request('/api/config/reload', { method: 'POST' });
 
@@ -347,7 +347,7 @@ describe('config routes invalid YAML fallback', () => {
     expect(response.body.configDisabled).toBe(true);
     expect(response.body.validation.valid).toBe(false);
     expect(response.body.validation.errors[0]).toMatch(/^Invalid YAML:/);
-    expect(reloadPilotDeckConfig).not.toHaveBeenCalled();
+    expect(reloadRigoriumConfig).not.toHaveBeenCalled();
   });
 
   it('rejects structured config saves without overwriting invalid YAML', async () => {
@@ -367,23 +367,23 @@ describe('config routes invalid YAML fallback', () => {
 });
 
 async function createConfigApp(options = {}) {
-  vi.doMock('../services/pilotdeckConfigWatcher.js', () => ({
+  vi.doMock('../services/rigoriumConfigWatcher.js', () => ({
     suppressNextWatchEvent: vi.fn(),
   }));
-  vi.doMock('../services/pilotdeckConfigReloader.js', () => ({
-    reloadPilotDeckConfig: vi.fn(async () => undefined),
+  vi.doMock('../services/rigoriumConfigReloader.js', () => ({
+    reloadRigoriumConfig: vi.fn(async () => undefined),
   }));
-  vi.doMock('../services/pilotdeckConfig.js', async () => {
-    const actual = await vi.importActual('../services/pilotdeckConfig.js');
+  vi.doMock('../services/rigoriumConfig.js', async () => {
+    const actual = await vi.importActual('../services/rigoriumConfig.js');
     return {
       ...actual,
-      readPilotDeckConfigFile: vi.fn(() => ({ exists: false, configPath: '', config: options.config ?? {}, rawYaml: {} })),
-      writePilotDeckConfig: vi.fn(),
-      writeRawPilotDeckYaml: vi.fn(),
+      readRigoriumConfigFile: vi.fn(() => ({ exists: false, configPath: '', config: options.config ?? {}, rawYaml: {} })),
+      writeRigoriumConfig: vi.fn(),
+      writeRawRigoriumYaml: vi.fn(),
     };
   });
-  vi.doMock('../pilotdeck-bridge.js', () => ({
-    getPilotDeckGateway: vi.fn(async () => ({ reloadConfig: vi.fn(async () => undefined) })),
+  vi.doMock('../rigorium-bridge.js', () => ({
+    getRigoriumGateway: vi.fn(async () => ({ reloadConfig: vi.fn(async () => undefined) })),
   }));
   vi.doMock('../../../src/deepseek-native-search/index.js', () => ({
     searchDeepSeekNative: options.searchDeepSeekNative ?? vi.fn(async () => ({ citations: [] })),
@@ -414,24 +414,24 @@ async function requestBodyJson(app, path, init = {}) {
 }
 
 async function createInvalidYamlConfigApp(initialRaw, overrides = {}) {
-  const pilotHome = mkdtempSync(join(tmpdir(), 'pilotdeck-config-route-'));
-  tempDirs.push(pilotHome);
-  const configPath = join(pilotHome, 'pilotdeck.yaml');
+  const rigoriumHome = mkdtempSync(join(tmpdir(), 'rigorium-config-route-'));
+  tempDirs.push(rigoriumHome);
+  const configPath = join(rigoriumHome, 'rigorium.yaml');
   writeFileSync(configPath, initialRaw, 'utf8');
 
-  process.env.PILOT_HOME = pilotHome;
-  process.env.PILOTDECK_CONFIG_PATH = configPath;
+  process.env.RIGORIUM_HOME = rigoriumHome;
+  process.env.RIGORIUM_CONFIG_PATH = configPath;
 
   vi.resetModules();
-  vi.doUnmock('../services/pilotdeckConfig.js');
-  vi.doMock('../services/pilotdeckConfigWatcher.js', () => ({
+  vi.doUnmock('../services/rigoriumConfig.js');
+  vi.doMock('../services/rigoriumConfigWatcher.js', () => ({
     suppressNextWatchEvent: vi.fn(),
   }));
-  vi.doMock('../services/pilotdeckConfigReloader.js', () => ({
-    reloadPilotDeckConfig: overrides.reloadPilotDeckConfig ?? vi.fn(async () => ({ processEnv: { reloaded: true } })),
+  vi.doMock('../services/rigoriumConfigReloader.js', () => ({
+    reloadRigoriumConfig: overrides.reloadRigoriumConfig ?? vi.fn(async () => ({ processEnv: { reloaded: true } })),
   }));
-  vi.doMock('../pilotdeck-bridge.js', () => ({
-    getPilotDeckGateway: vi.fn(async () => ({ reloadConfig: vi.fn(async () => undefined) })),
+  vi.doMock('../rigorium-bridge.js', () => ({
+    getRigoriumGateway: vi.fn(async () => ({ reloadConfig: vi.fn(async () => undefined) })),
   }));
 
   const { default: configRoutes } = await import('./config.js');

@@ -1,6 +1,6 @@
-import type { PilotDeckHookEvent } from "./events.js";
+import type { RigoriumHookEvent } from "./events.js";
 
-export type PilotDeckHookBaseInput = {
+export type RigoriumHookBaseInput = {
   sessionId: string;
   transcriptPath: string;
   cwd: string;
@@ -9,16 +9,16 @@ export type PilotDeckHookBaseInput = {
   agentType?: string;
 };
 
-export type PilotDeckHookInput = PilotDeckHookBaseInput &
+export type RigoriumHookInput = RigoriumHookBaseInput &
   Record<string, unknown> & {
-    hookEventName: PilotDeckHookEvent;
+    hookEventName: RigoriumHookEvent;
   };
 
 export function createHookInput(
-  event: PilotDeckHookEvent,
-  base: PilotDeckHookBaseInput,
+  event: RigoriumHookEvent,
+  base: RigoriumHookBaseInput,
   payload: Record<string, unknown> = {},
-): PilotDeckHookInput {
+): RigoriumHookInput {
   return {
     ...base,
     ...payload,
@@ -26,7 +26,7 @@ export function createHookInput(
   };
 }
 
-export function toLegacyHookInput(input: PilotDeckHookInput): Record<string, unknown> {
+export function toLegacyHookInput(input: RigoriumHookInput): Record<string, unknown> {
   const {
     hookEventName,
     sessionId,
