@@ -43,9 +43,9 @@ export type ExperimentAdapterDescriptor = Readonly<{
 }>;
 
 /**
- * Adapter metadata is deliberately descriptive. Only `local` has an
- * implementation in this increment; callers must not infer that a reserved
- * adapter can submit work or install a third-party dependency.
+ * Adapter metadata is deliberately descriptive. Local, SSH, and Slurm submit
+ * through the immutable run ledger; optional tracking and optimizer bridges
+ * remain reserved and are never auto-installed.
  */
 export const EXPERIMENT_ADAPTERS: readonly ExperimentAdapterDescriptor[] = Object.freeze([
   {
@@ -58,19 +58,19 @@ export const EXPERIMENT_ADAPTERS: readonly ExperimentAdapterDescriptor[] = Objec
   },
   {
     id: "ssh",
-    status: "reserved",
-    license: "OpenSSH client integration (future adapter)",
+    status: "implemented",
+    license: "OpenSSH client integration",
     platforms: ["win32", "linux", "darwin", "remote-linux"],
     purpose: "Explicit remote-worker dispatch.",
-    executionNotes: "Requires a separately configured host, credential boundary, and remote manifest handshake.",
+    executionNotes: "Uses an explicitly registered host, strict known-host verification, a remote manifest handshake, and stable-job recovery.",
   },
   {
     id: "slurm",
-    status: "reserved",
-    license: "Scheduler integration (future adapter)",
+    status: "implemented",
+    license: "Slurm scheduler integration",
     platforms: ["remote-linux"],
     purpose: "Submit to a Slurm-managed remote cluster.",
-    executionNotes: "Requires SSH or a scheduler API plus explicit job-id recovery semantics.",
+    executionNotes: "Uses the authorized remote-agent path with structured scheduler limits and explicit job-id recovery semantics.",
   },
   {
     id: "mlflow",
@@ -216,6 +216,17 @@ export type ExperimentSpecPayload = Readonly<{
 
 export type ExperimentSpec = ResearchArtifactEnvelope<"experiment_spec", ExperimentSpecPayload>;
 
+export type ExecutionGrantBudgetUsage = Readonly<{
+  /** Unsettled reservations held by queued, running, or recovery-required attempts. */
+  reservedWallTimeMs: number;
+  /** Measured terminal wall time; never inferred from a caller descriptor. */
+  consumedWallTimeMs: number;
+  /** Quoted per-run cost held until an explicit actual-cost record settles it. */
+  reservedCostUsd: number;
+  /** Explicit actual-cost records only; unknown costs remain reserved. */
+  consumedCostUsd: number;
+}>;
+
 export type ExecutionGrantPayload = Readonly<{
   grantId: string;
   experimentId: string;
@@ -232,6 +243,7 @@ export type ExecutionGrantPayload = Readonly<{
   confirmedJobIds: readonly string[];
   consumedJobIds: readonly string[];
   consumedAttemptIds: readonly string[];
+  budgetUsage: ExecutionGrantBudgetUsage;
   status: "active" | "revoked" | "expired";
 }>;
 
@@ -302,6 +314,80 @@ export type BaselineObservationPayload = Readonly<{
 
 export type BaselineObservation = ResearchArtifactEnvelope<"baseline_observation", BaselineObservationPayload>;
 
+export type ExperimentRunScalar = string | number | boolean;
+
+export type CostReservation = Readonly<{
+  usd: number;
+  source: "provider_quote" | "user_confirmed";
+  /** Pricing sheet, approved estimate, or other durable audit reference. */
+  reference: string;
+}>;
+
+export type ActualCostRecord = Readonly<{
+  usd: number;
+  source: "provider_reported" | "user_confirmed";
+  /** Invoice, provider usage export, or explicit user-confirmed record. */
+  reference: string;
+  recordedAt: string;
+}>;
+
+export type RunBudgetReservation = Readonly<{
+  /** Also caps one local or remote execution when the grant has a wall-time budget. */
+  wallTimeMs?: number;
+  /** Required to reserve from a maxCostUsd grant; the amount is never guessed. */
+  cost?: CostReservation;
+}>;
+
+export const BASELINE_RERUN_PURPOSES = [
+  "reproduce_reported_baseline",
+  "compare_reported_baseline",
+] as const;
+
+export type BaselineRerunPurpose = typeof BASELINE_RERUN_PURPOSES[number];
+
+export type BaselineRerun = Readonly<{
+  baselineId: string;
+  purpose: BaselineRerunPurpose;
+  confirmedAt: string;
+}>;
+
+export type BaselineRerunInput = Readonly<{
+  baselineId: string;
+  purpose: BaselineRerunPurpose;
+  /** An execution boundary must receive an explicit true confirmation. */
+  confirmed: boolean;
+}>;
+
+/**
+ * Explicit human reconciliation for a remote job whose backend can no longer
+ * be queried. It is intentionally separate from a backend observation and
+ * requires an auditable external reference before a wall-time reservation can
+ * be settled.
+ */
+export type RemoteCancellationReconciliation = Readonly<{
+  source: "scheduler_audit" | "operator_confirmed";
+  reference: string;
+  confirmedAt: string;
+}>;
+
+/** Immutable analysis and budget facts captured before backend submission. */
+export type RunFacts = Readonly<{
+  routeId: string;
+  parameters: Readonly<Record<string, ExperimentRunScalar>>;
+  slices: Readonly<Record<string, ExperimentRunScalar>>;
+  budgetReservation?: RunBudgetReservation;
+  actualWallTimeMs?: number;
+  actualCost?: ActualCostRecord;
+}>;
+
+export type RunAttemptInput = Readonly<{
+  routeId?: string;
+  parameters?: Readonly<Record<string, ExperimentRunScalar>>;
+  slices?: Readonly<Record<string, ExperimentRunScalar>>;
+  budgetReservation?: RunBudgetReservation;
+  baselineRerun?: BaselineRerunInput;
+}>;
+
 export type RunAttemptPayload = Readonly<{
   attemptId: string;
   experimentId: string;
@@ -319,6 +405,12 @@ export type RunAttemptPayload = Readonly<{
   finishedAt?: string;
   grantId?: string;
   workspaceRelativePath?: string;
+  /** Persisted execution metadata used by analysis; later callers cannot replace it. */
+  runFacts?: RunFacts;
+  /** Present only for a deliberately confirmed reported-baseline rerun. */
+  baselineRerun?: BaselineRerun;
+  /** Present only after explicit evidence reconciles an otherwise unknown remote job as cancelled. */
+  remoteCancellationReconciliation?: RemoteCancellationReconciliation;
   artifactIds: readonly string[];
   metricObservationIds: readonly string[];
   failure?: ExperimentFailure;

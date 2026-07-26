@@ -19,13 +19,13 @@ import { hedgesGIndependentGroups, hedgesGOneSample, mean, summarizeSample } fro
 import { analysisScalarKey, type ValidatedExperimentAnalysisInput } from "./validation.js";
 
 const ABLATION_ASSUMPTIONS = Object.freeze([
-  "Ablation values are caller-supplied trial descriptors, not inferred treatments.",
+  "Ablation values come from immutable persisted run facts or legacy trial descriptors, not inferred treatments.",
   "Differences are descriptive means relative to the declared control value.",
   "No causal claim is made without a randomized or otherwise justified design.",
 ]);
 
 const ROBUSTNESS_ASSUMPTIONS = Object.freeze([
-  "Slice membership is caller-supplied and each metric is analyzed in its recorded slice.",
+  "Slice membership comes from immutable persisted run facts or legacy descriptors, and each metric is analyzed in its recorded slice.",
   "Slice summaries are descriptive and do not adjust for unequal sample sizes.",
 ]);
 

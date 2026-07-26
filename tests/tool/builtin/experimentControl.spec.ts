@@ -233,6 +233,73 @@ test("experiment_control enforces plan_only, confirm_each, and budget_auto grant
   assert.equal(tool.isOpenWorld?.({ operation: "submit", experimentId: "x", grantId: "x", jobId: "x" }), true);
 });
 
+test("experiment_control persists run facts and records only confirmed actual costs", async () => {
+  const root = await projectRoot("record-cost");
+  const tool = createExperimentControlTool();
+  const runtime = context(root);
+  await tool.execute({
+    operation: "spec",
+    spec: {
+      experimentId: "experiment-cost",
+      title: "Cost-accounted experiment",
+      localWorker: { kind: "mock", result: { metrics: [{ name: "accuracy", value: 0.91 }] } },
+    },
+  }, runtime);
+  await tool.execute({
+    operation: "grant",
+    confirmed: true,
+    grant: {
+      grantId: "grant-cost",
+      experimentId: "experiment-cost",
+      mode: "budget_auto",
+      reason: "Record provider-reported cost",
+      budget: { maxAttempts: 1, maxCostUsd: 5 },
+    },
+  }, runtime);
+  const submitted = await tool.execute({
+    operation: "submit",
+    experimentId: "experiment-cost",
+    grantId: "grant-cost",
+    jobId: "job-cost",
+    run: {
+      routeId: "cost-route",
+      parameters: { seed: 7 },
+      slices: { split: "heldout" },
+      budgetReservation: {
+        cost: { usd: 3, source: "provider_quote", reference: "cluster-price-v1" },
+      },
+    },
+  }, runtime);
+  const attemptId = submitted.data?.artifact?.artifactId;
+  if (!attemptId) throw new Error("Expected a persisted run attempt.");
+  const submittedFacts = (submitted.data?.artifact?.payload as { runFacts?: { routeId?: string } }).runFacts;
+  assert.equal(submittedFacts?.routeId, "cost-route");
+
+  const unconfirmed = await tool.validateInput!({
+    operation: "record_cost",
+    attemptId,
+    actualCost: { usd: 1.25, source: "provider_reported", reference: "usage-export-42" },
+  }, runtime);
+  assert.equal(unconfirmed.ok, false);
+  assert.equal(tool.requiresUserInteraction?.({ operation: "record_cost", attemptId, confirmed: true }), true);
+
+  const recorded = await tool.execute({
+    operation: "record_cost",
+    attemptId,
+    actualCost: { usd: 1.25, source: "provider_reported", reference: "usage-export-42" },
+    confirmed: true,
+  }, runtime);
+  const recordedFacts = (recorded.data?.artifact?.payload as { runFacts?: { actualCost?: { usd?: number } } }).runFacts;
+  assert.equal(recordedFacts?.actualCost?.usd, 1.25);
+
+  const manifest = await loadExperimentManifest({ projectRoot: root });
+  const grant = manifest?.executionGrants
+    .filter((entry) => entry.artifactId === "grant-cost")
+    .sort((left, right) => right.revision - left.revision)[0];
+  assert.equal(grant?.payload.budgetUsage?.reservedCostUsd, 0);
+  assert.equal(grant?.payload.budgetUsage?.consumedCostUsd, 1.25);
+});
+
 test("experiment_control recovery records interruption without launching another worker", async () => {
   const root = await projectRoot("recovery");
   const tool = createExperimentControlTool();

@@ -326,6 +326,9 @@ function validateRemoteJob(value: unknown): RemoteJobRecord {
   const workdir = normalizeRemoteAbsolutePath(record.workdir, "job.workdir");
   const argv = Object.freeze(normalizeArgv(record.argv));
   const slurm = record.backend === "slurm" ? normalizeSlurmResources(record.slurm) : undefined;
+  const maxWallTimeMs = record.maxWallTimeMs === undefined
+    ? undefined
+    : storedInteger(record.maxWallTimeMs, "job.maxWallTimeMs", 1, 86_400_000);
   if (record.backend === "ssh" && record.slurm !== undefined) throw repositoryError("invalid_schema", "SSH job contains Slurm resources.");
   const stagedFiles = Object.freeze(record.stagedFiles.map((file, index) => validateStagedFile(file, workdir, index)));
   const events = Object.freeze(record.events.map((event, index) => validateJobEvent(event, index, record.backend)));
@@ -353,6 +356,7 @@ function validateRemoteJob(value: unknown): RemoteJobRecord {
     workdir,
     argv,
     ...(slurm === undefined ? {} : { slurm }),
+    ...(maxWallTimeMs === undefined ? {} : { maxWallTimeMs }),
     stagedFiles,
     ...(backendJobId === undefined ? {} : { backendJobId }),
     ...(schedulerJobId === undefined ? {} : { schedulerJobId }),

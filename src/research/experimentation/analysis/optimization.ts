@@ -214,7 +214,7 @@ function createProposals(
       source: "deterministic_grid",
       routeId: searchSpace.routeId,
       parameters: Object.freeze({ ...parameters }),
-      reason: "Next unexecuted combination in the caller-declared deterministic grid.",
+      reason: "Next unexecuted combination in the declared deterministic grid.",
     }));
     return proposals.length < affordable;
   });

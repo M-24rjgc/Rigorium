@@ -11,6 +11,7 @@ import type {
   RemoteJobRecord,
   SlurmResourceSpec,
 } from "./contracts.js";
+import type { RunAttemptInput } from "../contracts.js";
 import {
   assertRemotePathWithin,
   normalizeRemoteAbsolutePath,
@@ -66,12 +67,16 @@ export function normalizeRemoteSubmission(input: RemoteExperimentSubmission): Re
   workdir: string;
   argv: readonly string[];
   slurm?: SlurmResourceSpec;
+  run?: RunAttemptInput;
 }> {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new TypeError("submission must be an object.");
   if (input.backend !== "ssh" && input.backend !== "slurm") throw new TypeError("backend must be ssh or slurm.");
   const workdir = normalizeRemoteAbsolutePath(input.workdir, "workdir");
   const argv = normalizeArgv(input.argv);
   const slurm = input.backend === "slurm" ? normalizeSlurmResources(input.slurm) : undefined;
+  if (input.run !== undefined && (!input.run || typeof input.run !== "object" || Array.isArray(input.run))) {
+    throw new TypeError("run must be an object when supplied.");
+  }
   if (input.backend === "ssh" && input.slurm !== undefined) throw new TypeError("slurm resources require backend=slurm.");
   return Object.freeze({
     connectionId: identifier(input.connectionId, "connectionId"),
@@ -83,6 +88,7 @@ export function normalizeRemoteSubmission(input: RemoteExperimentSubmission): Re
     workdir,
     argv: Object.freeze(argv),
     ...(slurm === undefined ? {} : { slurm }),
+    ...(input.run === undefined ? {} : { run: input.run }),
   });
 }
 
@@ -103,6 +109,7 @@ export function remoteSubmissionHash(input: {
   workdir: string;
   argv: readonly string[];
   slurm?: SlurmResourceSpec;
+  run?: RunAttemptInput;
   stagedFiles: readonly Readonly<{ remoteRelativePath: string; remotePath: string; bytes: number; sha256: string }>[];
 }): string {
   return hashResearchArtifactContent({
@@ -114,6 +121,7 @@ export function remoteSubmissionHash(input: {
     workdir: input.workdir,
     argv: input.argv,
     ...(input.slurm === undefined ? {} : { slurm: input.slurm }),
+    ...(input.run === undefined ? {} : { run: input.run }),
     stagedFiles: [...input.stagedFiles]
       .map((file) => ({
         remoteRelativePath: file.remoteRelativePath,
@@ -130,7 +138,7 @@ export function sameConnectionTerms(left: RemoteConnectionRecord, right: RemoteC
 }
 
 export function assertRemoteJobIdentity(previous: RemoteJobRecord, next: RemoteJobRecord): void {
-  for (const key of ["jobId", "attemptId", "experimentId", "grantId", "grantMode", "connectionId", "backend", "requestHash", "workdir"] as const) {
+  for (const key of ["jobId", "attemptId", "experimentId", "grantId", "grantMode", "connectionId", "backend", "requestHash", "workdir", "maxWallTimeMs"] as const) {
     if (previous[key] !== next[key]) throw new TypeError(`Remote job identity field ${key} is immutable.`);
   }
   if (canonicalJson(previous.argv) !== canonicalJson(next.argv) || canonicalJson(previous.slurm ?? {}) !== canonicalJson(next.slurm ?? {})) {

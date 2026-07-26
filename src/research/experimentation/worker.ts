@@ -53,6 +53,7 @@ export async function executeLocalWorker(input: {
   attempt: RunAttempt;
   spec: ExperimentSpec;
   abortSignal?: AbortSignal;
+  maxWallTimeMs?: number;
 }): Promise<LocalWorkerExecution> {
   const worker = input.spec.payload.localWorker;
   if (!worker) {
@@ -72,16 +73,25 @@ export async function executeLocalWorker(input: {
     `${JSON.stringify({ spec: input.spec.payload, attempt: input.attempt.payload }, null, 2)}\n`,
     { encoding: "utf8", flag: "wx" },
   );
-  if (worker.kind === "mock") return executeMockWorker(worker, workspacePath, input.abortSignal);
-  return executeProcessWorker(worker, workspacePath, input.abortSignal);
+  if (input.maxWallTimeMs !== undefined && (!Number.isSafeInteger(input.maxWallTimeMs) || input.maxWallTimeMs < 1)) {
+    throw new LocalWorkerFailure("invalid_worker_result", "maxWallTimeMs must be a positive integer.");
+  }
+  if (worker.kind === "mock") return executeMockWorker(worker, workspacePath, input.abortSignal, input.maxWallTimeMs);
+  return executeProcessWorker(worker, workspacePath, input.abortSignal, input.maxWallTimeMs);
 }
 
 async function executeMockWorker(
   worker: LocalMockWorker,
   workspacePath: string,
   abortSignal?: AbortSignal,
+  maxWallTimeMs?: number,
 ): Promise<LocalWorkerExecution> {
-  await waitWithAbort(worker.delayMs ?? 0, abortSignal);
+  const delayMs = worker.delayMs ?? 0;
+  if (maxWallTimeMs !== undefined && delayMs > maxWallTimeMs) {
+    await waitWithAbort(maxWallTimeMs, abortSignal);
+    throw new LocalWorkerFailure("timeout", `Worker exceeded its ${maxWallTimeMs}ms execution grant wall-time reservation.`);
+  }
+  await waitWithAbort(delayMs, abortSignal);
   if ((worker.outcome ?? "succeed") === "fail") {
     throw new LocalWorkerFailure(
       worker.failureCategory ?? "worker_exit_nonzero",
@@ -109,6 +119,7 @@ async function executeProcessWorker(
   worker: LocalProcessWorker,
   workspacePath: string,
   abortSignal?: AbortSignal,
+  maxWallTimeMs?: number,
 ): Promise<LocalWorkerExecution> {
   if (!worker.command.trim() || worker.command.includes("\u0000")) {
     throw new LocalWorkerFailure("worker_spawn_failed", "Worker command must be non-empty and contain no NUL bytes.");
@@ -150,7 +161,8 @@ async function executeProcessWorker(
   };
   if (abortSignal?.aborted) onAbort();
   else abortSignal?.addEventListener("abort", onAbort, { once: true });
-  const timeoutMs = Math.max(1, Math.min(worker.timeoutMs ?? 300_000, 300_000));
+  const configuredTimeoutMs = Math.max(1, Math.min(worker.timeoutMs ?? 300_000, 300_000));
+  const timeoutMs = maxWallTimeMs === undefined ? configuredTimeoutMs : Math.min(configuredTimeoutMs, maxWallTimeMs);
   timeout = setTimeout(() => {
     timedOut = true;
     requestTermination();

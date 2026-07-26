@@ -2,6 +2,7 @@ import type {
   ExecutionGrantMode,
   ExperimentFailure,
   ExperimentRunStatus,
+  RunAttemptInput,
 } from "../contracts.js";
 
 export const REMOTE_EXECUTION_SCHEMA_VERSION = 1 as const;
@@ -111,6 +112,8 @@ export type RemoteExperimentSubmission = Readonly<{
   argv: readonly string[];
   stageFiles?: readonly RemoteStageFileInput[];
   slurm?: SlurmResourceSpec;
+  /** Immutable route, slice, baseline, and budget facts captured before submission. */
+  run?: RunAttemptInput;
 }>;
 
 export type RemoteJobEvent = Readonly<{
@@ -134,6 +137,8 @@ export type RemoteJobRecord = Readonly<{
   workdir: string;
   argv: readonly string[];
   slurm?: SlurmResourceSpec;
+  /** Exact per-run cap forwarded to the remote agent after grant reservation. */
+  maxWallTimeMs?: number;
   stagedFiles: readonly RemoteStagedFileRecord[];
   status: ExperimentRunStatus;
   phase: RemoteSubmissionPhase;
@@ -180,6 +185,8 @@ export type RemoteBackendJobObservation = Readonly<{
   exitCode?: number | null;
   signal?: string;
   failure?: ExperimentFailure;
+  startedAt?: string;
+  finishedAt?: string;
 }>;
 
 type RemoteAgentRequestBase = Readonly<{
@@ -205,6 +212,8 @@ export type RemoteAgentSubmitRequest = RemoteAgentRequestBase & Readonly<{
   workdir: string;
   argv: readonly string[];
   slurm?: SlurmResourceSpec;
+  /** Enforced by the SSH worker and mapped to a safe scheduler cap for Slurm. */
+  maxWallTimeMs?: number;
 }>;
 
 export type RemoteAgentJobRequest = RemoteAgentRequestBase & Readonly<{

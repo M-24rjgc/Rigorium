@@ -6,6 +6,7 @@ import {
   listExperimentAdapters,
   loadExperimentManifest,
   prepareExperimentRun,
+  recordExperimentRunCost,
   recordObservedBaseline,
   recordReportedBaseline,
   recoverExperimentJob,
@@ -13,6 +14,7 @@ import {
   saveExperimentSpec,
   submitLocalExperimentRun,
   type BaselineObservation,
+  type ActualCostRecord,
   type ExecutionGrant,
   type ExecutionGrantInput,
   type ExperimentAdapterDescriptor,
@@ -23,6 +25,7 @@ import {
   type ObservedBaselineInput,
   type ReportedBaselineInput,
   type RunAttempt,
+  type RunAttemptInput,
 } from "../../research/experimentation/index.js";
 import type { ResearchArtifactEnvelope } from "../../research/artifacts/index.js";
 import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
@@ -33,6 +36,7 @@ export const EXPERIMENT_CONTROL_OPERATIONS = [
   "spec",
   "grant",
   "baseline",
+  "record_cost",
   "prepare",
   "confirm",
   "submit",
@@ -47,10 +51,12 @@ export type ExperimentControlInput = Readonly<{
   spec?: ExperimentSpecInput;
   grant?: ExecutionGrantInput;
   baseline?: ({ kind: "reported" } & ReportedBaselineInput) | ({ kind: "observed" } & ObservedBaselineInput);
+  actualCost?: Omit<ActualCostRecord, "recordedAt">;
   experimentId?: string;
   grantId?: string;
   jobId?: string;
   attemptId?: string;
+  run?: RunAttemptInput;
   confirmed?: boolean;
   expectedManifestRevision?: number;
 }>;
@@ -77,7 +83,7 @@ export function createExperimentControlTool(
     title: "Control Project Experiments",
     description: `Persist and operate one Project's auditable experiment manifest.
 
-Use spec to save a versioned experiment definition and, when it depends on upstream research work, provide explicit parent references together with their complete immutable sourceArtifacts closure. The current Project manifest verifies and retains that closure before it accepts the spec. Grant creates one immutable plan_only, confirm_each, or budget_auto authorization; baseline distinguishes reported paper values from observed reruns; prepare allocates a stable job identity; confirm follows user approval of that exact job; submit runs the implemented local adapter; recover records interruption without resubmitting it; and list inspects state and adapter availability. All storage is fixed to the current Project cwd. Reserved SSH, Slurm, MLflow, Optuna, and DVC adapters are descriptive only and cannot execute.` ,
+Use spec to save a versioned experiment definition and, when it depends on upstream research work, provide explicit parent references together with their complete immutable sourceArtifacts closure. The current Project manifest verifies and retains that closure before it accepts the spec. Grant creates one immutable plan_only, confirm_each, or budget_auto authorization; baseline distinguishes reported paper values from observed reruns; prepare allocates a stable job identity and immutable run facts; confirm follows user approval of that exact job; submit runs the implemented local adapter; record_cost stores one explicit terminal provider or user-confirmed cost; recover records interruption without resubmitting it; and list inspects state and adapter availability. Authorized SSH and Slurm execution is available through experiment_remote; MLflow, Optuna, and DVC remain reserved. All storage is fixed to the current Project cwd.`,
     kind: "custom",
     inputSchema: experimentControlInputSchema(),
     maxResultBytes: positiveInteger(options.maxResultBytes) ?? 2_000_000,
@@ -85,6 +91,7 @@ Use spec to save a versioned experiment definition and, when it depends on upstr
     isConcurrencySafe: () => true,
     isDestructive: () => false,
     requiresUserInteraction: (input) => input.operation === "confirm"
+      || input.operation === "record_cost"
       || (input.operation === "grant" && input.grant?.mode === "budget_auto"),
     isOpenWorld: (input) => input.operation === "submit",
     validateInput: async (input): Promise<PilotDeckToolValidationResult> => validateInput(input),
@@ -142,12 +149,21 @@ async function executeOperation(
           });
       return formatOperationResult(input.operation, projectRoot, result);
     }
+    case "record_cost":
+      return formatOperationResult(input.operation, projectRoot, await recordExperimentRunCost({
+        projectRoot,
+        attemptId: input.attemptId!,
+        actualCost: input.actualCost!,
+        expectedManifestRevision: input.expectedManifestRevision,
+        now,
+      }));
     case "prepare":
       return formatOperationResult(input.operation, projectRoot, await prepareExperimentRun({
         projectRoot,
         experimentId: input.experimentId!,
         grantId: input.grantId!,
         jobId: input.jobId!,
+        ...(input.run === undefined ? {} : { run: input.run }),
         expectedManifestRevision: input.expectedManifestRevision,
         now,
       }));
@@ -166,6 +182,7 @@ async function executeOperation(
         grantId: input.grantId!,
         jobId: input.jobId!,
         ...(input.attemptId === undefined ? {} : { attemptId: input.attemptId }),
+        ...(input.run === undefined ? {} : { run: input.run }),
         expectedManifestRevision: input.expectedManifestRevision,
         now,
         ...(abortSignal === undefined ? {} : { abortSignal }),
@@ -241,13 +258,15 @@ function experimentControlInputSchema() {
       spec: { type: "object", description: "ExperimentSpecInput for operation=spec, including explicit parents plus a complete sourceArtifacts envelope closure when it depends on upstream research artifacts." },
       grant: { type: "object", description: "ExecutionGrantInput with plan_only, confirm_each, or budget_auto mode." },
       baseline: { type: "object", description: "Reported or observed baseline input with kind=reported|observed." },
+      actualCost: { type: "object", description: "Explicit terminal provider-reported or user-confirmed cost for operation=record_cost." },
       experimentId: { type: "string" },
       grantId: { type: "string" },
       jobId: { type: "string", description: "Stable idempotency identity chosen before submission." },
       attemptId: { type: "string" },
+      run: { type: "object", description: "Immutable route, parameter, slice, baseline-rerun, and explicit budget-reservation facts for prepare or submit." },
       confirmed: {
         type: "boolean",
-        description: "Must be true for operation=confirm and for a budget_auto grant after explicit user approval.",
+        description: "Must be true for operation=confirm, operation=record_cost, and for a budget_auto grant after explicit user approval.",
       },
       expectedManifestRevision: { type: "integer", minimum: 0 },
     },
@@ -267,7 +286,7 @@ function validateInput(input: unknown): PilotDeckToolValidationResult {
 function normalizeInput(value: unknown): ExperimentControlInput {
   if (!isRecord(value)) throw new TypeError("experiment_control input must be an object.");
   const allowedKeys = new Set([
-    "operation", "spec", "grant", "baseline", "experimentId", "grantId", "jobId", "attemptId", "confirmed", "expectedManifestRevision",
+    "operation", "spec", "grant", "baseline", "actualCost", "experimentId", "grantId", "jobId", "attemptId", "run", "confirmed", "expectedManifestRevision",
   ]);
   for (const key of Object.keys(value)) {
     if (!allowedKeys.has(key)) throw new TypeError(`experiment_control does not accept ${key}; project storage is fixed to the current cwd.`);
@@ -292,10 +311,16 @@ function normalizeInput(value: unknown): ExperimentControlInput {
       throw new TypeError("operation=baseline requires baseline.kind=reported or observed.");
     }
   }
+  if (operation === "record_cost") {
+    requiredText(value.attemptId, "attemptId");
+    if (!isRecord(value.actualCost)) throw new TypeError("operation=record_cost requires actualCost.");
+    if (value.confirmed !== true) throw new TypeError("operation=record_cost requires confirmed=true after explicit user approval.");
+  }
   if (["prepare", "submit"].includes(operation)) {
     requiredText(value.experimentId, "experimentId");
     requiredText(value.grantId, "grantId");
     requiredText(value.jobId, "jobId");
+    if (value.run !== undefined && !isRecord(value.run)) throw new TypeError(`operation=${operation} run must be an object.`);
   }
   if (operation === "confirm") {
     requiredText(value.grantId, "grantId");

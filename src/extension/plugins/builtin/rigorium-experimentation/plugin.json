@@ -23,7 +23,7 @@
       "experimentation.baseline.provenance",
       "experimentation.metric.observation",
       "experimentation.analysis.read-only",
-      "experimentation.adapters.reserved"
+      "experimentation.adapters.remote.implemented"
     ],
     "implementedAdapters": [
       "local",

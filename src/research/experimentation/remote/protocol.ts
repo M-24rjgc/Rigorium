@@ -71,8 +71,19 @@ export function validateRemoteAgentRequest(value: unknown): RemoteAgentRequest {
     assertRemotePathWithin(workspaceRoot, workdir, "workdir");
     const argv = Object.freeze(normalizeArgv(value.argv));
     const slurm = backend === "slurm" ? normalizeSlurmResources(value.slurm as never) : undefined;
+    const maxWallTimeMs = value.maxWallTimeMs === undefined
+      ? undefined
+      : boundedInteger(value.maxWallTimeMs, "maxWallTimeMs", 1, 86_400_000);
     if (backend === "ssh" && value.slurm !== undefined) throw new TypeError("slurm resources require backend=slurm.");
-    return Object.freeze({ ...base, action: "submit" as const, backend, workdir, argv, ...(slurm === undefined ? {} : { slurm }) });
+    return Object.freeze({
+      ...base,
+      action: "submit" as const,
+      backend,
+      workdir,
+      argv,
+      ...(slurm === undefined ? {} : { slurm }),
+      ...(maxWallTimeMs === undefined ? {} : { maxWallTimeMs }),
+    });
   }
   const backendJobId = value.backendJobId === undefined ? undefined : backendId(value.backendJobId, "backendJobId", backend);
   return Object.freeze({
@@ -160,6 +171,11 @@ function validateObservation(value: unknown, request: RemoteAgentRequest): Remot
   }
   if (request.action !== "stage" && value.backend !== request.backend) throw new TypeError("Remote backend observation changed backend.");
   const failure = value.failure === undefined ? undefined : validateRemoteExperimentFailure(value.failure);
+  const startedAt = value.startedAt === undefined ? undefined : isoTimestamp(value.startedAt, "observation.startedAt");
+  const finishedAt = value.finishedAt === undefined ? undefined : isoTimestamp(value.finishedAt, "observation.finishedAt");
+  if (startedAt !== undefined && finishedAt !== undefined && Date.parse(finishedAt) < Date.parse(startedAt)) {
+    throw new TypeError("Remote backend observation finishedAt precedes startedAt.");
+  }
   return Object.freeze({
     backend: value.backend,
     jobId: request.jobId,
@@ -171,6 +187,8 @@ function validateObservation(value: unknown, request: RemoteAgentRequest): Remot
     ...(value.exitCode === undefined ? {} : { exitCode: nullableInteger(value.exitCode, "exitCode") }),
     ...(value.signal === undefined ? {} : { signal: identifier(value.signal, "signal") }),
     ...(failure === undefined ? {} : { failure }),
+    ...(startedAt === undefined ? {} : { startedAt }),
+    ...(finishedAt === undefined ? {} : { finishedAt }),
   } as RemoteBackendJobObservation);
 }
 
@@ -234,6 +252,13 @@ function nullableInteger(value: unknown, label: string): number | null {
   if (value === null) return null;
   if (!Number.isSafeInteger(value)) throw new TypeError(`${label} must be an integer or null.`);
   return value as number;
+}
+
+function isoTimestamp(value: unknown, label: string): string {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
+    throw new TypeError(`${label} must be an ISO timestamp.`);
+  }
+  return new Date(value).toISOString();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

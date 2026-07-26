@@ -165,6 +165,54 @@ test("reported baselines remain visible when no measurements exist", () => {
   assert.equal(report.pareto.eligibleRouteCount, 0);
 });
 
+test("persisted run facts drive analysis and cannot be overwritten by trial descriptors", () => {
+  const metric = metricObservation({
+    observationId: "metric-ledger-facts",
+    runAttemptId: "attempt-ledger-facts",
+    value: 0.91,
+  });
+  const run = runAttempt({
+    attemptId: "attempt-ledger-facts",
+    metricObservationIds: [metric.artifactId],
+    runFacts: {
+      routeId: "persisted-route",
+      parameters: { depth: 3 },
+      slices: { domain: "heldout" },
+      actualWallTimeMs: 420,
+      actualCost: {
+        usd: 1.25,
+        source: "provider_reported",
+        reference: "invoice-ledger",
+        recordedAt: ANALYSIS_TEST_NOW.toISOString(),
+      },
+    },
+  });
+  const input = {
+    runAttempts: [run],
+    metricObservations: [metric],
+    baselineObservations: [],
+    objectives: [{ experimentId: "experiment-main", metricName: "accuracy", direction: "maximize" as const }],
+    analysisId: "analysis-persisted-facts",
+  };
+  const report = createExperimentAnalysisReport(input);
+  assert.equal(report.aggregates[0]?.routeId, "persisted-route");
+
+  assert.throws(
+    () => createExperimentAnalysisReport({
+      ...input,
+      trialDescriptors: [{
+        attemptId: run.artifactId,
+        routeId: "caller-override",
+        parameters: { depth: 1 },
+        slices: { domain: "train" },
+        costUsd: 99,
+        wallTimeMs: 1,
+      }],
+    }),
+    /cannot override persisted run facts/u,
+  );
+});
+
 test("early stopping and exhausted budgets block deterministic proposals without executing them", () => {
   const values = [1, 1.05, 1.04];
   const metrics = values.map((value, index) => metricObservation({

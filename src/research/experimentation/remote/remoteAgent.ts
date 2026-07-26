@@ -8,6 +8,7 @@ import type {
   RemoteAgentResponse,
   RemoteAgentSubmitRequest,
   RemoteBackendJobObservation,
+  SlurmResourceSpec,
 } from "./contracts.js";
 import {
   createRemoteAgentJobState,
@@ -40,6 +41,7 @@ export type RemoteAgentCommandResult = Readonly<{
 export type RemoteAgentExperimentResult = Readonly<{
   exitCode: number | null;
   signal: NodeJS.Signals | null;
+  timedOut?: boolean;
 }>;
 
 export interface RemoteAgentProcessHost {
@@ -60,6 +62,7 @@ export interface RemoteAgentProcessHost {
     stdoutPath: string;
     stderrPath: string;
     onSpawn: (pid: number) => Promise<void>;
+    timeoutMs?: number;
   }>): Promise<RemoteAgentExperimentResult>;
   isProcessAlive(pid: number): boolean;
   terminateProcessTree(pid: number): Promise<void>;
@@ -196,6 +199,7 @@ export class NodeRemoteAgentProcessHost implements RemoteAgentProcessHost {
     stdoutPath: string;
     stderrPath: string;
     onSpawn: (pid: number) => Promise<void>;
+    timeoutMs?: number;
   }>): Promise<RemoteAgentExperimentResult> {
     const [stdout, stderr] = await Promise.all([
       open(input.stdoutPath, "a", 0o600),
@@ -243,6 +247,7 @@ export class NodeRemoteAgentProcessHost implements RemoteAgentProcessHost {
       stdoutPath: string;
       stderrPath: string;
       onSpawn: (pid: number) => Promise<void>;
+      timeoutMs?: number;
     }>,
     stdout: FileHandle,
     stderr: FileHandle,
@@ -263,15 +268,29 @@ export class NodeRemoteAgentProcessHost implements RemoteAgentProcessHost {
       }
       let settled = false;
       let spawnRecorded = Promise.resolve();
+      let timedOut = false;
+      let timeout: NodeJS.Timeout | undefined;
+      const terminateForTimeout = () => {
+        if (!Number.isSafeInteger(child.pid) || child.pid! <= 0) return;
+        timedOut = true;
+        void this.terminateProcessTree(child.pid!).catch(() => {
+          try { child.kill("SIGKILL"); } catch { /* process may already be gone */ }
+        });
+      };
       child.once("spawn", () => {
         if (!Number.isSafeInteger(child.pid) || child.pid! <= 0) {
           spawnRecorded = Promise.reject(processError("spawn_failed", "Experiment process did not expose a process id."));
           return;
         }
         spawnRecorded = input.onSpawn(child.pid!);
+        if (input.timeoutMs !== undefined) {
+          timeout = setTimeout(terminateForTimeout, input.timeoutMs);
+          timeout.unref();
+        }
         void spawnRecorded.catch((error) => {
           if (settled) return;
           settled = true;
+          if (timeout) clearTimeout(timeout);
           void this.terminateProcessTree(child.pid!).catch(() => undefined);
           rejectPromise(error);
         });
@@ -279,6 +298,7 @@ export class NodeRemoteAgentProcessHost implements RemoteAgentProcessHost {
       child.once("error", (error) => {
         if (settled) return;
         settled = true;
+        if (timeout) clearTimeout(timeout);
         rejectPromise(processError("spawn_failed", `Unable to spawn experiment command: ${error.message}`));
       });
       child.once("close", (exitCode, signal) => {
@@ -286,10 +306,12 @@ export class NodeRemoteAgentProcessHost implements RemoteAgentProcessHost {
         spawnRecorded.then(() => {
           if (settled) return;
           settled = true;
-          resolvePromise(Object.freeze({ exitCode, signal }));
+          if (timeout) clearTimeout(timeout);
+          resolvePromise(Object.freeze({ exitCode, signal, ...(timedOut ? { timedOut: true } : {}) }));
         }, (error) => {
           if (settled) return;
           settled = true;
+          if (timeout) clearTimeout(timeout);
           if (!child.killed) child.kill("SIGTERM");
           rejectPromise(error);
         });
@@ -401,6 +423,7 @@ export class RemoteAgentRuntime {
         cwd: actualWorkdir,
         stdoutPath: paths.actualStdoutPath,
         stderrPath: paths.actualStderrPath,
+        ...(state.request.maxWallTimeMs === undefined ? {} : { timeoutMs: state.request.maxWallTimeMs }),
         onSpawn: async (pid) => {
           let cancelledBeforeRecording = false;
           state = await this.repository.withJobLock(paths, async () => {
@@ -435,6 +458,24 @@ export class RemoteAgentRuntime {
       const current = await requireJob(this.repository, paths);
       if (isTerminal(current.status)) return;
       const now = this.repository.now();
+      if (result.timedOut) {
+        const failure: ExperimentFailure = Object.freeze({
+          category: "timeout",
+          message: `Remote experiment exceeded its ${state.request.maxWallTimeMs}ms execution grant wall-time reservation.`,
+          retryable: true,
+          observedAt: now.toISOString(),
+          exitCode: result.exitCode,
+          ...(result.signal === null ? {} : { signal: result.signal }),
+        });
+        await this.repository.saveJob(paths, transitionState(current, {
+          status: "failed",
+          exitCode: result.exitCode,
+          ...(result.signal === null ? {} : { signal: result.signal }),
+          failure,
+          finishedAt: now.toISOString(),
+        }, now));
+        return;
+      }
       if (result.exitCode === 0 && result.signal === null) {
         await this.repository.saveJob(paths, transitionState(current, {
           status: "succeeded",
@@ -543,7 +584,7 @@ export class RemoteAgentRuntime {
       runnerArgs: this.#runnerCommand.slice(1),
       statePath: paths.remoteJobPath,
       runnerInvocation: "wrap",
-      resources: state.request.slurm,
+      resources: slurmResourcesWithinWallBudget(state.request.slurm, state.request.maxWallTimeMs),
     });
     try {
       const result = await this.#processHost.runCommand({
@@ -626,7 +667,7 @@ export class RemoteAgentRuntime {
 
   async #querySlurmById(state: RemoteAgentJobState): Promise<RemoteBackendJobObservation | undefined> {
     const schedulerJobId = state.schedulerJobId!;
-    const queue = await this.#schedulerCommand("squeue", ["--noheader", "--jobs", schedulerJobId, "--format", "%i|%T|%R"]);
+    const queue = await this.#schedulerCommand("squeue", ["--noheader", "--jobs", schedulerJobId, "--format", "%i|%T|%R|%S"]);
     if (queue?.exitCode === 0 && queue.signal === null) {
       const observation = parseSlurmQueueLine({
         jobId: schedulerJobId,
@@ -638,7 +679,7 @@ export class RemoteAgentRuntime {
     }
     const accounting = await this.#schedulerCommand("sacct", [
       "--noheader", "--parsable2", "--jobs", schedulerJobId,
-      "--format", "JobIDRaw,State,ExitCode,Reason",
+      "--format", "JobIDRaw,State,ExitCode,Reason,Start,End",
     ]);
     if (accounting?.exitCode !== 0 || accounting.signal !== null) return undefined;
     return parseSlurmAccountingLine({
@@ -651,7 +692,7 @@ export class RemoteAgentRuntime {
 
   async #querySlurmByName(state: RemoteAgentJobState): Promise<RemoteBackendJobObservation | undefined> {
     const jobName = state.slurmJobName!;
-    const queue = await this.#schedulerCommand("squeue", ["--noheader", "--name", jobName, "--format", "%i|%j|%T|%R"]);
+    const queue = await this.#schedulerCommand("squeue", ["--noheader", "--name", jobName, "--format", "%i|%j|%T|%R|%S"]);
     if (queue?.exitCode === 0 && queue.signal === null) {
       const observation = parseSlurmNamedObservation({
         jobName,
@@ -664,7 +705,7 @@ export class RemoteAgentRuntime {
     }
     const accounting = await this.#schedulerCommand("sacct", [
       "--noheader", "--parsable2", "--duplicates", "--name", jobName,
-      "--format", "JobIDRaw,JobName,State,ExitCode,Reason",
+      "--format", "JobIDRaw,JobName,State,ExitCode,Reason,Start,End",
     ]);
     if (accounting?.exitCode !== 0 || accounting.signal !== null) return undefined;
     return parseSlurmNamedObservation({
@@ -738,6 +779,8 @@ function stateObservation(state: RemoteAgentJobState, duplicate: boolean): Remot
     status: state.status,
     duplicate,
     observedAt: state.observedAt,
+    ...(state.startedAt === undefined ? {} : { startedAt: state.startedAt }),
+    ...(state.finishedAt === undefined ? {} : { finishedAt: state.finishedAt }),
     ...(state.exitCode === undefined ? {} : { exitCode: state.exitCode }),
     ...(state.signal === undefined ? {} : { signal: state.signal }),
     ...(state.failure === undefined ? {} : { failure: state.failure }),
@@ -752,7 +795,10 @@ function stateFromObservation(state: RemoteAgentJobState, observation: RemoteBac
     ...(observation.exitCode === undefined ? {} : { exitCode: observation.exitCode }),
     ...(observation.signal === undefined ? {} : { signal: observation.signal }),
     ...(observation.failure === undefined ? {} : { failure: observation.failure }),
-    ...(["succeeded", "failed", "cancelled"].includes(observation.status) ? { finishedAt: observation.observedAt } : {}),
+    ...(state.startedAt || observation.startedAt ? { startedAt: state.startedAt ?? observation.startedAt } : {}),
+    ...(["succeeded", "failed", "cancelled"].includes(observation.status)
+      ? { finishedAt: observation.finishedAt ?? observation.observedAt }
+      : {}),
     observedAt: observation.observedAt,
   }, now);
 }
@@ -815,6 +861,25 @@ async function requireJob(repository: RemoteAgentStateRepository, paths: RemoteA
 
 function stableSlurmJobName(key: string): string {
   return `pd-${key.slice(0, 40)}`;
+}
+
+function slurmResourcesWithinWallBudget(
+  resources: SlurmResourceSpec | undefined,
+  maxWallTimeMs: number | undefined,
+): SlurmResourceSpec | undefined {
+  if (maxWallTimeMs === undefined) return resources;
+  const safeMinutes = Math.floor(maxWallTimeMs / 60_000);
+  if (safeMinutes < 1) {
+    throw new RemoteAgentStateError(
+      "scheduler_error",
+      "Slurm cannot enforce a wall-time reservation shorter than one minute; do not submit this job.",
+    );
+  }
+  const requestedMinutes = resources?.timeLimitMinutes;
+  return Object.freeze({
+    ...(resources ?? {}),
+    timeLimitMinutes: requestedMinutes === undefined ? safeMinutes : Math.min(requestedMinutes, safeMinutes),
+  });
 }
 
 function isTerminal(status: RemoteAgentJobState["status"]): boolean {

@@ -31,7 +31,7 @@ const ANALYSIS_ASSUMPTIONS = Object.freeze([
   "Only the latest revision of each RunAttempt artifact identity is analyzed.",
   "Measurements must belong to a succeeded run and be explicitly listed by that run.",
   "Reported baselines remain reported_not_rerun and are never promoted to observed results.",
-  "Trial descriptors supply route, parameter, slice, cost, and wall-time metadata; MetricObservation supplies every measured value.",
+  "Persisted run facts supply route, parameter, slice, actual-cost, and measured wall-time metadata; legacy trial descriptors remain supported only for legacy runs without persisted facts.",
   "Statistics are descriptive unless a separate study design justifies stronger inference.",
 ]);
 

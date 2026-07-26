@@ -95,6 +95,8 @@ export function parseSlurmAccountingLine(input: {
     state,
     exitCode,
     reason,
+    startedAt: parseSlurmTimestamp(exact[4]),
+    finishedAt: parseSlurmTimestamp(exact[5]),
     now: input.now,
   });
 }
@@ -113,6 +115,7 @@ export function parseSlurmQueueLine(input: {
     schedulerJobId: input.jobId,
     state: String(exact[1] ?? ""),
     reason: String(exact[2] ?? "").trim(),
+    startedAt: parseSlurmTimestamp(exact[3]),
     now: input.now,
   });
 }
@@ -131,12 +134,16 @@ export function parseSlurmNamedObservation(input: {
     const state = String(columns[2] ?? "");
     const exitCode = input.source === "accounting" ? parseExitCode(columns[3]) : undefined;
     const reason = String(columns[input.source === "accounting" ? 4 : 3] ?? "").trim();
+    const startedAt = parseSlurmTimestamp(columns[input.source === "accounting" ? 5 : 4]);
+    const finishedAt = input.source === "accounting" ? parseSlurmTimestamp(columns[6]) : undefined;
     return slurmStateObservation({
       jobId: input.observationJobId,
       schedulerJobId,
       state,
       exitCode,
       reason,
+      startedAt,
+      finishedAt,
       now: input.now,
     });
   }
@@ -149,6 +156,8 @@ export function slurmStateObservation(input: {
   state: string;
   exitCode?: number | null;
   reason?: string;
+  startedAt?: string;
+  finishedAt?: string;
   now?: Date;
 }): RemoteBackendJobObservation {
   const observedAt = (input.now ?? new Date()).toISOString();
@@ -177,6 +186,8 @@ export function slurmStateObservation(input: {
     observedAt,
     ...(input.exitCode === undefined ? {} : { exitCode: input.exitCode }),
     ...(failure ? { failure } : {}),
+    ...(input.startedAt === undefined ? {} : { startedAt: input.startedAt }),
+    ...(input.finishedAt === undefined ? {} : { finishedAt: input.finishedAt }),
   });
 }
 
@@ -227,6 +238,13 @@ function parseExitCode(value: string | undefined): number | null | undefined {
   const [code] = value.split(":");
   if (!/^\d+$/u.test(code ?? "")) return undefined;
   return Number(code);
+}
+
+function parseSlurmTimestamp(value: string | undefined): string | undefined {
+  const text = value?.trim();
+  if (!text || /^(?:n\/?a|none|unknown|invalid|not_set|0)$/iu.test(text)) return undefined;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined;
 }
 
 function addOptionalToken(args: string[], flag: string, value: string | undefined): void {

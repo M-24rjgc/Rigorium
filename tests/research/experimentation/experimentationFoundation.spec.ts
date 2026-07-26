@@ -18,6 +18,7 @@ import {
   prepareExperimentRun,
   recordObservedBaseline,
   recordReportedBaseline,
+  recordExperimentRunCost,
   recoverExperimentJob,
   saveExperimentSpec,
   submitLocalExperimentRun,
@@ -399,6 +400,137 @@ test("budget_auto stops after its attempt budget while retaining the next plan",
   );
 });
 
+test("enforces explicit wall-time and cost reservations, then records measured local usage", async () => {
+  const root = await projectRoot("budget-ledger");
+  await createSpec(root, {
+    worker: { kind: "mock", delayMs: 30, result: { metrics: [{ name: "accuracy", value: 0.93 }] } },
+  });
+  const grant = await issueExecutionGrant({
+    projectRoot: root,
+    grant: {
+      grantId: "grant-budget-ledger",
+      experimentId: "experiment-main",
+      mode: "budget_auto",
+      reason: "Bounded run ledger test",
+      budget: { maxAttempts: 3, maxWallTimeMs: 10, maxCostUsd: 2 },
+    },
+  });
+
+  await assert.rejects(
+    submitLocalExperimentRun({
+      projectRoot: root,
+      experimentId: "experiment-main",
+      grantId: grant.value.payload.grantId,
+      jobId: "job-without-reservation",
+    }),
+    (error: unknown) => error instanceof ExperimentServiceError
+      && error.code === "permission_denied"
+      && /reservation/u.test(error.message),
+  );
+
+  const timedOut = await submitLocalExperimentRun({
+    projectRoot: root,
+    experimentId: "experiment-main",
+    grantId: grant.value.payload.grantId,
+    jobId: "job-budget-ledger",
+    run: {
+      routeId: "ledger-route",
+      parameters: { seed: 7 },
+      slices: { split: "heldout" },
+      budgetReservation: {
+        wallTimeMs: 10,
+        cost: { usd: 2, source: "provider_quote", reference: "pricing-v1" },
+      },
+    },
+  });
+  assert.equal(timedOut.value.payload.status, "failed");
+  assert.equal(timedOut.value.payload.failure?.category, "timeout");
+  assert.equal(timedOut.value.payload.runFacts?.routeId, "ledger-route");
+  assert.equal((timedOut.value.payload.runFacts?.actualWallTimeMs ?? 0) >= 10, true);
+
+  await recordExperimentRunCost({
+    projectRoot: root,
+    attemptId: timedOut.value.payload.attemptId,
+    actualCost: { usd: 1.5, source: "provider_reported", reference: "invoice-42" },
+  });
+  const manifest = await loadExperimentManifest({ projectRoot: root });
+  const latestGrant = [...(manifest?.executionGrants ?? [])]
+    .filter((entry) => entry.artifactId === grant.value.artifactId)
+    .sort((left, right) => right.revision - left.revision)[0];
+  assert.equal(latestGrant?.payload.budgetUsage?.consumedCostUsd, 1.5);
+  assert.equal(latestGrant?.payload.budgetUsage?.reservedCostUsd, 0);
+
+  await assert.rejects(
+    submitLocalExperimentRun({
+      projectRoot: root,
+      experimentId: "experiment-main",
+      grantId: grant.value.payload.grantId,
+      jobId: "job-after-wall-budget",
+      run: {
+        budgetReservation: {
+          wallTimeMs: 1,
+          cost: { usd: 0.1, source: "provider_quote", reference: "pricing-v1" },
+        },
+      },
+    }),
+    (error: unknown) => error instanceof ExperimentServiceError
+      && error.code === "permission_denied",
+  );
+});
+
+test("reported baselines require a classified, explicitly confirmed rerun intent before preparation", async () => {
+  const root = await projectRoot("baseline-rerun");
+  await createSpec(root);
+  const baseline = await recordReportedBaseline({
+    projectRoot: root,
+    baseline: {
+      baselineId: "baseline-paper-rerun",
+      experimentId: "experiment-main",
+      metricName: "accuracy",
+      reportedValue: 0.88,
+      direction: "maximize",
+      citation: { text: "Doe et al. (2025), Table 2" },
+    },
+  });
+  const grant = await createGrant(root, "budget_auto", 1);
+
+  await assert.rejects(
+    prepareExperimentRun({
+      projectRoot: root,
+      experimentId: "experiment-main",
+      grantId: grant.value.payload.grantId,
+      jobId: "job-unconfirmed-baseline-rerun",
+      run: {
+        baselineRerun: {
+          baselineId: baseline.value.payload.baselineId,
+          purpose: "reproduce_reported_baseline",
+          confirmed: false,
+        },
+      },
+    }),
+    (error: unknown) => error instanceof ExperimentServiceError
+      && error.code === "permission_denied"
+      && /confirmed/u.test(error.message),
+  );
+
+  const prepared = await prepareExperimentRun({
+    projectRoot: root,
+    experimentId: "experiment-main",
+    grantId: grant.value.payload.grantId,
+    jobId: "job-confirmed-baseline-rerun",
+    run: {
+      baselineRerun: {
+        baselineId: baseline.value.payload.baselineId,
+        purpose: "reproduce_reported_baseline",
+        confirmed: true,
+      },
+    },
+  });
+  assert.deepEqual(prepared.value.payload.baselineRerun?.baselineId, baseline.value.payload.baselineId);
+  assert.equal(prepared.value.payload.baselineRerun?.purpose, "reproduce_reported_baseline");
+  assert.match(prepared.value.payload.baselineRerun?.confirmedAt ?? "", /^\d{4}-\d{2}-\d{2}T/u);
+});
+
 test("concurrent submissions with one jobId acquire only one worker claim", async () => {
   const root = await projectRoot("concurrent-idempotency");
   await createSpec(root, {
@@ -484,10 +616,12 @@ test("failure taxonomy preserves preemption, OOM, rate-limit, and disconnect sta
   }
 });
 
-test("candidate descriptors expose one local implementation and keep external control planes reserved", () => {
+test("candidate descriptors expose local and authorized remote implementations while external control planes remain reserved", () => {
   const adapters = listExperimentAdapters();
-  assert.equal(adapters.find((adapter) => adapter.id === "local")?.status, "implemented");
-  for (const id of ["ssh", "slurm", "mlflow", "optuna", "dvc"] as const) {
+  for (const id of ["local", "ssh", "slurm"] as const) {
+    assert.equal(adapters.find((adapter) => adapter.id === id)?.status, "implemented");
+  }
+  for (const id of ["mlflow", "optuna", "dvc"] as const) {
     assert.equal(adapters.find((adapter) => adapter.id === id)?.status, "reserved");
   }
 });

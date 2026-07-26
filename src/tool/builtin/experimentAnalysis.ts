@@ -4,6 +4,10 @@ import {
   type ExperimentAnalysisInput,
   type ExperimentAnalysisReport,
 } from "../../research/experimentation/analysis/index.js";
+import {
+  ExperimentRepositoryError,
+  loadExperimentManifest,
+} from "../../research/experimentation/index.js";
 import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
 import type { PilotDeckToolValidationIssue, PilotDeckToolValidationResult } from "../protocol/schema.js";
 import type {
@@ -12,7 +16,19 @@ import type {
   PilotDeckToolRuntimeContext,
 } from "../protocol/types.js";
 
-export type ExperimentAnalysisToolInput = Omit<ExperimentAnalysisInput, "producer" | "now">;
+type ExperimentAnalysisLedgerFields = "runAttempts" | "metricObservations" | "baselineObservations";
+
+export type ExperimentAnalysisToolInput = Omit<
+  ExperimentAnalysisInput,
+  "producer" | "now" | ExperimentAnalysisLedgerFields
+> & Partial<Pick<ExperimentAnalysisInput, ExperimentAnalysisLedgerFields>>;
+
+const LEDGER_INPUT_KEYS = [
+  "runAttempts",
+  "metricObservations",
+  "baselineObservations",
+  "trialDescriptors",
+] as const;
 
 export type CreateExperimentAnalysisToolOptions = Readonly<{
   maxResultBytes?: number;
@@ -26,7 +42,7 @@ export function createExperimentAnalysisTool(
     title: "Analyze Project Experiments",
     description: `Analyze immutable experiment runs and metric observations without launching work or writing files.
 
-The tool selects the latest run revisions, excludes unlinked or unsuccessful measurements with explicit diagnostics, reports repeated-run statistics and baseline provenance, summarizes ablations and robustness slices, compares routes and Pareto fronts, and returns bounded deterministic-grid suggestions labeled proposed_not_executed. Figure and table records require caller-supplied file hashes. Optuna remains excluded when unavailable.`,
+The current Project ledger is used automatically when it exists. Otherwise, legacy callers may provide run, metric, baseline, and legacy descriptor arrays. The tool selects the latest run revisions, excludes unlinked or unsuccessful measurements with explicit diagnostics, reports repeated-run statistics and baseline provenance, summarizes ablations and robustness slices, compares routes and Pareto fronts, and returns bounded deterministic-grid suggestions labeled proposed_not_executed. Figure and table records require caller-supplied file hashes. Optuna remains excluded when unavailable.`,
     kind: "custom",
     inputSchema: experimentAnalysisInputSchema(),
     maxResultBytes: positiveInteger(options.maxResultBytes) ?? 4_000_000,
@@ -38,7 +54,7 @@ The tool selects the latest run revisions, excludes unlinked or unsuccessful mea
     validateInput: async (input, context) => validateToolInput(input, context),
     execute: async (input, context) => {
       try {
-        const report = createExperimentAnalysisReport(withRuntimeMetadata(input, context));
+        const report = createExperimentAnalysisReport(await withRuntimeMetadata(input, context));
         return formatOutput(report);
       } catch (error) {
         throw new PilotDeckToolRuntimeError("invalid_tool_input", `Experiment analysis failed: ${messageOf(error)}`);
@@ -47,12 +63,12 @@ The tool selects the latest run revisions, excludes unlinked or unsuccessful mea
   };
 }
 
-function validateToolInput(
+async function validateToolInput(
   input: unknown,
   context: PilotDeckToolRuntimeContext,
-): PilotDeckToolValidationResult {
+): Promise<PilotDeckToolValidationResult> {
   try {
-    validateExperimentAnalysisInput(withRuntimeMetadata(input as ExperimentAnalysisToolInput, context));
+    validateExperimentAnalysisInput(await withRuntimeMetadata(input as ExperimentAnalysisToolInput, context));
     return { ok: true, input };
   } catch (error) {
     const issue: PilotDeckToolValidationIssue = {
@@ -64,21 +80,52 @@ function validateToolInput(
   }
 }
 
-function withRuntimeMetadata(
+async function withRuntimeMetadata(
   input: ExperimentAnalysisToolInput,
   context: PilotDeckToolRuntimeContext,
-): ExperimentAnalysisInput {
+): Promise<ExperimentAnalysisInput> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     throw new TypeError("experiment_analysis input must be an object.");
   }
   if ("producer" in input || "now" in input) {
     throw new TypeError("experiment_analysis does not accept producer or now; runtime metadata is host-controlled.");
   }
+  const manifest = await loadProjectLedger(context.cwd);
+  if (manifest) {
+    for (const key of LEDGER_INPUT_KEYS) {
+      if (key in input) {
+        throw new TypeError(`experiment_analysis uses the persisted Project ledger and does not accept caller ${key}.`);
+      }
+    }
+    return {
+      ...input,
+      runAttempts: manifest.runAttempts,
+      metricObservations: manifest.metricObservations,
+      baselineObservations: manifest.baselineObservations,
+      producer: Object.freeze({ kind: "tool", id: "experimentation-analysis", toolName: "experiment_analysis" }),
+      ...(context.now === undefined ? {} : { now: context.now() }),
+    } as ExperimentAnalysisInput;
+  }
+  for (const key of ["runAttempts", "metricObservations", "baselineObservations"] as const) {
+    if (!(key in input)) {
+      throw new TypeError(`experiment_analysis requires ${key} when the current Project has no persisted experiment ledger.`);
+    }
+  }
   return {
     ...input,
     producer: Object.freeze({ kind: "tool", id: "experimentation-analysis", toolName: "experiment_analysis" }),
     ...(context.now === undefined ? {} : { now: context.now() }),
-  };
+  } as ExperimentAnalysisInput;
+}
+
+async function loadProjectLedger(projectRoot: string) {
+  try {
+    return await loadExperimentManifest({ projectRoot });
+  } catch (error) {
+    // Legacy array input remains usable in hosts that do not materialize a Project directory.
+    if (error instanceof ExperimentRepositoryError && error.code === "invalid_project_root") return undefined;
+    throw error;
+  }
 }
 
 function formatOutput(report: ExperimentAnalysisReport): PilotDeckToolExecutionOutput<ExperimentAnalysisReport> {
@@ -107,12 +154,12 @@ function experimentAnalysisInputSchema() {
   return {
     type: "object" as const,
     additionalProperties: false,
-    required: ["runAttempts", "metricObservations", "baselineObservations", "objectives"],
+    required: ["objectives"],
     properties: {
       runAttempts: { type: "array", items: { type: "object" }, description: "Versioned RunAttempt envelopes." },
       metricObservations: { type: "array", items: { type: "object" }, description: "MetricObservation envelopes." },
       baselineObservations: { type: "array", items: { type: "object" }, description: "Reported or observed baseline envelopes." },
-      trialDescriptors: { type: "array", items: { type: "object" }, description: "Caller-supplied route, parameter, slice, cost, and wall-time metadata." },
+      trialDescriptors: { type: "array", items: { type: "object" }, description: "Legacy-only route, parameter, slice, cost, and wall-time metadata when no Project ledger exists." },
       objectives: { type: "array", minItems: 1, items: { type: "object" } },
       ablationFactors: { type: "array", items: { type: "object" } },
       robustnessDimensions: { type: "array", items: { type: "object" } },

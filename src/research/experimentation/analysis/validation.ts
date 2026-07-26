@@ -334,6 +334,110 @@ function validateRunPayload(run: RunAttempt): void {
     requireText(failure.message, "run failure message", 16_000);
     requireIsoDate(failure.observedAt, "run failure observedAt");
   }
+  if (payload.runFacts !== undefined) validateRunFacts(payload.runFacts);
+  if (payload.baselineRerun !== undefined) validateBaselineRerun(payload.baselineRerun);
+  if (payload.remoteCancellationReconciliation !== undefined) {
+    validateRemoteCancellationReconciliation(payload.remoteCancellationReconciliation);
+  }
+}
+
+function validateRunFacts(value: unknown): void {
+  const facts = requireRecord(value, "runFacts");
+  const allowedKeys = new Set([
+    "routeId",
+    "parameters",
+    "slices",
+    "budgetReservation",
+    "actualWallTimeMs",
+    "actualCost",
+  ]);
+  for (const key of Object.keys(facts)) {
+    if (!allowedKeys.has(key)) throw new TypeError(`runFacts does not accept ${key}.`);
+  }
+  requireIdentifier(facts.routeId, "runFacts.routeId");
+  if (validateScalarRecord(facts.parameters, "runFacts.parameters") === undefined) {
+    throw new TypeError("runFacts.parameters must be an object.");
+  }
+  if (validateScalarRecord(facts.slices, "runFacts.slices") === undefined) {
+    throw new TypeError("runFacts.slices must be an object.");
+  }
+  if (facts.budgetReservation !== undefined) validateRunBudgetReservation(facts.budgetReservation);
+  const actualWallTimeMs = facts.actualWallTimeMs;
+  if (actualWallTimeMs !== undefined) {
+    if (typeof actualWallTimeMs !== "number" || !Number.isSafeInteger(actualWallTimeMs) || actualWallTimeMs < 0) {
+      throw new TypeError("runFacts.actualWallTimeMs must be a non-negative integer.");
+    }
+  }
+  if (facts.actualCost !== undefined) validateActualCostRecord(facts.actualCost);
+}
+
+function validateRunBudgetReservation(value: unknown): void {
+  const reservation = requireRecord(value, "runFacts.budgetReservation");
+  for (const key of Object.keys(reservation)) {
+    if (key !== "wallTimeMs" && key !== "cost") {
+      throw new TypeError(`runFacts.budgetReservation does not accept ${key}.`);
+    }
+  }
+  if (reservation.wallTimeMs !== undefined) requirePositiveInteger(reservation.wallTimeMs, "runFacts.budgetReservation.wallTimeMs");
+  if (reservation.cost !== undefined) {
+    const cost = requireRecord(reservation.cost, "runFacts.budgetReservation.cost");
+    for (const key of Object.keys(cost)) {
+      if (key !== "usd" && key !== "source" && key !== "reference") {
+        throw new TypeError(`runFacts.budgetReservation.cost does not accept ${key}.`);
+      }
+    }
+    requireNonNegativeNumber(cost.usd, "runFacts.budgetReservation.cost.usd");
+    if (cost.source !== "provider_quote" && cost.source !== "user_confirmed") {
+      throw new TypeError("runFacts.budgetReservation.cost.source is invalid.");
+    }
+    requireText(cost.reference, "runFacts.budgetReservation.cost.reference");
+  }
+  if (reservation.wallTimeMs === undefined && reservation.cost === undefined) {
+    throw new TypeError("runFacts.budgetReservation must reserve wall time, cost, or both.");
+  }
+}
+
+function validateActualCostRecord(value: unknown): void {
+  const cost = requireRecord(value, "runFacts.actualCost");
+  for (const key of Object.keys(cost)) {
+    if (key !== "usd" && key !== "source" && key !== "reference" && key !== "recordedAt") {
+      throw new TypeError(`runFacts.actualCost does not accept ${key}.`);
+    }
+  }
+  requireNonNegativeNumber(cost.usd, "runFacts.actualCost.usd");
+  if (cost.source !== "provider_reported" && cost.source !== "user_confirmed") {
+    throw new TypeError("runFacts.actualCost.source is invalid.");
+  }
+  requireText(cost.reference, "runFacts.actualCost.reference");
+  requireIsoDate(cost.recordedAt, "runFacts.actualCost.recordedAt");
+}
+
+function validateBaselineRerun(value: unknown): void {
+  const rerun = requireRecord(value, "run baselineRerun");
+  for (const key of Object.keys(rerun)) {
+    if (key !== "baselineId" && key !== "purpose" && key !== "confirmedAt") {
+      throw new TypeError(`run baselineRerun does not accept ${key}.`);
+    }
+  }
+  requireIdentifier(rerun.baselineId, "run baselineRerun.baselineId");
+  if (rerun.purpose !== "reproduce_reported_baseline" && rerun.purpose !== "compare_reported_baseline") {
+    throw new TypeError("run baselineRerun.purpose is invalid.");
+  }
+  requireIsoDate(rerun.confirmedAt, "run baselineRerun.confirmedAt");
+}
+
+function validateRemoteCancellationReconciliation(value: unknown): void {
+  const reconciliation = requireRecord(value, "run remoteCancellationReconciliation");
+  for (const key of Object.keys(reconciliation)) {
+    if (key !== "source" && key !== "reference" && key !== "confirmedAt") {
+      throw new TypeError(`run remoteCancellationReconciliation does not accept ${key}.`);
+    }
+  }
+  if (reconciliation.source !== "scheduler_audit" && reconciliation.source !== "operator_confirmed") {
+    throw new TypeError("run remoteCancellationReconciliation.source is invalid.");
+  }
+  requireText(reconciliation.reference, "run remoteCancellationReconciliation.reference");
+  requireIsoDate(reconciliation.confirmedAt, "run remoteCancellationReconciliation.confirmedAt");
 }
 
 function validateMetricPayload(metric: MetricObservation): void {
@@ -382,7 +486,10 @@ function validateTrialDescriptors(
   value: unknown,
   runsByAttemptId: ReadonlyMap<string, RunAttempt>,
 ): TrialDescriptor[] {
-  if (value === undefined) return [];
+  const persistedDescriptors = [...runsByAttemptId.values()]
+    .filter((run) => run.payload.runFacts !== undefined)
+    .map((run) => persistedTrialDescriptor(run));
+  if (value === undefined) return persistedDescriptors;
   if (!Array.isArray(value)) throw new TypeError("trialDescriptors must be an array.");
   if (value.length > ANALYSIS_LIMITS.trialDescriptors) {
     throw new TypeError(`trialDescriptors cannot contain more than ${ANALYSIS_LIMITS.trialDescriptors} entries.`);
@@ -391,7 +498,11 @@ function validateTrialDescriptors(
   return value.map((entry, index) => {
     const descriptor = requireRecord(entry, `trialDescriptors[${index}]`);
     const attemptId = requireIdentifier(descriptor.attemptId, `trialDescriptors[${index}].attemptId`);
-    if (!runsByAttemptId.has(attemptId)) throw new TypeError(`Trial descriptor run ${attemptId} is not present.`);
+    const run = runsByAttemptId.get(attemptId);
+    if (!run) throw new TypeError(`Trial descriptor run ${attemptId} is not present.`);
+    if (run.payload.runFacts !== undefined) {
+      throw new TypeError(`trialDescriptors cannot override persisted run facts for ${attemptId}.`);
+    }
     if (seen.has(attemptId)) throw new TypeError(`Trial descriptor ${attemptId} is duplicated.`);
     seen.add(attemptId);
     const routeId = requireIdentifier(descriptor.routeId, `trialDescriptors[${index}].routeId`);
@@ -407,6 +518,19 @@ function validateTrialDescriptors(
       ...(costUsd === undefined ? {} : { costUsd }),
       ...(wallTimeMs === undefined ? {} : { wallTimeMs }),
     });
+  }).concat(persistedDescriptors).sort((left, right) => left.attemptId.localeCompare(right.attemptId, "en"));
+}
+
+function persistedTrialDescriptor(run: RunAttempt): TrialDescriptor {
+  const facts = run.payload.runFacts;
+  if (!facts) throw new TypeError(`Run ${run.artifactId} is missing persisted run facts.`);
+  return Object.freeze({
+    attemptId: run.payload.attemptId,
+    routeId: facts.routeId,
+    parameters: facts.parameters,
+    slices: facts.slices,
+    ...(facts.actualCost === undefined ? {} : { costUsd: facts.actualCost.usd }),
+    ...(facts.actualWallTimeMs === undefined ? {} : { wallTimeMs: facts.actualWallTimeMs }),
   });
 }
 

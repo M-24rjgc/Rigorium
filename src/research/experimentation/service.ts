@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import { relative, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import {
   buildResearchArtifactGraph,
   canonicalJson,
@@ -20,6 +21,10 @@ import {
   getExperimentAdapter,
   type BaselineObservation,
   type BaselineObservationPayload,
+  type ActualCostRecord,
+  type BaselineRerun,
+  type BaselineRerunInput,
+  type CostReservation,
   type ExecutionGrant,
   type ExecutionGrantInput,
   type ExecutionGrantPayload,
@@ -37,10 +42,19 @@ import {
   type ObservedBaselineInput,
   type ReportedBaselineInput,
   type RunAttempt,
+  type RunAttemptInput,
   type RunAttemptPayload,
+  type RunFacts,
   type WorkerArtifactInput,
   type WorkerMetricInput,
 } from "./contracts.js";
+import {
+  budgetReservationError,
+  emptyExecutionGrantBudgetUsage,
+  reserveExecutionGrantBudget,
+  settleExecutionGrantCost,
+  settleExecutionGrantWallTime,
+} from "./budget.js";
 import {
   getExperimentRunWorkspacePath,
   getProjectExperimentPaths,
@@ -189,6 +203,7 @@ export async function issueExecutionGrant(input: {
         confirmedJobIds: [],
         consumedJobIds: [],
         consumedAttemptIds: [],
+        budgetUsage: emptyExecutionGrantBudgetUsage(),
         status: "active",
       };
       const grant = makeEnvelope<"execution_grant", ExecutionGrantPayload>({
@@ -378,6 +393,7 @@ export async function prepareExperimentRun(input: {
   experimentId: string;
   grantId: string;
   jobId: string;
+  run?: RunAttemptInput;
   expectedManifestRevision?: number;
   now?: Date;
 }): Promise<ExperimentOperationResult<RunAttempt>> {
@@ -393,10 +409,15 @@ export async function prepareExperimentRun(input: {
       const spec = requireLatestSpec(manifest, experimentId);
       const grant = requireLatestGrant(manifest, grantId);
       assertGrantUsable(grant, spec, "prepare", jobId, now);
+      const runIntent = normalizeRunAttemptInput(input.run, spec.payload.adapterId);
+      const baselineRerun = assertBaselineRerunIntent(manifest, experimentId, runIntent.baselineRerun, now);
       const duplicate = findLatestRunByJobId(manifest, jobId);
       if (duplicate) {
         if (duplicate.payload.experimentId !== experimentId) {
           throw new ExperimentServiceError("invalid_input", `jobId ${jobId} is already bound to another experiment.`);
+        }
+        if (input.run !== undefined && !sameRunIntent(duplicate.payload, runIntent, baselineRerun)) {
+          throw new ExperimentServiceError("duplicate_submission", `jobId ${jobId} is already bound to immutable run facts.`);
         }
         return { manifest: previousManifest(manifest), value: { attempt: duplicate, duplicate: true } };
       }
@@ -413,6 +434,8 @@ export async function prepareExperimentRun(input: {
         preparedAt: now.toISOString(),
         grantId,
         workspaceRelativePath: `runs/${attemptId}`,
+        runFacts: runIntent.runFacts,
+        ...(baselineRerun === undefined ? {} : { baselineRerun }),
         artifactIds: [],
         metricObservationIds: [],
       };
@@ -443,6 +466,7 @@ export async function submitLocalExperimentRun(input: {
   grantId: string;
   jobId: string;
   attemptId?: string;
+  run?: RunAttemptInput;
   expectedManifestRevision?: number;
   now?: Date;
   abortSignal?: AbortSignal;
@@ -454,6 +478,7 @@ export async function submitLocalExperimentRun(input: {
       experimentId: input.experimentId,
       grantId: input.grantId,
       jobId: input.jobId,
+      ...(input.run === undefined ? {} : { run: input.run }),
       expectedManifestRevision: input.expectedManifestRevision,
       now: input.now,
     });
@@ -477,15 +502,26 @@ export async function submitLocalExperimentRun(input: {
   const specManifest = requireManifest(running.manifest);
   const spec = findSpecByRevision(specManifest, running.value.payload.experimentId, running.value.payload.specRevision);
   if (!spec) throw new ExperimentServiceError("invalid_state", "The run's pinned experiment spec is missing.");
+  const executionStarted = performance.now();
   let execution: LocalWorkerExecution;
   try {
-    execution = await executeLocalWorker({ projectRoot: input.projectRoot, attempt: running.value, spec, abortSignal: input.abortSignal });
+    execution = await executeLocalWorker({
+      projectRoot: input.projectRoot,
+      attempt: running.value,
+      spec,
+      abortSignal: input.abortSignal,
+      ...(running.value.payload.runFacts?.budgetReservation?.wallTimeMs === undefined
+        ? {}
+        : { maxWallTimeMs: running.value.payload.runFacts.budgetReservation.wallTimeMs }),
+    });
   } catch (error) {
+    const actualWallTimeMs = measuredWallTimeMs(executionStarted);
     const failure = classifyWorkerFailure(error, input.now ?? new Date());
     const failed = await finalizeAttemptFailure({
       projectRoot: input.projectRoot,
       attemptId: running.value.payload.attemptId,
       failure,
+      actualWallTimeMs,
       now: input.now,
     });
     return { ...failed, duplicate: false };
@@ -498,11 +534,13 @@ export async function submitLocalExperimentRun(input: {
       artifacts: execution.artifacts,
     });
   } catch (error) {
+    const actualWallTimeMs = measuredWallTimeMs(executionStarted);
     const failure = classifyWorkerFailure(error, input.now ?? new Date(), "artifact_missing");
     const failed = await finalizeAttemptFailure({
       projectRoot: input.projectRoot,
       attemptId: running.value.payload.attemptId,
       failure,
+      actualWallTimeMs,
       now: input.now,
     });
     return { ...failed, duplicate: false };
@@ -513,9 +551,85 @@ export async function submitLocalExperimentRun(input: {
     metrics: execution.metrics,
     metricSource: spec.payload.localWorker?.kind === "mock" ? "local_mock" : "local_worker",
     artifacts: collected,
+    actualWallTimeMs: measuredWallTimeMs(executionStarted),
     now: input.now,
   });
   return { ...finished, duplicate: false };
+}
+
+/** Records a terminal cost from an explicit provider or user-confirmed source. */
+export async function recordExperimentRunCost(input: {
+  projectRoot: string;
+  attemptId: string;
+  actualCost: Omit<ActualCostRecord, "recordedAt">;
+  expectedManifestRevision?: number;
+  now?: Date;
+}): Promise<ExperimentOperationResult<RunAttempt>> {
+  const attemptId = requireInputIdentifier(input.attemptId, "attemptId");
+  const result = await updateProjectExperimentManifest({
+    projectRoot: input.projectRoot,
+    expectedRevision: input.expectedManifestRevision,
+    now: input.now,
+    update: (existing, now) => {
+      const manifest = requireManifest(existing);
+      const current = requireLatestRun(manifest, attemptId);
+      if (!isSettledRunStatus(current.payload.status)) {
+        throw new ExperimentServiceError("invalid_state", "Actual cost can only be recorded after a run is no longer active.");
+      }
+      if (!current.payload.runFacts) {
+        throw new ExperimentServiceError("invalid_state", "This legacy run has no immutable run facts to settle.");
+      }
+      const actualCost = normalizeActualCostRecord(input.actualCost, now);
+      if (current.payload.runFacts.actualCost) {
+        if (sameActualCostTerms(current.payload.runFacts.actualCost, actualCost)) {
+          return { manifest: previousManifest(manifest), value: current };
+        }
+        throw new ExperimentServiceError("duplicate_submission", "Actual cost is immutable once recorded for a run attempt.");
+      }
+      const grantId = current.payload.grantId;
+      if (!grantId) throw new ExperimentServiceError("invalid_state", "Run attempt has no execution grant to settle.");
+      const grant = requireLatestGrant(manifest, grantId);
+      const settledGrant = makeEnvelope<"execution_grant", ExecutionGrantPayload>({
+        kind: "execution_grant",
+        artifactId: grant.artifactId,
+        revision: grant.revision + 1,
+        payload: {
+          ...grant.payload,
+          budgetUsage: settleExecutionGrantCost({
+            current: grant.payload.budgetUsage,
+            reservation: current.payload.runFacts.budgetReservation,
+            actualCostUsd: actualCost.usd,
+          }),
+        },
+        parents: [{ relation: "supersedes", artifact: toResearchArtifactRef(grant) }],
+        now,
+        toolName: "experiment_cost",
+        createdAt: grant.createdAt,
+      }) as ExecutionGrant;
+      const runFacts: RunFacts = Object.freeze({ ...current.payload.runFacts, actualCost });
+      const settledAttempt = makeEnvelope<"run_attempt", RunAttemptPayload>({
+        kind: "run_attempt",
+        artifactId: current.artifactId,
+        revision: current.revision + 1,
+        payload: { ...current.payload, runFacts },
+        parents: [
+          { relation: "supersedes", artifact: toResearchArtifactRef(current) },
+          { relation: "uses", artifact: toResearchArtifactRef(settledGrant) },
+        ],
+        now,
+        toolName: "experiment_cost",
+        createdAt: current.createdAt,
+      }) as RunAttempt;
+      return {
+        manifest: nextManifest(manifest, now, {
+          executionGrants: sortEnvelopes([...manifest.executionGrants, settledGrant]),
+          runAttempts: sortEnvelopes([...manifest.runAttempts, settledAttempt]),
+        }),
+        value: settledAttempt,
+      };
+    },
+  });
+  return result;
 }
 
 export async function recoverProjectExperimentState(input: {
@@ -600,10 +714,17 @@ async function queueAttempt(input: {
       if (grant.payload.consumedAttemptIds.length >= grant.payload.budget.maxAttempts) {
         throw new ExperimentServiceError("permission_denied", "Execution grant has no remaining attempts.");
       }
+      const reservationError = budgetReservationError({
+        budget: grant.payload.budget,
+        usage: grant.payload.budgetUsage,
+        reservation: current.payload.runFacts?.budgetReservation,
+      });
+      if (reservationError) throw new ExperimentServiceError("permission_denied", reservationError);
       const grantPayload: ExecutionGrantPayload = {
         ...grant.payload,
         consumedJobIds: [...grant.payload.consumedJobIds, current.payload.jobId],
         consumedAttemptIds: [...grant.payload.consumedAttemptIds, current.payload.attemptId],
+        budgetUsage: reserveExecutionGrantBudget(grant.payload.budgetUsage, current.payload.runFacts?.budgetReservation),
       };
       const consumedGrant = makeEnvelope<"execution_grant", ExecutionGrantPayload>({
         kind: "execution_grant",
@@ -680,12 +801,46 @@ async function markAttemptRunning(input: {
   return { ...result, value: result.value.attempt, claimed: result.value.claimed };
 }
 
+function settleTerminalWallTime(input: {
+  manifest: ExperimentManifest;
+  attempt: RunAttempt;
+  actualWallTimeMs: number;
+  now: Date;
+}): Readonly<{ runFacts?: RunFacts; grant?: ExecutionGrant }> {
+  const existingFacts = input.attempt.payload.runFacts;
+  if (!existingFacts || existingFacts.actualWallTimeMs !== undefined) return Object.freeze({ runFacts: existingFacts });
+  const actualWallTimeMs = requireNonNegativeInteger(input.actualWallTimeMs, "actualWallTimeMs");
+  const runFacts: RunFacts = Object.freeze({ ...existingFacts, actualWallTimeMs });
+  const grantId = input.attempt.payload.grantId;
+  if (!grantId) return Object.freeze({ runFacts });
+  const grant = requireLatestGrant(input.manifest, grantId);
+  const settledGrant = makeEnvelope<"execution_grant", ExecutionGrantPayload>({
+    kind: "execution_grant",
+    artifactId: grant.artifactId,
+    revision: grant.revision + 1,
+    payload: {
+      ...grant.payload,
+      budgetUsage: settleExecutionGrantWallTime({
+        current: grant.payload.budgetUsage,
+        reservation: existingFacts.budgetReservation,
+        actualWallTimeMs,
+      }),
+    },
+    parents: [{ relation: "supersedes", artifact: toResearchArtifactRef(grant) }],
+    now: input.now,
+    toolName: "experiment_run",
+    createdAt: grant.createdAt,
+  }) as ExecutionGrant;
+  return Object.freeze({ runFacts, grant: settledGrant });
+}
+
 async function finalizeAttemptSuccess(input: {
   projectRoot: string;
   attempt: RunAttempt;
   metrics: readonly WorkerMetricInput[];
   metricSource: MetricObservationPayload["source"];
   artifacts: readonly CollectedArtifact[];
+  actualWallTimeMs: number;
   now?: Date;
 }): Promise<ExperimentOperationResult<RunAttempt>> {
   const result = await updateProjectExperimentManifest({
@@ -695,6 +850,7 @@ async function finalizeAttemptSuccess(input: {
       const manifest = requireManifest(existing);
       const current = requireLatestRun(manifest, input.attempt.payload.attemptId);
       if (current.payload.status !== "running") return { manifest: previousManifest(manifest), value: current };
+      const settlement = settleTerminalWallTime({ manifest, attempt: current, actualWallTimeMs: input.actualWallTimeMs, now });
       const metrics: MetricObservation[] = [];
       const artifacts: ResearchArtifactEnvelope[] = [];
       const files: ExperimentArtifactFile[] = [];
@@ -759,6 +915,7 @@ async function finalizeAttemptSuccess(input: {
         ...current.payload,
         status: "succeeded",
         finishedAt: now.toISOString(),
+        ...(settlement.runFacts === undefined ? {} : { runFacts: settlement.runFacts }),
         artifactIds: artifacts.map((artifact) => artifact.artifactId),
         metricObservationIds: metrics.map((metric) => metric.artifactId),
       };
@@ -779,6 +936,9 @@ async function finalizeAttemptSuccess(input: {
           artifactEnvelopes: sortEnvelopes([...manifest.artifactEnvelopes, ...artifacts]),
           artifactFiles: [...manifest.artifactFiles, ...files],
           artifactRefs: [...manifest.artifactRefs, ...files.map((file) => file.ref)],
+          ...(settlement.grant === undefined
+            ? {}
+            : { executionGrants: sortEnvelopes([...manifest.executionGrants, settlement.grant]) }),
         }),
         value: finished,
       };
@@ -791,6 +951,7 @@ async function finalizeAttemptFailure(input: {
   projectRoot: string;
   attemptId: string;
   failure: ExperimentFailure;
+  actualWallTimeMs: number;
   now?: Date;
 }): Promise<ExperimentOperationResult<RunAttempt>> {
   const result = await updateProjectExperimentManifest({
@@ -800,17 +961,32 @@ async function finalizeAttemptFailure(input: {
       const manifest = requireManifest(existing);
       const current = requireLatestRun(manifest, input.attemptId);
       if (current.payload.status !== "running") return { manifest: previousManifest(manifest), value: current };
+      const settlement = settleTerminalWallTime({ manifest, attempt: current, actualWallTimeMs: input.actualWallTimeMs, now });
       const failed = makeEnvelope<"run_attempt", RunAttemptPayload>({
         kind: "run_attempt",
         artifactId: current.artifactId,
         revision: current.revision + 1,
-        payload: { ...current.payload, status: "failed", finishedAt: now.toISOString(), failure: input.failure },
+        payload: {
+          ...current.payload,
+          status: "failed",
+          finishedAt: now.toISOString(),
+          failure: input.failure,
+          ...(settlement.runFacts === undefined ? {} : { runFacts: settlement.runFacts }),
+        },
         parents: [{ relation: "supersedes", artifact: toResearchArtifactRef(current) }],
         now,
         toolName: "experiment_run",
         createdAt: current.createdAt,
       }) as RunAttempt;
-      return { manifest: nextManifest(manifest, now, { runAttempts: sortEnvelopes([...manifest.runAttempts, failed]) }), value: failed };
+      return {
+        manifest: nextManifest(manifest, now, {
+          runAttempts: sortEnvelopes([...manifest.runAttempts, failed]),
+          ...(settlement.grant === undefined
+            ? {}
+            : { executionGrants: sortEnvelopes([...manifest.executionGrants, settlement.grant]) }),
+        }),
+        value: failed,
+      };
     },
   });
   return result;
@@ -822,6 +998,7 @@ async function loadPreparedAttempt(input: {
   grantId: string;
   jobId: string;
   attemptId?: string;
+  run?: RunAttemptInput;
   expectedManifestRevision?: number;
   now?: Date;
 }): Promise<ExperimentOperationResult<RunAttempt>> {
@@ -833,6 +1010,15 @@ async function loadPreparedAttempt(input: {
   if (!attempt) throw new ExperimentServiceError("not_found", "Prepared run attempt was not found.");
   if (attempt.payload.experimentId !== input.experimentId || attempt.payload.jobId !== input.jobId) {
     throw new ExperimentServiceError("invalid_input", "attemptId does not match experimentId/jobId.");
+  }
+  if (input.run !== undefined) {
+    const spec = findSpecByRevision(manifest, attempt.payload.experimentId, attempt.payload.specRevision);
+    if (!spec) throw new ExperimentServiceError("invalid_state", "The prepared run's experiment spec is missing.");
+    const intent = normalizeRunAttemptInput(input.run, spec.payload.adapterId);
+    const baselineRerun = assertBaselineRerunIntent(manifest, attempt.payload.experimentId, intent.baselineRerun, input.now ?? new Date());
+    if (!sameRunIntent(attempt.payload, intent, baselineRerun)) {
+      throw new ExperimentServiceError("duplicate_submission", "attemptId is already bound to immutable run facts.");
+    }
   }
   return { value: attempt, manifest, path: getProjectExperimentPaths({ projectRoot: input.projectRoot }).manifestPath, created: false, persisted: false };
 }
@@ -1270,6 +1456,168 @@ function normalizeGrantInput(input: ExecutionGrantInput): ExecutionGrantInput & 
   };
 }
 
+function normalizeRunAttemptInput(input: RunAttemptInput | undefined, defaultRouteId: ExperimentAdapterId): Readonly<{
+  runFacts: RunFacts;
+  baselineRerun?: BaselineRerunInput;
+}> {
+  if (input !== undefined && !isRecord(input)) {
+    throw new ExperimentServiceError("invalid_input", "run must be an object when supplied.");
+  }
+  const value = input ?? {};
+  const routeId = value.routeId === undefined ? defaultRouteId : requireInputIdentifier(value.routeId, "run.routeId");
+  const parameters = normalizeRunScalarRecord(value.parameters, "run.parameters");
+  const slices = normalizeRunScalarRecord(value.slices, "run.slices");
+  const budgetReservation = value.budgetReservation === undefined
+    ? undefined
+    : normalizeRunBudgetReservation(value.budgetReservation);
+  const baselineRerun = value.baselineRerun === undefined
+    ? undefined
+    : normalizeBaselineRerunInput(value.baselineRerun);
+  return Object.freeze({
+    runFacts: Object.freeze({
+      routeId,
+      parameters,
+      slices,
+      ...(budgetReservation === undefined ? {} : { budgetReservation }),
+    }),
+    ...(baselineRerun === undefined ? {} : { baselineRerun }),
+  });
+}
+
+function normalizeRunScalarRecord(
+  value: Readonly<Record<string, string | number | boolean>> | undefined,
+  label: string,
+): Readonly<Record<string, string | number | boolean>> {
+  if (value === undefined) return Object.freeze({});
+  if (!isRecord(value)) throw new ExperimentServiceError("invalid_input", `${label} must be an object.`);
+  const result: Record<string, string | number | boolean> = {};
+  for (const key of Object.keys(value).sort((left, right) => left.localeCompare(right, "en"))) {
+    requireInputIdentifier(key, `${label} key`);
+    const entry = value[key];
+    if (typeof entry === "string") result[key] = requireText(entry, `${label}.${key}`);
+    else if (typeof entry === "boolean") result[key] = entry;
+    else if (typeof entry === "number" && Number.isFinite(entry)) result[key] = Object.is(entry, -0) ? 0 : entry;
+    else throw new ExperimentServiceError("invalid_input", `${label}.${key} must be a finite scalar.`);
+  }
+  return Object.freeze(result);
+}
+
+function normalizeRunBudgetReservation(value: unknown): NonNullable<RunFacts["budgetReservation"]> {
+  if (!isRecord(value)) throw new ExperimentServiceError("invalid_input", "run.budgetReservation must be an object.");
+  for (const key of Object.keys(value)) {
+    if (key !== "wallTimeMs" && key !== "cost") {
+      throw new ExperimentServiceError("invalid_input", `run.budgetReservation does not accept ${key}.`);
+    }
+  }
+  const wallTimeMs = value.wallTimeMs;
+  if (wallTimeMs !== undefined && (!Number.isSafeInteger(wallTimeMs) || wallTimeMs < 1)) {
+    throw new ExperimentServiceError("invalid_input", "run.budgetReservation.wallTimeMs must be a positive integer.");
+  }
+  let cost: CostReservation | undefined;
+  if (value.cost !== undefined) {
+    if (!isRecord(value.cost)) throw new ExperimentServiceError("invalid_input", "run.budgetReservation.cost must be an object.");
+    for (const key of Object.keys(value.cost)) {
+      if (key !== "usd" && key !== "source" && key !== "reference") {
+        throw new ExperimentServiceError("invalid_input", `run.budgetReservation.cost does not accept ${key}.`);
+      }
+    }
+    if (typeof value.cost.usd !== "number" || !Number.isFinite(value.cost.usd) || value.cost.usd < 0) {
+      throw new ExperimentServiceError("invalid_input", "run.budgetReservation.cost.usd must be a finite non-negative number.");
+    }
+    if (value.cost.source !== "provider_quote" && value.cost.source !== "user_confirmed") {
+      throw new ExperimentServiceError("invalid_input", "run.budgetReservation.cost.source must be provider_quote or user_confirmed.");
+    }
+    cost = Object.freeze({
+      usd: Object.is(value.cost.usd, -0) ? 0 : value.cost.usd,
+      source: value.cost.source,
+      reference: requireText(value.cost.reference, "run.budgetReservation.cost.reference"),
+    });
+  }
+  if (wallTimeMs === undefined && cost === undefined) {
+    throw new ExperimentServiceError("invalid_input", "run.budgetReservation must reserve wall time, cost, or both.");
+  }
+  return Object.freeze({
+    ...(wallTimeMs === undefined ? {} : { wallTimeMs }),
+    ...(cost === undefined ? {} : { cost }),
+  });
+}
+
+function normalizeBaselineRerunInput(value: unknown): BaselineRerunInput {
+  if (!isRecord(value)) throw new ExperimentServiceError("invalid_input", "run.baselineRerun must be an object.");
+  for (const key of Object.keys(value)) {
+    if (key !== "baselineId" && key !== "purpose" && key !== "confirmed") {
+      throw new ExperimentServiceError("invalid_input", `run.baselineRerun does not accept ${key}.`);
+    }
+  }
+  if (value.purpose !== "reproduce_reported_baseline" && value.purpose !== "compare_reported_baseline") {
+    throw new ExperimentServiceError("invalid_input", "run.baselineRerun.purpose is invalid.");
+  }
+  if (typeof value.confirmed !== "boolean") throw new ExperimentServiceError("invalid_input", "run.baselineRerun.confirmed must be boolean.");
+  return Object.freeze({
+    baselineId: requireInputIdentifier(value.baselineId, "run.baselineRerun.baselineId"),
+    purpose: value.purpose,
+    confirmed: value.confirmed,
+  });
+}
+
+function assertBaselineRerunIntent(
+  manifest: ExperimentManifest,
+  experimentId: string,
+  input: BaselineRerunInput | undefined,
+  now: Date,
+): BaselineRerun | undefined {
+  if (!input) return undefined;
+  if (!input.confirmed) {
+    throw new ExperimentServiceError("permission_denied", "Baseline rerun requires confirmed=true after explicit user approval.");
+  }
+  const baseline = latestById(manifest.baselineObservations, input.baselineId);
+  if (!baseline) throw new ExperimentServiceError("not_found", `Reported baseline not found: ${input.baselineId}.`);
+  if (baseline.payload.experimentId !== experimentId) {
+    throw new ExperimentServiceError("invalid_input", "Baseline rerun belongs to another experiment.");
+  }
+  if (baseline.payload.provenance.kind !== "reported") {
+    throw new ExperimentServiceError("invalid_input", "Only a reported baseline can be classified as a rerun target.");
+  }
+  return Object.freeze({ baselineId: input.baselineId, purpose: input.purpose, confirmedAt: now.toISOString() });
+}
+
+function sameRunIntent(
+  payload: RunAttemptPayload,
+  intent: Readonly<{ runFacts: RunFacts; baselineRerun?: BaselineRerunInput }>,
+  baselineRerun: BaselineRerun | undefined,
+): boolean {
+  return sameJson(payload.runFacts, intent.runFacts)
+    && payload.baselineRerun?.baselineId === baselineRerun?.baselineId
+    && payload.baselineRerun?.purpose === baselineRerun?.purpose;
+}
+
+function sameActualCostTerms(left: ActualCostRecord, right: ActualCostRecord): boolean {
+  const { recordedAt: _leftRecordedAt, ...leftTerms } = left;
+  const { recordedAt: _rightRecordedAt, ...rightTerms } = right;
+  return sameJson(leftTerms, rightTerms);
+}
+
+function normalizeActualCostRecord(input: Omit<ActualCostRecord, "recordedAt">, now: Date): ActualCostRecord {
+  if (!isRecord(input)) throw new ExperimentServiceError("invalid_input", "actualCost must be an object.");
+  for (const key of Object.keys(input)) {
+    if (key !== "usd" && key !== "source" && key !== "reference") {
+      throw new ExperimentServiceError("invalid_input", `actualCost does not accept ${key}.`);
+    }
+  }
+  if (typeof input.usd !== "number" || !Number.isFinite(input.usd) || input.usd < 0) {
+    throw new ExperimentServiceError("invalid_input", "actualCost.usd must be a finite non-negative number.");
+  }
+  if (input.source !== "provider_reported" && input.source !== "user_confirmed") {
+    throw new ExperimentServiceError("invalid_input", "actualCost.source must be provider_reported or user_confirmed.");
+  }
+  return Object.freeze({
+    usd: Object.is(input.usd, -0) ? 0 : input.usd,
+    source: input.source,
+    reference: requireText(input.reference, "actualCost.reference"),
+    recordedAt: now.toISOString(),
+  });
+}
+
 function normalizeLocalWorkerDefinition(value: LocalWorkerDefinition): LocalWorkerDefinition {
   if (!isRecord(value)) throw new ExperimentServiceError("invalid_input", "localWorker must be an object.");
   if (value.kind === "process") {
@@ -1513,6 +1861,7 @@ function sameGrantTerms(
     confirmedJobIds: _confirmedJobIds,
     consumedJobIds: _consumedJobIds,
     consumedAttemptIds: _consumedAttemptIds,
+    budgetUsage: _budgetUsage,
     status: _status,
     ...storedTerms
   } = grant;
@@ -1548,6 +1897,21 @@ function requireText(value: unknown, label: string): string {
     throw new ExperimentServiceError("invalid_input", `${label} must be non-empty trimmed text.`);
   }
   return value;
+}
+
+function requireNonNegativeInteger(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new ExperimentServiceError("invalid_input", `${label} must be a non-negative integer.`);
+  }
+  return value as number;
+}
+
+function measuredWallTimeMs(startedAt: number): number {
+  return Math.max(0, Math.ceil(performance.now() - startedAt));
+}
+
+function isSettledRunStatus(status: RunAttemptPayload["status"]): boolean {
+  return status === "succeeded" || status === "failed" || status === "cancelled" || status === "recovery_required";
 }
 
 function assertAdapterId(value: string): asserts value is ExperimentAdapterId {

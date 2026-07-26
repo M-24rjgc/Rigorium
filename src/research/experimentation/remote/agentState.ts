@@ -93,7 +93,7 @@ export type RemoteAgentJobPaths = Readonly<{
 }>;
 
 export class RemoteAgentStateError extends Error {
-  readonly code: "path_violation" | "hash_mismatch" | "job_conflict" | "job_not_found" | "storage_error";
+  readonly code: "path_violation" | "hash_mismatch" | "job_conflict" | "job_not_found" | "scheduler_error" | "storage_error";
 
   constructor(code: RemoteAgentStateError["code"], message: string) {
     super(message);

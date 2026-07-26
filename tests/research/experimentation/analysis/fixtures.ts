@@ -30,6 +30,18 @@ export function runAttempt(input: {
   startedAt?: string;
   finishedAt?: string;
   failure?: ExperimentFailure;
+  runFacts?: Readonly<{
+    routeId: string;
+    parameters?: Readonly<Record<string, string | number | boolean>>;
+    slices?: Readonly<Record<string, string | number | boolean>>;
+    actualWallTimeMs?: number;
+    actualCost?: Readonly<{
+      usd: number;
+      source: "provider_reported" | "user_confirmed";
+      reference: string;
+      recordedAt: string;
+    }>;
+  }>;
 }): RunAttempt {
   const status = input.status ?? "succeeded";
   return createResearchArtifact({
@@ -48,6 +60,13 @@ export function runAttempt(input: {
       preparedAt: input.preparedAt ?? ANALYSIS_TEST_NOW.toISOString(),
       ...(input.startedAt === undefined ? {} : { startedAt: input.startedAt }),
       ...(input.finishedAt === undefined ? {} : { finishedAt: input.finishedAt }),
+      ...(input.runFacts === undefined ? {} : {
+        runFacts: {
+          ...input.runFacts,
+          parameters: input.runFacts.parameters ?? {},
+          slices: input.runFacts.slices ?? {},
+        },
+      }),
       artifactIds: [],
       metricObservationIds: [...(input.metricObservationIds ?? [])],
       ...(input.failure === undefined ? {} : { failure: input.failure }),

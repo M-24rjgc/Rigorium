@@ -24,7 +24,10 @@ import type {
 } from "./contracts.js";
 import {
   applyRemoteExperimentObservation,
+  assertRemoteExperimentStagingAuthorized,
+  reconcileRemoteExperimentCancellation,
   reserveRemoteExperimentRun,
+  type RemoteCancellationReconciliationInput,
 } from "./experimentBridge.js";
 import {
   prepareRemoteStageFiles,
@@ -119,6 +122,7 @@ export class RemoteExperimentController {
       experimentId: normalized.experimentId,
       grantId: normalized.grantId,
       jobId: normalized.jobId,
+      ...(normalized.run === undefined ? {} : { run: normalized.run }),
       now: this.#now(),
     });
     if (prepared.value.payload.adapterId !== normalized.backend) {
@@ -131,11 +135,19 @@ export class RemoteExperimentController {
     const latestGrant = latestById(mainManifest.executionGrants, normalized.grantId);
     if (!latestGrant) throw controllerError("not_found", `Execution grant not found: ${normalized.grantId}.`);
     const now = this.#now();
+    assertRemoteExperimentStagingAuthorized({
+      manifest: mainManifest,
+      attempt: prepared.value,
+      grantId: normalized.grantId,
+      automaticGrantConfirmed: normalized.automaticGrantConfirmed,
+      now,
+    });
     const initial = remoteJobRecord({
       normalized,
       attemptId: prepared.value.payload.attemptId,
       grantMode: latestGrant.payload.mode,
       requestHash,
+      maxWallTimeMs: prepared.value.payload.runFacts?.budgetReservation?.wallTimeMs,
       now,
     });
     const created = await createRemoteJob({ projectRoot: input.projectRoot, job: initial, now });
@@ -178,11 +190,14 @@ export class RemoteExperimentController {
           projectRoot: input.projectRoot,
           jobId: job.jobId,
           now: this.#now(),
-          update: (current, updateNow) => appendJobEvent({ ...current, stagedFiles: Object.freeze(stagedRecords), failure: undefined } as RemoteJobRecord, updateNow, {
-            status: "prepared",
-            phase: "prepared",
-            message: `Staged ${stagedRecords.length} file(s) with verified SHA-256 hashes.`,
-          }),
+          update: (current, updateNow) => {
+            const { failure: _failure, ...withoutFailure } = current;
+            return appendJobEvent({ ...withoutFailure, stagedFiles: Object.freeze(stagedRecords) } as RemoteJobRecord, updateNow, {
+              status: "prepared",
+              phase: "prepared",
+              message: `Staged ${stagedRecords.length} file(s) with verified SHA-256 hashes.`,
+            });
+          },
         })).job;
       } catch (error) {
         await this.#recordPreSubmissionFailure(input.projectRoot, job, error);
@@ -259,6 +274,39 @@ export class RemoteExperimentController {
     const { job, connection } = await this.#loadJob(input.projectRoot, input.jobId);
     if (job.phase === "terminal") return this.#resultFromExisting(input.projectRoot, job, true);
     return this.#observe(input.projectRoot, job, connection, "cancel", options.signal);
+  }
+
+  /**
+   * Applies explicit external cancellation evidence after remote recovery can
+   * no longer determine whether the stable job is still running.
+   */
+  async reconcile(input: {
+    projectRoot: string;
+    jobId: string;
+    reconciliation: RemoteCancellationReconciliationInput;
+  }): Promise<RemoteExperimentOperationResult> {
+    const { job } = await this.#loadJob(input.projectRoot, input.jobId);
+    const reconciled = await reconcileRemoteExperimentCancellation({
+      projectRoot: input.projectRoot,
+      attemptId: job.attemptId,
+      reconciliation: input.reconciliation,
+      now: this.#now(),
+    });
+    if (reconciled.duplicate) return this.#resultFromExisting(input.projectRoot, job, true);
+    const observation: RemoteBackendJobObservation = Object.freeze({
+      backend: job.backend,
+      jobId: job.jobId,
+      ...(job.backendJobId === undefined ? {} : { backendJobId: job.backendJobId }),
+      ...(job.schedulerJobId === undefined ? {} : { schedulerJobId: job.schedulerJobId }),
+      status: "cancelled",
+      duplicate: false,
+      observedAt: reconciled.attempt.payload.finishedAt ?? this.#now().toISOString(),
+      ...(reconciled.attempt.payload.startedAt === undefined ? {} : { startedAt: reconciled.attempt.payload.startedAt }),
+      ...(reconciled.attempt.payload.finishedAt === undefined ? {} : { finishedAt: reconciled.attempt.payload.finishedAt }),
+      ...(reconciled.attempt.payload.failure === undefined ? {} : { failure: reconciled.attempt.payload.failure }),
+    });
+    const persisted = await this.#persistObservation(input.projectRoot, job, observation, "terminal");
+    return Object.freeze({ job: persisted.job, attempt: reconciled.attempt, duplicate: false });
   }
 
   async #observe(
@@ -360,6 +408,7 @@ function remoteJobRecord(input: {
   attemptId: string;
   grantMode: RemoteJobRecord["grantMode"];
   requestHash: string;
+  maxWallTimeMs?: number;
   now: Date;
 }): RemoteJobRecord {
   const timestamp = input.now.toISOString();
@@ -382,6 +431,7 @@ function remoteJobRecord(input: {
     workdir: input.normalized.workdir,
     argv: input.normalized.argv,
     ...(input.normalized.slurm === undefined ? {} : { slurm: input.normalized.slurm }),
+    ...(input.maxWallTimeMs === undefined ? {} : { maxWallTimeMs: input.maxWallTimeMs }),
     stagedFiles: Object.freeze([]),
     status: "prepared",
     phase: "prepared",
@@ -437,6 +487,7 @@ function submitRequest(input: {
     workdir: input.job.workdir,
     argv: input.job.argv,
     ...(input.job.slurm === undefined ? {} : { slurm: input.job.slurm }),
+    ...(input.job.maxWallTimeMs === undefined ? {} : { maxWallTimeMs: input.job.maxWallTimeMs }),
   });
 }
 
@@ -462,8 +513,12 @@ function jobFromObservation(
     ...(current.backendJobId || observation.backendJobId ? { backendJobId: current.backendJobId ?? observation.backendJobId } : {}),
     ...(current.schedulerJobId || observation.schedulerJobId ? { schedulerJobId: current.schedulerJobId ?? observation.schedulerJobId } : {}),
     ...(current.submittedAt || observation.backendJobId ? { submittedAt: current.submittedAt ?? timestamp } : {}),
-    ...(current.startedAt || status === "running" ? { startedAt: current.startedAt ?? timestamp } : {}),
-    ...(["succeeded", "failed", "cancelled", "recovery_required"].includes(status) ? { finishedAt: timestamp } : {}),
+    ...(current.startedAt || observation.startedAt || status === "running"
+      ? { startedAt: current.startedAt ?? observation.startedAt ?? timestamp }
+      : {}),
+    ...(["succeeded", "failed", "cancelled", "recovery_required"].includes(status)
+      ? { finishedAt: observation.finishedAt ?? timestamp }
+      : {}),
     ...(observation.failure === undefined ? {} : { failure: observation.failure }),
     events: current.events,
   };

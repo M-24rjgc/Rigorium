@@ -4,6 +4,7 @@ import {
   loadExperimentManifest,
   type ExecutionGrant,
   type ExperimentManifest,
+  type RunAttemptInput,
 } from "../../research/experimentation/index.js";
 import {
   OpenSshRemoteTransport,
@@ -25,6 +26,7 @@ import {
   type RemoteExperimentSubmission,
   type RemoteStageFileInput,
   type RemoteBackend,
+  type RemoteCancellationReconciliationInput,
   type SlurmResourceSpec,
 } from "../../research/experimentation/remote/index.js";
 import { PilotDeckToolRuntimeError } from "../protocol/errors.js";
@@ -44,6 +46,7 @@ export const EXPERIMENT_REMOTE_OPERATIONS = [
   "query",
   "recover",
   "cancel",
+  "reconcile",
 ] as const;
 
 export type ExperimentRemoteOperation = typeof EXPERIMENT_REMOTE_OPERATIONS[number];
@@ -62,6 +65,8 @@ export type ExperimentRemoteInput = Readonly<{
   argv?: readonly string[];
   stageFiles?: readonly RemoteStageFileInput[];
   slurm?: SlurmResourceSpec;
+  run?: RunAttemptInput;
+  reconciliation?: RemoteCancellationReconciliationInput;
 }>;
 
 export type ExperimentRemoteOutput = Readonly<{
@@ -91,14 +96,16 @@ export function createExperimentRemoteTool(
     title: "Operate Remote Experiments",
     description: `Register and inspect Project-local remote experiment connections, locally hash-check stage-file preflights, explicitly confirm stable jobs, and submit/query/recover/cancel SSH or Slurm work through the auditable remote controller.
 
-The current Project cwd is the only local storage root. OpenSSH uses strict known-host verification and sends experiment terms as JSON to a fixed remote agent. Slurm uses the remote agent's structured scheduler adapter. The stage operation is a local Project-file hash preflight only: it validates a registered connection's workspace boundary but never opens a network connection or writes a remote file. Remote staging happens only inside submit, after the execution grant and stable job identity are reserved. A stable jobId is never rebound, and a submission_uncertain job is recovered or queried rather than submitted again. Submit, query, recover, and cancel are open-world network actions.`,
+The current Project cwd is the only local storage root. OpenSSH uses strict known-host verification and sends experiment terms as JSON to a fixed remote agent. Slurm uses the remote agent's structured scheduler adapter. The stage operation is a local Project-file hash preflight only: it validates a registered connection's workspace boundary but never opens a network connection or writes a remote file. Remote staging happens only inside an authorized submit; the attempt budget is then atomically reserved before backend process submission. A stable jobId is never rebound, and a submission_uncertain job is recovered or queried rather than submitted again. If a backend remains permanently unobservable, reconcile requires explicit operator-confirmed cancellation evidence and measured wall time; an explicit actual-cost record is still required to settle cost. Submit, query, recover, and cancel are open-world network actions.`,
     kind: "custom",
     inputSchema: experimentRemoteInputSchema(),
     maxResultBytes: positiveInteger(options.maxResultBytes) ?? 4_000_000,
     isReadOnly: (input) => input.operation === "list" || input.operation === "stage",
     isConcurrencySafe: (input) => input.operation === "list" || input.operation === "stage",
     isDestructive: (input) => input.operation === "cancel",
-    requiresUserInteraction: (input) => input.operation === "confirm" || input.operation === "cancel",
+    requiresUserInteraction: (input) => input.operation === "confirm"
+      || input.operation === "cancel"
+      || input.operation === "reconcile",
     isOpenWorld: (input) => input.operation === "submit"
       || input.operation === "query"
       || input.operation === "recover"
@@ -208,6 +215,22 @@ async function executeOperation(
         duplicate: result.duplicate,
       });
     }
+    case "reconcile": {
+      const controller = new RemoteExperimentController({ transport, now });
+      const result = await controller.reconcile({
+        projectRoot,
+        jobId: input.jobId!,
+        reconciliation: input.reconciliation!,
+      });
+      return formatOutput({
+        operation: input.operation,
+        projectRoot,
+        experimentManifest: await loadExperimentManifest({ projectRoot }) ?? null,
+        remoteManifest: await loadRemoteExecutionManifest({ projectRoot }) ?? null,
+        result,
+        duplicate: result.duplicate,
+      });
+    }
   }
 }
 
@@ -224,6 +247,7 @@ function remoteSubmission(projectRoot: string, input: ExperimentRemoteInput): Re
     argv: input.argv!,
     ...(input.stageFiles === undefined ? {} : { stageFiles: input.stageFiles }),
     ...(input.slurm === undefined ? {} : { slurm: input.slurm }),
+    ...(input.run === undefined ? {} : { run: input.run }),
   };
 }
 
@@ -245,7 +269,7 @@ function normalizeInput(value: unknown): ExperimentRemoteInput {
   if (!isRecord(value)) throw new TypeError("experiment_remote input must be an object.");
   const allowedKeys = new Set([
     "operation", "connection", "connectionId", "backend", "experimentId", "grantId", "jobId",
-    "automaticGrantConfirmed", "confirmed", "workdir", "argv", "stageFiles", "slurm",
+    "automaticGrantConfirmed", "confirmed", "workdir", "argv", "stageFiles", "slurm", "run", "reconciliation",
   ]);
   for (const key of Object.keys(value)) {
     if (!allowedKeys.has(key)) throw new TypeError(`experiment_remote does not accept ${key}; project storage is fixed to the current cwd.`);
@@ -259,10 +283,11 @@ function normalizeInput(value: unknown): ExperimentRemoteInput {
     list: ["operation"],
     stage: ["operation", "connectionId", "workdir", "stageFiles"],
     confirm: ["operation", "grantId", "jobId", "confirmed"],
-    submit: ["operation", "connectionId", "backend", "experimentId", "grantId", "jobId", "automaticGrantConfirmed", "workdir", "argv", "stageFiles", "slurm"],
+    submit: ["operation", "connectionId", "backend", "experimentId", "grantId", "jobId", "automaticGrantConfirmed", "workdir", "argv", "stageFiles", "slurm", "run"],
     query: ["operation", "jobId"],
     recover: ["operation", "jobId"],
     cancel: ["operation", "jobId"],
+    reconcile: ["operation", "jobId", "reconciliation", "confirmed"],
   };
   const operationKeys = new Set(allowedForOperation[operation]);
   for (const key of Object.keys(value)) {
@@ -284,8 +309,14 @@ function normalizeInput(value: unknown): ExperimentRemoteInput {
     requiredText(value.workdir, "workdir");
     if (!Array.isArray(value.argv) || value.argv.length === 0) throw new TypeError("submit requires argv.");
     if (value.backend === "ssh" && value.slurm !== undefined) throw new TypeError("slurm resources require backend=slurm.");
+    if (value.run !== undefined && !isRecord(value.run)) throw new TypeError("submit run must be an object.");
   }
   if (["query", "recover", "cancel"].includes(operation)) requiredText(value.jobId, "jobId");
+  if (operation === "reconcile") {
+    requiredText(value.jobId, "jobId");
+    if (!isRecord(value.reconciliation)) throw new TypeError("operation=reconcile requires reconciliation.");
+    if (value.confirmed !== true) throw new TypeError("operation=reconcile requires confirmed=true after explicit user approval.");
+  }
   if (operation === "confirm") {
     requiredText(value.grantId, "grantId");
     requiredText(value.jobId, "jobId");
@@ -374,11 +405,13 @@ function experimentRemoteInputSchema() {
       grantId: { type: "string" },
       jobId: { type: "string", description: "Stable idempotency identity; never change it after an uncertain submit." },
       automaticGrantConfirmed: { type: "boolean", description: "Required true for a budget_auto remote submit after explicit approval." },
-      confirmed: { type: "boolean", description: "Must be true for operation=confirm after explicit user approval." },
+      confirmed: { type: "boolean", description: "Must be true for operation=confirm or operation=reconcile after explicit user approval." },
       workdir: { type: "string", description: "Absolute normalized POSIX path below the registered remote workspace root." },
       argv: { type: "array", items: { type: "string" }, description: "Executable plus arguments; never a shell command string." },
       stageFiles: { type: "array", items: { type: "object" }, description: "Project-local files mapped to remote-relative paths." },
       slurm: { type: "object", description: "Structured Slurm resource limits for backend=slurm." },
+      run: { type: "object", description: "Immutable route, parameter, slice, baseline-rerun, and explicit budget-reservation facts." },
+      reconciliation: { type: "object", description: "External cancellation evidence and actualWallTimeMs for operation=reconcile after remote recovery is exhausted." },
     },
   };
 }

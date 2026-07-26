@@ -16,6 +16,8 @@ import { hashResearchArtifactContent } from "../../../src/research/artifacts/ind
 import {
   confirmExecutionJob,
   issueExecutionGrant,
+  loadExperimentManifest,
+  recordExperimentRunCost,
   saveExperimentSpec,
 } from "../../../src/research/experimentation/index.js";
 import {
@@ -171,36 +173,106 @@ test("ambiguous OpenSSH submit protocol failures remain recovery-only", async ()
 
 test("remote controller enforces all grant modes before the first backend submit", async () => {
   const plan = await controllerFixture("grant-plan", "plan_only", "job-plan");
+  const planStageFile = join(plan.root, "plan-stage.txt");
+  await writeFile(planStageFile, "must not be uploaded", "utf8");
   await assert.rejects(
-    plan.controller.submit(plan.submission),
+    plan.controller.submit({
+      ...plan.submission,
+      stageFiles: [{ localPath: planStageFile, remoteRelativePath: "inputs/plan-stage.txt" }],
+    }),
     (error: unknown) => error instanceof RemoteExperimentBridgeError && error.code === "permission_denied",
   );
+  assert.equal(plan.transport.count("stage"), 0);
   assert.equal(plan.transport.count("submit"), 0);
 
   const confirm = await controllerFixture("grant-confirm", "confirm_each", "job-confirm");
+  const confirmStageFile = join(confirm.root, "confirm-stage.txt");
+  await writeFile(confirmStageFile, "upload only after confirmation", "utf8");
+  const confirmedSubmission = {
+    ...confirm.submission,
+    stageFiles: [{ localPath: confirmStageFile, remoteRelativePath: "inputs/confirm-stage.txt" }],
+  };
   await assert.rejects(
-    confirm.controller.submit(confirm.submission),
+    confirm.controller.submit(confirmedSubmission),
     (error: unknown) => error instanceof RemoteExperimentBridgeError && error.code === "permission_denied",
   );
+  assert.equal(confirm.transport.count("stage"), 0);
   assert.equal(confirm.transport.count("submit"), 0);
   await confirmExecutionJob({
     projectRoot: confirm.root,
     grantId: confirm.submission.grantId,
     jobId: confirm.submission.jobId,
   });
-  const confirmed = await confirm.controller.submit(confirm.submission);
+  const confirmed = await confirm.controller.submit(confirmedSubmission);
   assert.equal(confirmed.job.status, "queued");
+  assert.equal(confirm.transport.count("stage"), 1);
   assert.equal(confirm.transport.count("submit"), 1);
 
   const automatic = await controllerFixture("grant-auto", "budget_auto", "job-auto");
+  const automaticStageFile = join(automatic.root, "automatic-stage.txt");
+  await writeFile(automaticStageFile, "upload only after automatic grant confirmation", "utf8");
+  const automaticSubmission = {
+    ...automatic.submission,
+    stageFiles: [{ localPath: automaticStageFile, remoteRelativePath: "inputs/automatic-stage.txt" }],
+  };
   await assert.rejects(
-    automatic.controller.submit(automatic.submission),
+    automatic.controller.submit(automaticSubmission),
     (error: unknown) => error instanceof RemoteExperimentBridgeError && error.code === "permission_denied",
   );
+  assert.equal(automatic.transport.count("stage"), 0);
   assert.equal(automatic.transport.count("submit"), 0);
-  const accepted = await automatic.controller.submit({ ...automatic.submission, automaticGrantConfirmed: true });
+  const accepted = await automatic.controller.submit({ ...automaticSubmission, automaticGrantConfirmed: true });
   assert.equal(accepted.job.status, "queued");
+  assert.equal(automatic.transport.count("stage"), 1);
   assert.equal(automatic.transport.count("submit"), 1);
+});
+
+test("remote submission reserves wall time and quoted cost atomically before contacting the backend", async () => {
+  const fixture = await controllerFixture("budget-reservation", "budget_auto", "job-budget-a", {
+    maxAttempts: 3,
+    maxWallTimeMs: 60_000,
+    maxCostUsd: 5,
+  });
+  const missingReservation = await assert.rejects(
+    fixture.controller.submit({ ...fixture.submission, automaticGrantConfirmed: true }),
+    (error: unknown) => error instanceof RemoteExperimentBridgeError
+      && error.code === "permission_denied"
+      && /reservation/u.test(error.message),
+  );
+  assert.equal(missingReservation, undefined);
+  assert.equal(fixture.transport.count("submit"), 0);
+
+  const reservedRun = {
+    routeId: "remote-ledger-route",
+    parameters: { seed: 7 },
+    slices: { split: "heldout" },
+    budgetReservation: {
+      wallTimeMs: 30_000,
+      cost: { usd: 3, source: "provider_quote", reference: "cluster-price-v1" },
+    },
+  } as const;
+  const attempts = await Promise.allSettled([
+    fixture.controller.submit({ ...fixture.submission, automaticGrantConfirmed: true, run: reservedRun }),
+    fixture.controller.submit({
+      ...fixture.submission,
+      jobId: "job-budget-b",
+      workdir: `${logicalWorkspaceRoot}/project-a/job-budget-b`,
+      automaticGrantConfirmed: true,
+      run: reservedRun,
+    }),
+  ]);
+  assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+  assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 1);
+  const request = fixture.transport.requests.find((candidate) => candidate.action === "submit");
+  assert.equal(request?.action, "submit");
+  if (request?.action === "submit") assert.equal(request.maxWallTimeMs, 30_000);
+
+  const manifest = await loadExperimentManifest({ projectRoot: fixture.root });
+  const latestGrant = [...(manifest?.executionGrants ?? [])]
+    .filter((entry) => entry.artifactId === fixture.submission.grantId)
+    .sort((left, right) => right.revision - left.revision)[0];
+  assert.equal(latestGrant?.payload.budgetUsage?.reservedCostUsd, 3);
+  assert.equal(latestGrant?.payload.budgetUsage?.reservedWallTimeMs, 30_000);
 });
 
 test("remote controller rejects a backend that differs from the pinned experiment adapter", async () => {
@@ -240,6 +312,97 @@ test("disconnect after submit recovers through a new controller without a second
   const queried = await restarted.query({ projectRoot: fixture.root, jobId: fixture.submission.jobId });
   assert.equal(queried.job.status, "queued");
   assert.equal(fixture.transport.count("submit"), 1);
+});
+
+test("remote terminal observations retain wall-time reservations until scheduler timestamps arrive", async () => {
+  const fixture = await controllerFixture("terminal-timing", "budget_auto", "job-terminal-timing", {
+    maxAttempts: 1,
+    maxWallTimeMs: 60_000,
+  });
+  fixture.transport.nextObservation = { status: "succeeded" };
+  const terminal = await fixture.controller.submit({
+    ...fixture.submission,
+    automaticGrantConfirmed: true,
+    run: { budgetReservation: { wallTimeMs: 30_000 } },
+  });
+  assert.equal(terminal.attempt.payload.status, "succeeded");
+  assert.equal(terminal.attempt.payload.runFacts?.actualWallTimeMs, undefined);
+
+  let manifest = await loadExperimentManifest({ projectRoot: fixture.root });
+  let grant = [...(manifest?.executionGrants ?? [])]
+    .filter((entry) => entry.artifactId === fixture.submission.grantId)
+    .sort((left, right) => right.revision - left.revision)[0];
+  assert.equal(grant?.payload.budgetUsage?.reservedWallTimeMs, 30_000);
+  assert.equal(grant?.payload.budgetUsage?.consumedWallTimeMs, 0);
+
+  fixture.transport.nextObservation = {
+    status: "succeeded",
+    startedAt: "2026-07-25T00:00:00.000Z",
+    finishedAt: "2026-07-25T00:00:12.000Z",
+  };
+  const reconciled = await fixture.controller.query({ projectRoot: fixture.root, jobId: fixture.submission.jobId });
+  assert.equal(reconciled.attempt.payload.runFacts?.actualWallTimeMs, 12_000);
+
+  manifest = await loadExperimentManifest({ projectRoot: fixture.root });
+  grant = [...(manifest?.executionGrants ?? [])]
+    .filter((entry) => entry.artifactId === fixture.submission.grantId)
+    .sort((left, right) => right.revision - left.revision)[0];
+  assert.equal(grant?.payload.budgetUsage?.reservedWallTimeMs, 0);
+  assert.equal(grant?.payload.budgetUsage?.consumedWallTimeMs, 12_000);
+});
+
+test("explicit remote cancellation reconciliation settles wall time but preserves cost until an actual record", async () => {
+  const fixture = await controllerFixture("manual-reconciliation", "budget_auto", "job-manual-reconciliation", {
+    maxAttempts: 1,
+    maxWallTimeMs: 60_000,
+    maxCostUsd: 5,
+  });
+  fixture.transport.disconnectNextSubmit = true;
+  const run = {
+    budgetReservation: {
+      wallTimeMs: 30_000,
+      cost: { usd: 3, source: "provider_quote" as const, reference: "cluster-price-v1" },
+    },
+  };
+  const uncertain = await fixture.controller.submit({
+    ...fixture.submission,
+    automaticGrantConfirmed: true,
+    run,
+  });
+  assert.equal(uncertain.attempt.payload.status, "recovery_required");
+
+  const reconciled = await fixture.controller.reconcile({
+    projectRoot: fixture.root,
+    jobId: fixture.submission.jobId,
+    reconciliation: {
+      actualWallTimeMs: 12_000,
+      source: "scheduler_audit",
+      reference: "scheduler-audit-42",
+    },
+  });
+  assert.equal(reconciled.attempt.payload.status, "cancelled");
+  assert.equal(reconciled.attempt.payload.runFacts?.actualWallTimeMs, 12_000);
+  assert.equal(reconciled.attempt.payload.remoteCancellationReconciliation?.reference, "scheduler-audit-42");
+
+  let manifest = await loadExperimentManifest({ projectRoot: fixture.root });
+  let grant = [...(manifest?.executionGrants ?? [])]
+    .filter((entry) => entry.artifactId === fixture.submission.grantId)
+    .sort((left, right) => right.revision - left.revision)[0];
+  assert.equal(grant?.payload.budgetUsage?.reservedWallTimeMs, 0);
+  assert.equal(grant?.payload.budgetUsage?.consumedWallTimeMs, 12_000);
+  assert.equal(grant?.payload.budgetUsage?.reservedCostUsd, 3);
+
+  await recordExperimentRunCost({
+    projectRoot: fixture.root,
+    attemptId: reconciled.attempt.payload.attemptId,
+    actualCost: { usd: 1.5, source: "provider_reported", reference: "usage-export-42" },
+  });
+  manifest = await loadExperimentManifest({ projectRoot: fixture.root });
+  grant = [...(manifest?.executionGrants ?? [])]
+    .filter((entry) => entry.artifactId === fixture.submission.grantId)
+    .sort((left, right) => right.revision - left.revision)[0];
+  assert.equal(grant?.payload.budgetUsage?.reservedCostUsd, 0);
+  assert.equal(grant?.payload.budgetUsage?.consumedCostUsd, 1.5);
 });
 
 test("a persisted submitting phase is recover-only after controller restart", async () => {
@@ -463,8 +626,20 @@ test("Slurm argv, recovery, cancellation, and terminal classifications stay stru
   ]);
   assert.equal(args.includes("python train.py"), false);
 
-  assert.equal(parseSlurmQueueLine({ jobId: "123", observationJobId: "job-a", stdout: "123|RUNNING|node01\n" })?.status, "running");
-  assert.equal(parseSlurmAccountingLine({ jobId: "123", observationJobId: "job-a", stdout: "123|OUT_OF_MEMORY|137:0|oom\n" })?.failure?.category, "out_of_memory");
+  const queue = parseSlurmQueueLine({
+    jobId: "123",
+    observationJobId: "job-a",
+    stdout: "123|RUNNING|node01|2026-07-25T00:00:00Z\n",
+  });
+  assert.equal(queue?.status, "running");
+  assert.equal(queue?.startedAt, "2026-07-25T00:00:00.000Z");
+  const accounting = parseSlurmAccountingLine({
+    jobId: "123",
+    observationJobId: "job-a",
+    stdout: "123|OUT_OF_MEMORY|137:0|oom|2026-07-25T00:00:00Z|2026-07-25T00:00:12Z\n",
+  });
+  assert.equal(accounting?.failure?.category, "out_of_memory");
+  assert.equal(accounting?.finishedAt, "2026-07-25T00:00:12.000Z");
   assert.equal(slurmStateObservation({ jobId: "job-a", schedulerJobId: "123", state: "PREEMPTED" }).failure?.category, "preempted");
   assert.equal(slurmStateObservation({ jobId: "job-a", schedulerJobId: "123", state: "TIMEOUT" }).failure?.category, "timeout");
   assert.equal(slurmStateObservation({ jobId: "job-a", schedulerJobId: "123", state: "CANCELLED by 42" }).status, "cancelled");
@@ -502,6 +677,8 @@ test("uncertain Slurm submission recovers by stable name, never resubmits, and c
   assertSuccess(queried);
   assert.equal(queried.observation?.status, "running");
   assert.equal(host.countCommand("sbatch"), 1);
+  assert.equal(host.commands.some((entry) => entry.executable === "squeue" && entry.args.includes("%i|%T|%R|%S")), true);
+  assert.equal(host.commands.some((entry) => entry.executable === "squeue" && entry.args.includes("%i|%j|%T|%R|%S")), true);
 
   const cancelled = await restarted.handle(jobRequest("cancel", submit, queried.observation?.backendJobId));
   assertSuccess(cancelled);
@@ -535,6 +712,11 @@ class ScriptedTransport implements RemoteExecutionTransport {
   readonly requests: RemoteAgentRequest[] = [];
   disconnectNextSubmit = false;
   invalidNextSubmitResponse = false;
+  nextObservation?: Readonly<{
+    status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "unknown";
+    startedAt?: string;
+    finishedAt?: string;
+  }>;
 
   count(action: RemoteAgentRequest["action"]): number {
     return this.requests.filter((request) => request.action === action).length;
@@ -575,13 +757,19 @@ class ScriptedTransport implements RemoteExecutionTransport {
         observation: { ...observation(request, "queued", false), backendJobId: "slurm:wrong-backend" },
       }) as RemoteAgentResponse;
     }
+    const nextObservation = this.nextObservation;
+    this.nextObservation = undefined;
     return Object.freeze({
       protocolVersion: 1,
       requestId: request.requestId,
       ok: true,
       action: request.action,
       duplicate: request.action !== "submit",
-      observation: observation(request, "queued", request.action !== "submit"),
+      observation: Object.freeze({
+        ...observation(request, nextObservation?.status ?? "queued", request.action !== "submit"),
+        ...(nextObservation?.startedAt === undefined ? {} : { startedAt: nextObservation.startedAt }),
+        ...(nextObservation?.finishedAt === undefined ? {} : { finishedAt: nextObservation.finishedAt }),
+      }),
     });
   }
 }
@@ -657,6 +845,7 @@ async function controllerFixture(
   label: string,
   mode: "plan_only" | "confirm_each" | "budget_auto",
   jobId: string,
+  budget: Readonly<{ maxAttempts: number; maxWallTimeMs?: number; maxCostUsd?: number }> = { maxAttempts: 2 },
 ) {
   const root = await testRoot(label);
   await saveExperimentSpec({
@@ -676,7 +865,7 @@ async function controllerFixture(
       mode,
       allowedAdapterIds: ["ssh"],
       reason: "Focused remote execution test",
-      budget: { maxAttempts: 2 },
+      budget,
     },
   });
   const knownHostsFile = join(root, "known_hosts");
@@ -795,7 +984,7 @@ function jobRequest(
 
 function observation(
   request: Exclude<RemoteAgentRequest, { action: "stage" }>,
-  status: "queued" | "running",
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "unknown",
   duplicate: boolean,
 ) {
   return Object.freeze({

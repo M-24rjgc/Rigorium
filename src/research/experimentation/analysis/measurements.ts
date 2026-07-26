@@ -15,11 +15,11 @@ export function buildAnalysisMeasurements(input: ValidatedExperimentAnalysisInpu
   const measurements = input.metricObservations.map((metric) => {
     const run = runs.get(metric.payload.runAttemptId);
     if (!run) throw new TypeError(`Validated metric ${metric.artifactId} lost run ${metric.payload.runAttemptId}.`);
-    const descriptor = descriptors.get(run.payload.attemptId);
+    const descriptor = persistedTrialDescriptor(run) ?? descriptors.get(run.payload.attemptId);
     return Object.freeze({
       metric,
       run,
-      routeId: descriptor?.routeId ?? run.payload.adapterId,
+      routeId: run.payload.runFacts?.routeId ?? descriptor?.routeId ?? run.payload.adapterId,
       ...(descriptor === undefined ? {} : { descriptor }),
     });
   });
@@ -53,9 +53,25 @@ export function routeIdsFromAnalysis(
   const descriptors = new Map(input.trialDescriptors.map((descriptor) => [descriptor.attemptId, descriptor]));
   return Object.freeze([...new Set([
     ...input.trialDescriptors.map((descriptor) => descriptor.routeId),
-    ...input.runAttempts.map((run) => descriptors.get(run.payload.attemptId)?.routeId ?? run.payload.adapterId),
+    ...input.runAttempts.map((run) => run.payload.runFacts?.routeId
+      ?? persistedTrialDescriptor(run)?.routeId
+      ?? descriptors.get(run.payload.attemptId)?.routeId
+      ?? run.payload.adapterId),
     ...measurements.map((measurement) => measurement.routeId),
   ])].sort((left, right) => left.localeCompare(right, "en")));
+}
+
+function persistedTrialDescriptor(run: RunAttempt): TrialDescriptor | undefined {
+  const facts = run.payload.runFacts;
+  if (!facts) return undefined;
+  return Object.freeze({
+    attemptId: run.payload.attemptId,
+    routeId: facts.routeId,
+    parameters: facts.parameters,
+    slices: facts.slices,
+    ...(facts.actualCost === undefined ? {} : { costUsd: facts.actualCost.usd }),
+    ...(facts.actualWallTimeMs === undefined ? {} : { wallTimeMs: facts.actualWallTimeMs }),
+  });
 }
 
 function measurementOrder(left: AnalysisMeasurement, right: AnalysisMeasurement): number {
