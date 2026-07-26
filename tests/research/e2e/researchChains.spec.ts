@@ -222,7 +222,7 @@ async function runResearchChain(entry: "discover" | "complete"): Promise<void> {
     now: nextNow(),
   });
   const completedRuns = [];
-  for (const jobId of [`${entry}-job-one`, `${entry}-job-two`]) {
+  for (const [index, jobId] of [`${entry}-job-one`, `${entry}-job-two`].entries()) {
     await confirmExecutionJob({
       projectRoot,
       grantId: grant.value.payload.grantId,
@@ -234,6 +234,11 @@ async function runResearchChain(entry: "discover" | "complete"): Promise<void> {
       experimentId,
       grantId: grant.value.payload.grantId,
       jobId,
+      run: {
+        routeId: "route-node",
+        parameters: { seed: index + 1 },
+        slices: { distribution: "held-out" },
+      },
       now: nextNow(),
     })).value);
   }
@@ -277,14 +282,6 @@ async function runResearchChain(entry: "discover" | "complete"): Promise<void> {
     runAttempts: manifest.runAttempts,
     metricObservations: manifest.metricObservations,
     baselineObservations: manifest.baselineObservations,
-    trialDescriptors: latestRuns.map((run, index) => ({
-      attemptId: run.payload.attemptId,
-      routeId: "route-node",
-      parameters: { seed: index + 1 },
-      slices: { distribution: "held-out" },
-      costUsd: 0,
-      wallTimeMs: 1_000,
-    })),
     objectives: [{ experimentId, metricName: "accuracy", direction: "maximize", split: "held-out" }],
     ablationFactors: [{ name: "seed", controlValue: 1 }],
     robustnessDimensions: [{ name: "distribution" }],
