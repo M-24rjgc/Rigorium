@@ -248,11 +248,11 @@ npm.cmd --version
 
 ## 克隆仓库
 
-克隆源码，默认不下载 Git LFS 管理的大型演示媒体文件：
+克隆 Rigorium 源码：
 
 ```bash
-GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/OpenBMB/PilotDeck.git
-cd PilotDeck
+git clone https://github.com/M-24rjgc/Rigorium.git
+cd Rigorium
 ```
 
 如果之后需要演示视频/GIF，可在克隆后下载：

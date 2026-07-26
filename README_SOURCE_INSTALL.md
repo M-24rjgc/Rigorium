@@ -229,11 +229,11 @@ With portable Node, keep using the source install commands below: `corepack pnpm
 
 ## Clone the Repository
 
-Clone the source code without downloading large Git LFS demo media:
+Clone the Rigorium source code:
 
 ```bash
-GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/OpenBMB/PilotDeck.git
-cd PilotDeck
+git clone https://github.com/M-24rjgc/Rigorium.git
+cd Rigorium
 ```
 
 If you need the demo videos/GIFs later, download them after cloning:

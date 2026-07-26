@@ -6,9 +6,7 @@ param(
   [int]$ServerPort = $(if ($env:SERVER_PORT) { [int]$env:SERVER_PORT } else { 3001 }),
   [int]$GatewayPort = $(if ($env:PILOTDECK_GATEWAY_PORT) { [int]$env:PILOTDECK_GATEWAY_PORT } else { 18789 }),
   [int]$MaxPortTries = $(if ($env:PILOTDECK_MAX_PORT_TRIES) { [int]$env:PILOTDECK_MAX_PORT_TRIES } else { 20 }),
-  [int]$LfsTimeoutSeconds = $(if ($env:PILOTDECK_LFS_TIMEOUT_SECONDS) { [int]$env:PILOTDECK_LFS_TIMEOUT_SECONDS } else { 300 }),
   [switch]$SkipStart,
-  [switch]$SkipLfs,
   [switch]$NoPathUpdate,
   [switch]$ForceInstall
 )
@@ -16,7 +14,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-if (-not $RepoUrl) { $RepoUrl = 'https://github.com/OpenBMB/PilotDeck.git' }
+if (-not $RepoUrl) { $RepoUrl = 'https://github.com/M-24rjgc/Rigorium.git' }
 if (-not $Branch) { $Branch = 'main' }
 if (-not $InstallDir) { $InstallDir = Join-Path $HOME '.pilotdeck\app' }
 if (-not $ConfigPath) { $ConfigPath = Join-Path $HOME '.pilotdeck\pilotdeck.yaml' }
@@ -292,18 +290,6 @@ function Ensure-Prerequisites {
   }
   Write-Ok 'git found'
 
-  if (Test-Command git-lfs) {
-    Write-Ok 'git-lfs found'
-  } elseif (Test-Command winget) {
-    Write-Step 'Installing Git LFS with winget...'
-    if (Invoke-WingetInstall 'GitHub.GitLFS' 'Git LFS' -Optional) {
-      Refresh-ProcessPath
-      if (-not (Test-Command git-lfs)) { Write-Step 'Git LFS is not visible in this shell; continuing without optional media assets.' }
-    }
-  } else {
-    Write-Step 'git-lfs not found; continuing without LFS media assets.'
-  }
-
   [void](Resolve-NpmCommand)
 }
 
@@ -354,32 +340,9 @@ function Install-OrUpdateRepo {
 
   $parent = Split-Path -Parent $InstallDir
   New-Item -ItemType Directory -Force -Path $parent | Out-Null
-  $env:GIT_LFS_SKIP_SMUDGE = '1'
-  & git -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false clone --branch $Branch --depth 1 $RepoUrl $InstallDir
+  & git clone --branch $Branch --depth 1 $RepoUrl $InstallDir
   if ($LASTEXITCODE -ne 0) { Write-Fail 'git clone failed' }
   Write-Ok "Repository cloned to $InstallDir"
-}
-
-function Ensure-LfsAssets {
-  if ($SkipLfs -or $env:PILOTDECK_SKIP_LFS -eq '1') {
-    Write-Step 'Skipping Git LFS assets.'
-    return
-  }
-  if (-not (Test-Command git-lfs)) { return }
-
-  Push-Location $InstallDir
-  try {
-    & git lfs install --local *> $null
-    $process = Start-Process -FilePath 'git' -ArgumentList @('lfs', 'pull') -NoNewWindow -PassThru
-    if (-not $process.WaitForExit($LfsTimeoutSeconds * 1000)) {
-      Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-      Write-Step "git lfs pull timed out after ${LfsTimeoutSeconds}s; continuing without optional media assets."
-      return
-    }
-    if ($process.ExitCode -ne 0) { Write-Step 'git lfs pull failed; continuing without optional media assets.' }
-  } finally {
-    Pop-Location
-  }
 }
 
 function Test-DepsUpToDate {
@@ -559,7 +522,6 @@ function Bootstrap-Config {
 Ensure-NodeRuntime
 Ensure-Prerequisites
 Install-OrUpdateRepo
-Ensure-LfsAssets
 Install-AndBuild
 Ensure-BrowserUseDependency
 Ensure-ClawHubCli

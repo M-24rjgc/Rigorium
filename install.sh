@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# PilotDeck one-line installer for macOS and Linux.
+# Rigorium one-line installer for macOS and Linux.
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/OpenBMB/PilotDeck/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/M-24rjgc/Rigorium/main/install.sh | bash
 
-REPO_URL="${PILOTDECK_REPO_URL:-https://github.com/OpenBMB/PilotDeck.git}"
+REPO_URL="${PILOTDECK_REPO_URL:-https://github.com/M-24rjgc/Rigorium.git}"
 BRANCH="${PILOTDECK_BRANCH:-main}"
 INSTALL_DIR="${PILOTDECK_INSTALL_DIR:-$HOME/.pilotdeck/app}"
 CONFIG_FILE="${PILOTDECK_CONFIG_PATH:-$HOME/.pilotdeck/pilotdeck.yaml}"
@@ -126,7 +126,7 @@ print_getting_started_en() {
   echo -e "  ${BOLD}Docs & community${RESET}"
   echo -e "     Tutorial:  ${DIM}https://pilotdeck.openbmb.cn/pilotdeck.github.io/docs/en/introduction${RESET}"
   echo -e "     Website:   ${DIM}https://pilotdeck.openbmb.cn${RESET}"
-  echo -e "     Issues:    ${DIM}https://github.com/OpenBMB/PilotDeck/issues${RESET}"
+  echo -e "     Issues:    ${DIM}https://github.com/M-24rjgc/Rigorium/issues${RESET}"
   echo ""
 }
 
@@ -163,7 +163,7 @@ print_getting_started_zh() {
   echo -e "  ${BOLD}文档与社区${RESET}"
   echo -e "     教程:  ${DIM}https://pilotdeck.openbmb.cn/pilotdeck.github.io/docs/en/introduction${RESET}"
   echo -e "     官网:  ${DIM}https://pilotdeck.openbmb.cn${RESET}"
-  echo -e "     反馈:  ${DIM}https://github.com/OpenBMB/PilotDeck/issues${RESET}"
+  echo -e "     反馈:  ${DIM}https://github.com/M-24rjgc/Rigorium/issues${RESET}"
   echo ""
 }
 
@@ -555,7 +555,7 @@ print_minimum_requirements() {
   if [[ "$PLATFORM" == "linux" ]]; then
     warn "$(L "Minimum requirements: bash, curl, network access, git, Python 3, make, and a C++ compiler. sudo/root is only needed when required system packages are missing." "最低要求:bash、curl、网络访问、git、Python 3、make 和 C++ 编译器。仅当缺少必需系统软件包时才需要 sudo/root。")"
   else
-    warn "$(L "Minimum requirements: bash, curl, network access, and Xcode Command Line Tools. Homebrew is only needed if optional tools such as ripgrep or Git LFS are missing." "最低要求:bash、curl、网络访问和 Xcode 命令行工具。仅当缺少 ripgrep 或 Git LFS 等可选工具时才需要 Homebrew。")"
+    warn "$(L "Minimum requirements: bash, curl, network access, and Xcode Command Line Tools. Homebrew is only needed if optional tools such as ripgrep are missing." "最低要求:bash、curl、网络访问和 Xcode 命令行工具。仅当缺少 ripgrep 等可选工具时才需要 Homebrew。")"
   fi
 }
 
@@ -563,7 +563,7 @@ check_bootstrap_requirements() {
   print_minimum_requirements
 
   if [[ -z "${BASH_VERSION:-}" ]]; then
-    fail "$(L "This installer must run with bash. Try: curl -fsSL https://raw.githubusercontent.com/OpenBMB/PilotDeck/main/install.sh | bash" "该安装器必须使用 bash 运行。请尝试:curl -fsSL https://raw.githubusercontent.com/OpenBMB/PilotDeck/main/install.sh | bash")"
+    fail "$(L "This installer must run with bash. Try: curl -fsSL https://raw.githubusercontent.com/M-24rjgc/Rigorium/main/install.sh | bash" "该安装器必须使用 bash 运行。请尝试:curl -fsSL https://raw.githubusercontent.com/M-24rjgc/Rigorium/main/install.sh | bash")"
   fi
 
   if ! command -v curl >/dev/null 2>&1; then
@@ -606,7 +606,7 @@ check_bootstrap_requirements() {
     ok "$(L "Xcode Command Line Tools found" "已找到 Xcode 命令行工具")"
 
     if ! command -v brew >/dev/null 2>&1; then
-      warn "$(L "Homebrew is not installed. If ripgrep or Git LFS are missing, install Homebrew first, then run: brew install ripgrep git-lfs" "未安装 Homebrew。若缺少 ripgrep 或 Git LFS,请先安装 Homebrew,然后运行:brew install ripgrep git-lfs")"
+      warn "$(L "Homebrew is not installed. If ripgrep is missing, install Homebrew first, then run: brew install ripgrep" "未安装 Homebrew。若缺少 ripgrep,请先安装 Homebrew,然后运行:brew install ripgrep")"
     fi
   fi
 }
@@ -669,16 +669,6 @@ install_ripgrep() {
     install_linux_packages ripgrep
   else
     fail "$(L "ripgrep (rg) is required. On macOS, install Homebrew and run: brew install ripgrep" "需要 ripgrep(rg)。在 macOS 上请安装 Homebrew 后运行:brew install ripgrep")"
-  fi
-}
-
-install_git_lfs() {
-  if [[ "$PLATFORM" == "macos" ]] && command -v brew >/dev/null 2>&1; then
-    brew install git-lfs </dev/null
-  elif [[ "$PLATFORM" == "linux" ]]; then
-    install_linux_packages git-lfs
-  else
-    fail "$(L "git-lfs is required for PilotDeck assets. On macOS, install Homebrew and run: brew install git-lfs" "PilotDeck 素材需要 git-lfs。在 macOS 上请安装 Homebrew 后运行:brew install git-lfs")"
   fi
 }
 
@@ -854,21 +844,13 @@ normalize_github_remote() {
   esac
 }
 
-clone_without_lfs_smudge() {
-  if [[ "${PILOTDECK_INSTALL_LFS:-0}" == "1" ]]; then
-    "$@"
-  else
-    GIT_LFS_SKIP_SMUDGE=1 "$@"
-  fi
-}
-
 clone_repo() {
   local slug
   if slug="$(github_repo_slug)" && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    clone_without_lfs_smudge gh repo clone "$slug" "$INSTALL_DIR" -- --branch "$BRANCH" --depth 1 || \
+    gh repo clone "$slug" "$INSTALL_DIR" -- --branch "$BRANCH" --depth 1 || \
       fail "$(L "Could not clone ${REPO_URL}. Check repository access and network connectivity." "无法克隆 ${REPO_URL}。请检查仓库访问权限和网络连接。")"
   else
-    clone_without_lfs_smudge git clone --branch "$BRANCH" --depth 1 "$REPO_URL" "$INSTALL_DIR" || \
+    git clone --branch "$BRANCH" --depth 1 "$REPO_URL" "$INSTALL_DIR" || \
       fail "$(L "Could not clone ${REPO_URL}. If this repository is private, authenticate with GitHub first." "无法克隆 ${REPO_URL}。若为私有仓库,请先完成 GitHub 认证。")"
   fi
 }
@@ -902,8 +884,8 @@ checkout_existing_installation() {
   # Fetch from the configured (HTTPS) URL rather than the existing "origin"
   # remote, which may be an SSH URL (git@github.com) that hangs when port 22
   # connectivity is unavailable. Cap the fetch so a bad network can't stall the installer.
-  if run_with_timeout "${PILOTDECK_FETCH_TIMEOUT:-45}" env GIT_LFS_SKIP_SMUDGE=1 git fetch "$REPO_URL" "$BRANCH"; then
-    GIT_LFS_SKIP_SMUDGE=1 git checkout -B "$BRANCH" FETCH_HEAD || return 1
+  if run_with_timeout "${PILOTDECK_FETCH_TIMEOUT:-45}" git fetch "$REPO_URL" "$BRANCH"; then
+    git checkout -B "$BRANCH" FETCH_HEAD || return 1
   else
     warn "$(L "Could not fetch updates (network/SSH issue); keeping the current checkout." "无法拉取更新(网络/SSH 问题),沿用当前已安装的代码。")"
   fi
@@ -960,34 +942,6 @@ install_or_update_repo() {
   fi
   clone_repo
   ok "$(L "Repository cloned" "仓库已克隆")"
-}
-
-ensure_lfs_assets() {
-  if [[ "${PILOTDECK_INSTALL_LFS:-0}" != "1" ]]; then
-    warn "$(L "Skipping Git LFS media download. Set PILOTDECK_INSTALL_LFS=1 to fetch demo images/videos." "跳过 Git LFS 媒体下载。设置 PILOTDECK_INSTALL_LFS=1 可下载演示图片/视频。")"
-    return
-  fi
-
-  if [[ "${GIT_LFS_SKIP_SMUDGE:-}" == "1" ]]; then
-    warn "$(L "GIT_LFS_SKIP_SMUDGE=1 is set; large media assets were intentionally skipped." "已设置 GIT_LFS_SKIP_SMUDGE=1;大型媒体素材已被有意跳过。")"
-    return
-  fi
-
-  if ! command -v git-lfs >/dev/null 2>&1 && ! git lfs version >/dev/null 2>&1; then
-    fail "$(L "git-lfs command not found after installation." "安装后仍未找到 git-lfs 命令。")"
-  fi
-
-  cd "$INSTALL_DIR"
-  git lfs install --local >/dev/null
-  git lfs pull
-
-  local pointer_file=""
-  for pointer_file in assets/banner.png ui/public/favicon.png ui/src/assets/pilotdeck-logo.png; do
-    if [[ -f "$pointer_file" ]] && grep -q "version https://git-lfs.github.com/spec/v1" "$pointer_file"; then
-      fail "$(L "Git LFS asset was not downloaded correctly: ${pointer_file}" "Git LFS 素材未正确下载:${pointer_file}")"
-    fi
-  done
-  ok "$(L "Git LFS assets downloaded" "Git LFS 素材已下载")"
 }
 
 # Skip the (slow) npm install + frontend build when nothing changed: repo HEAD
@@ -1078,20 +1032,6 @@ fi
 ok "$(L "git found" "已找到 git")"
 echo ""
 
-if [[ "${PILOTDECK_INSTALL_LFS:-0}" == "1" ]]; then
-  echo "$(L "Checking Git LFS..." "正在检查 Git LFS...")"
-  if [[ "${GIT_LFS_SKIP_SMUDGE:-}" == "1" ]]; then
-    warn "$(L "GIT_LFS_SKIP_SMUDGE=1 is set; large media assets will be skipped." "已设置 GIT_LFS_SKIP_SMUDGE=1;将跳过大型媒体素材。")"
-  elif command -v git-lfs >/dev/null 2>&1 || git lfs version >/dev/null 2>&1; then
-    ok "$(L "Git LFS $(git lfs version | awk '{print $1}') found" "已找到 Git LFS $(git lfs version | awk '{print $1}')")"
-  else
-    warn "$(L "Git LFS not found. Installing..." "未找到 Git LFS,正在安装...")"
-    install_git_lfs
-    ok "$(L "Git LFS installed" "已安装 Git LFS")"
-  fi
-  echo ""
-fi
-
 echo "$(L "Checking ripgrep..." "正在检查 ripgrep...")"
 if command -v rg >/dev/null 2>&1; then
   ok "$(L "ripgrep $(rg --version | head -1) found" "已找到 ripgrep $(rg --version | head -1)")"
@@ -1122,9 +1062,8 @@ echo "$(L "Checking native build tools..." "正在检查原生编译工具...")"
 ensure_native_build_tools
 echo ""
 
-echo -e "$(L "Installing PilotDeck to" "正在安装 PilotDeck 到") ${DIM}${INSTALL_DIR}${RESET} ..."
+echo -e "$(L "Installing Rigorium to" "正在安装 Rigorium 到") ${DIM}${INSTALL_DIR}${RESET} ..."
 install_or_update_repo
-ensure_lfs_assets
 echo ""
 
 if deps_up_to_date; then

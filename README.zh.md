@@ -21,6 +21,10 @@ Rigorium 是一个本地优先的长期科研工作空间。它把项目、文�
 
 Rigorium 的目标是成为长期个人科研环境，而不是只处理文献或论文写作的单一工具。现有通用工作区能力继续保留；后续可以逐步增加研究问题、证据、实验、溯源、写作、评审和复现能力，并共享同一套执行基础。
 
+## 下载
+
+可从 [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) 下载当前 Windows 安装包。桌面应用会检查该发布通道，并在启动安装程序前验证 SHA-256 完整性。
+
 ## 开发运行
 
 环境要求：
@@ -45,7 +49,7 @@ pilotdeck
 
 ## 来源与许可证
 
-Rigorium 基于 [OpenBMB/PilotDeck](https://github.com/OpenBMB/PilotDeck) 的上游提交 `15cb4c2de37f5efd8d2f97feea4e40ab787f3cf3` 修改而来。
+Rigorium 是拥有独立仓库和发布通道的独立项目。初始代码包含对 [OpenBMB/PilotDeck](https://github.com/OpenBMB/PilotDeck) 提交 `15cb4c2de37f5efd8d2f97feea4e40ab787f3cf3` 的修改；当前运行、发布与仓库均不依赖该上游项目。
 
 本项目按照 [GNU Affero General Public License v3.0](LICENSE) 发布。修改说明和上游署名见 [NOTICE.md](NOTICE.md)。
 

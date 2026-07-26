@@ -21,6 +21,10 @@ This initial version establishes the independent Rigorium name and visual identi
 
 Rigorium is intended to become a durable personal research environment rather than a single-purpose literature or writing tool. The current general workspace capabilities remain available; future research modules can add questions, evidence, experiments, provenance, writing, review, and reproducibility without duplicating the shared execution foundation.
 
+## Download
+
+Download the current Windows installer from [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest). The desktop app checks that release channel for updates and verifies installer SHA-256 integrity before launch.
+
 ## Development
 
 Requirements:
@@ -45,7 +49,7 @@ Internal paths such as `~/.pilotdeck`, `pilotdeck.yaml`, and `PILOTDECK_*` envir
 
 ## Origin And License
 
-Rigorium is based on [OpenBMB/PilotDeck](https://github.com/OpenBMB/PilotDeck), upstream commit `15cb4c2de37f5efd8d2f97feea4e40ab787f3cf3`.
+Rigorium is an independent project with its own repository and release channel. Its initial codebase incorporated modified source from [OpenBMB/PilotDeck](https://github.com/OpenBMB/PilotDeck) at commit `15cb4c2de37f5efd8d2f97feea4e40ab787f3cf3`; there is no runtime, release, or repository dependency on that upstream project.
 
 The project is distributed under the [GNU Affero General Public License v3.0](LICENSE). See [NOTICE.md](NOTICE.md) for modification and attribution details.
 
