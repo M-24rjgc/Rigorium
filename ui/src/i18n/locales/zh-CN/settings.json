@@ -668,6 +668,14 @@
       "officePreview": {
         "label": "Office 文件预览服务",
         "description": "Word、Excel、PPT 只读预览"
+      },
+      "vision": {
+        "label": "视觉助手",
+        "description": "为无视觉模型提供图片理解"
+      },
+      "figureGen": {
+        "label": "图片生成",
+        "description": "GPT Image 论文配图生成"
       }
     },
     "panels": {
@@ -1233,6 +1241,38 @@
           "empty": "无自定义规则。判定器仅使用层级描述。",
           "placeholder": "为判定器添加规则…",
           "add": "添加"
+        },
+        "researchAware": {
+          "label": "科研感知路由",
+          "description": "根据科研能力需求（工具类别、模态、EIG 动作类型）把过弱的层级分类升级到更强层级。",
+          "tierUpgrade": {
+            "label": "层级升级",
+            "description": "允许能力需求将已分类层级替换为梯子上严格更强的层级。"
+          }
+        },
+        "learning": {
+          "label": "摊销学习",
+          "description": "按能力签名在线学习各层级的真实成功率（摊销排序器 + 不确定性门控 judge）。观测充分后跳过 judge 调用。",
+          "minObservations": {
+            "label": "最少观测数",
+            "description": "某个能力签名启用学习路径前所需的路由轮次数。"
+          },
+          "minMargin": {
+            "label": "最小差距",
+            "description": "学习路径决策前，最高层级与第二名所需的最小分数差距。"
+          }
+        },
+        "sticky": {
+          "label": "粘性守卫",
+          "description": "限制会话钉扎在同一模型/层级的时长（TTL）与连续路由失败次数（超限即释放）。",
+          "ttlMs": {
+            "label": "TTL（毫秒）",
+            "description": "超过此时间的粘性选择将被忽略并重新判定。"
+          },
+          "maxQualityFailures": {
+            "label": "最大质量失败数",
+            "description": "连续路由失败达到该次数后释放粘性。"
+          }
         }
       },
       "gateway": {
@@ -1251,6 +1291,54 @@
         "title": "子系统重载状态",
         "fallbackDescription": "首次保存或外部编辑后会出现重载状态。",
         "lastReload": "上次重载：{{source}} 于 {{time}}"
+      },
+      "vision": {
+        "title": "视觉助手",
+        "description": "OpenAI 兼容视觉端点，为无视觉主模型描述图片（兼容 GitHub Copilot 模型）。",
+        "enabled": {
+          "label": "启用",
+          "description": "关闭时视觉工具报告未配置。"
+        },
+        "baseUrl": {
+          "label": "Base URL",
+          "description": "OpenAI 兼容端点，例如 https://models.github.ai/v1。"
+        },
+        "apiKey": {
+          "label": "API 密钥",
+          "description": "视觉端点的 API 密钥。"
+        },
+        "model": {
+          "label": "模型",
+          "description": "视觉模型 id，例如 gpt-4o-mini。"
+        },
+        "timeoutMs": {
+          "label": "超时（毫秒）",
+          "description": "视觉请求超时时间。"
+        },
+        "configuredHint": "已配置 —— describe_image 与自动视觉富集已激活。",
+        "incompleteHint": "需要 baseUrl + apiKey + model 才能激活；不完整的配置会被网关忽略。"
+      },
+      "figureGen": {
+        "title": "图片生成",
+        "description": "文生图论文配图（GPT Image 类模型）。仅配置面 —— 请求配图时才调用端点。",
+        "enabled": {
+          "label": "启用",
+          "description": "关闭时 figure_generate 报告未配置。"
+        },
+        "baseUrl": {
+          "label": "Base URL",
+          "description": "OpenAI 兼容端点，例如 https://api.openai.com/v1。"
+        },
+        "apiKey": {
+          "label": "API 密钥",
+          "description": "图片端点的 API 密钥。"
+        },
+        "model": {
+          "label": "模型",
+          "description": "图片模型 id，例如 gpt-image-2（请与你的端点核对）。"
+        },
+        "configuredHint": "已配置 —— figure_generate 已对 agent 可用。",
+        "incompleteHint": "需要 baseUrl + apiKey + model 才能激活。"
       }
     }
   },

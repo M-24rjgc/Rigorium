@@ -76,9 +76,7 @@ export function useRouterSettings() {
   const [health, setHealth] = useState<CCRHealth | null>(null);
   const [summary, setSummary] = useState<CCRStatsSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saveResult, setSaveResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -104,49 +102,13 @@ export function useRouterSettings() {
     fetchAll();
   }, [fetchAll]);
 
-  const saveConfig = useCallback(async (newConfig: CCRConfig) => {
-    setSaving(true);
-    setSaveResult(null);
-    try {
-      const res = await authenticatedFetch('/api/ccr/config', {
-        method: 'PUT',
-        body: JSON.stringify(newConfig),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setSaveResult({
-          success: true,
-          message: data.restarted ? 'Saved & CCR restarted' : 'Saved (CCR restart pending)',
-        });
-        await fetchAll();
-      } else {
-        setSaveResult({ success: false, message: data.error || 'Save failed' });
-      }
-    } catch (err: unknown) {
-      setSaveResult({ success: false, message: err instanceof Error ? err.message : 'Save failed' });
-    } finally {
-      setSaving(false);
-    }
-  }, [fetchAll]);
-
-  const resetStats = useCallback(async () => {
-    try {
-      await authenticatedFetch('/api/ccr/stats/reset', { method: 'POST' });
-      await fetchAll();
-    } catch { /* best effort */ }
-  }, [fetchAll]);
-
   return {
     config,
     setConfig,
     health,
     summary,
     loading,
-    saving,
     error,
-    saveResult,
-    saveConfig,
-    resetStats,
     refresh: fetchAll,
   };
 }

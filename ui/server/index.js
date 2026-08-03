@@ -730,13 +730,6 @@ app.post('/api/ccr/stats/reset', authenticateToken, (_req, res) => {
     });
 });
 
-app.put('/api/ccr/config', authenticateToken, (_req, res) => {
-    res.status(501).json({
-        error: 'not_implemented',
-        message: 'Routing configuration is owned by Rigorium config (~/.rigorium/rigorium.yaml). Edit it directly via /api/config.',
-    });
-});
-
 app.get('/memory-dashboard', authenticateToken, (req, res) => {
     const indexPath = path.join(MEMORY_DASHBOARD_DIR, 'index.html');
     if (!fs.existsSync(indexPath)) {

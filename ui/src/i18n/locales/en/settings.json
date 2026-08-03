@@ -668,6 +668,14 @@
       "officePreview": {
         "label": "Office File Preview Service",
         "description": "Read-only preview for Word, Excel, and PPT"
+      },
+      "vision": {
+        "label": "Vision",
+        "description": "Vision assistant for non-vision models"
+      },
+      "figureGen": {
+        "label": "Figure Generation",
+        "description": "GPT Image figure generation"
       }
     },
     "panels": {
@@ -1233,6 +1241,38 @@
           "empty": "No custom rules. The judge uses tier descriptions only.",
           "placeholder": "Add a rule for the judge…",
           "add": "Add"
+        },
+        "researchAware": {
+          "label": "Research-aware routing",
+          "description": "Upgrade too-weak tier classifications from research capability requirements (tool categories, modalities, EIG action type).",
+          "tierUpgrade": {
+            "label": "Tier upgrade",
+            "description": "Allow capability requirements to override a classified tier with a strictly stronger one."
+          }
+        },
+        "learning": {
+          "label": "Amortized learning",
+          "description": "Learn per-capability-signature tier success (amortized ranker + uncertainty-gated judge). Judge calls are skipped once enough observations exist.",
+          "minObservations": {
+            "label": "Min observations",
+            "description": "Routed turns required per capability signature before the learned path is used."
+          },
+          "minMargin": {
+            "label": "Min margin",
+            "description": "Required score gap between the top tier and the runner-up before learning decides."
+          }
+        },
+        "sticky": {
+          "label": "Sticky guardrails",
+          "description": "Bound how long a session stays pinned to a model/tier (TTL) and how many consecutive routed-turn failures release it.",
+          "ttlMs": {
+            "label": "TTL (ms)",
+            "description": "A sticky selection older than this is ignored and re-judged."
+          },
+          "maxQualityFailures": {
+            "label": "Max quality failures",
+            "description": "Consecutive routed-turn failures after which the sticky is released."
+          }
         }
       },
       "gateway": {
@@ -1251,6 +1291,54 @@
         "title": "Subsystem reload status",
         "fallbackDescription": "Reload status will appear after the first save or external edit.",
         "lastReload": "Last reload: {{source}} at {{time}}"
+      },
+      "vision": {
+        "title": "Vision Assistant",
+        "description": "OpenAI-compatible vision endpoint used to describe images for models without vision (works with GitHub Copilot models).",
+        "enabled": {
+          "label": "Enabled",
+          "description": "When off, vision tools report not-configured."
+        },
+        "baseUrl": {
+          "label": "Base URL",
+          "description": "OpenAI-compatible base URL, e.g. https://models.github.ai/v1."
+        },
+        "apiKey": {
+          "label": "API key",
+          "description": "API key for the vision endpoint."
+        },
+        "model": {
+          "label": "Model",
+          "description": "Vision model id, e.g. gpt-4o-mini."
+        },
+        "timeoutMs": {
+          "label": "Timeout (ms)",
+          "description": "Request timeout for vision calls."
+        },
+        "configuredHint": "Configured — describe_image and automatic vision enrichment are active.",
+        "incompleteHint": "Needs baseUrl + apiKey + model to activate. Incomplete entries are ignored by the gateway."
+      },
+      "figureGen": {
+        "title": "Figure Generation",
+        "description": "Text-to-image figure generation (GPT Image class models). Config-surface only — the endpoint is called when a figure is requested.",
+        "enabled": {
+          "label": "Enabled",
+          "description": "When off, figure_generate reports not-configured."
+        },
+        "baseUrl": {
+          "label": "Base URL",
+          "description": "OpenAI-compatible base URL, e.g. https://api.openai.com/v1."
+        },
+        "apiKey": {
+          "label": "API key",
+          "description": "API key for the image endpoint."
+        },
+        "model": {
+          "label": "Model",
+          "description": "Image model id, e.g. gpt-image-2 (verify with your endpoint)."
+        },
+        "configuredHint": "Configured — figure_generate is available to the agent.",
+        "incompleteHint": "Needs baseUrl + apiKey + model to activate."
       }
     }
   },

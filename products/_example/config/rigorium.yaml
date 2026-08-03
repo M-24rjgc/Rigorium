@@ -1,30 +1,103 @@
 # 产品覆盖配置示例
 # 部署时将此文件合并到目标环境的 ~/.rigorium/rigorium.yaml
+#
+# 这是完整可用的最小配置模板：模型池、科研路由（含 Phase 2 的
+# researchAware/learning/sticky 三节）、视觉助手、GPT Image 配图生成、
+# 记忆系统与检索工具。所有字段均可选——缺失部分有默认值或按需降级。
 
-# 记忆系统配置
+schemaVersion: 1
+
+# ── 主 Agent 模型（providerId/modelId 字符串，引用下方 model.providers）──
+agent:
+  model: "openai/gpt-4o-mini"
+
+# ── 模型池 ──────────────────────────────────────────────────────────────
+model:
+  providers:
+    openai:
+      url: "https://api.openai.com/v1"
+      protocol: "openai"
+      apiKey: "${OPENAI_API_KEY}"          # 也可直接填明文，配置会被自动脱敏
+      models:
+        gpt-4o-mini:
+          contextWindow: 128000
+          maxOutputTokens: 16384
+        # 若配置了视觉助手（见下方 vision:），主模型可以没有视觉能力——
+        # 图片会自动交给视觉模型描述后注入上下文。
+    github-copilot:                          # GitHub Copilot（OpenAI 兼容端点）
+      url: "https://models.github.ai/v1"
+      protocol: "openai"
+      apiKey: "${GITHUB_COPILOT_TOKEN}"
+      models:
+        gpt-4o-mini:
+          contextWindow: 128000
+          maxOutputTokens: 16384
+
+# ── 科研感知路由（Phase 2，全部可选）───────────────────────────────────
+router:
+  enabled: true
+  researchAware:                            # 能力需求（工具类别/模态/EIG 动作类型）
+    enabled: true                           #   驱动层级升级：弱分类不会被钉死在简单层
+    tierUpgrade: true
+  learning:                                 # 摊销排序器 + 不确定性门控 judge：
+    enabled: true                           #   观测充分后跳过 judge 调用（降延迟）
+    minObservations: 4                      #   每个能力签名启用学习路径所需轮次
+    minMargin: 0.15                         #   顶层与次层的最小分数差距
+  sticky:                                   # 粘性守卫：会话钉扎的时长与质量释放
+    enabled: true
+    ttlMs: 1800000                          # 30 分钟
+    maxQualityFailures: 2                   # 连续 2 次路由失败即释放粘性
+
+# ── 视觉助手（Phase 3.3，可选）──────────────────────────────────────────
+# 主模型无视觉时，图片自动交给该 OpenAI 兼容端点描述（兼容 GitHub Copilot）。
+# 同时暴露 describe_image 工具供显式调用。三项齐全才会激活。
+vision:
+  enabled: true
+  baseUrl: "https://models.github.ai/v1"
+  apiKey: "${GITHUB_COPILOT_TOKEN}"
+  model: "gpt-4o"
+  timeoutMs: 30000
+
+# ── GPT Image 配图生成（Phase 3.4，可选）────────────────────────────────
+# 仅配置面；请求配图时才调用端点（gpt-image-2 需与你的端点核对）。
+figureGen:
+  enabled: true
+  baseUrl: "https://api.openai.com/v1"
+  apiKey: "${OPENAI_API_KEY}"
+  model: "gpt-image-2"
+
+# ── 记忆系统 ────────────────────────────────────────────────────────────
 memory:
   enabled: true
   provider: "edgeclaw"
   captureStrategy: "full_session"
   includeAssistant: true
 
-# 模型配置（可覆盖默认模型）
-# agent:
-#   model:
-#     id: "claude-sonnet-4"
-#     provider: "anthropic"
-#     model: "claude-sonnet-4-20250514"
+# ── 检索工具（可选）─────────────────────────────────────────────────────
+tools:
+  webSearch:
+    provider: "glm"                          # glm | tavily | custom
+    apiKey: "${SEARCH_API_KEY}"
+    # endpoint: "https://custom-search.example/search"
+    # customProvider:
+    #   name: "MySearch"
+    #   auth: "bearer"
+    #   method: "GET"
+    #   resultsPath: "data.results"
+    #   titleField: "title"
+    #   urlField: "url"
+    #   snippetField: "snippet"
+  deepseekNativeSearch:
+    apiKey: "${DEEPSEEK_API_KEY}"
+    # endpoint: 默认官方端点
+    # model:    默认使用主模型同款 DeepSeek 模型
 
-# 内置工具配置（可选）
-# tools:
-#   webSearch:
-#     apiKey: "..."                                 # SerpAPI key（serpapi.com）
-#     # endpoint: https://serpapi.com/search        # 高级：覆盖到 SerpAPI 兼容代理
-
-# 品牌配置（待贡献点就绪后生效）
-# brand:
-#   name: "MyProduct"
-#   logo: "./brand/logo.svg"
-#   theme:
-#     brand: "rgb(0,120,212)"
-#     brandAccent: "rgb(0,150,255)"
+# ── 网关 / 定时任务 / 长驻发现（可选）───────────────────────────────────
+gateway:
+  enabled: true
+# alwaysOn:
+#   enabled: true
+# cron:
+#   enabled: true
+# proxy:
+#   url: "http://127.0.0.1:7890"

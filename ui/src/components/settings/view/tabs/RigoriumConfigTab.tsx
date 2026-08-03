@@ -12,6 +12,7 @@ import {
   Clock,
   Database,
   Download,
+  Eye,
   FileCog,
   FileText,
   FolderOpen,
@@ -196,6 +197,23 @@ type RigoriumConfig = {
       enabled?: boolean;
       modelPricing?: Record<string, { input?: number; output?: number; cacheRead?: number }>;
     };
+    /** Phase 2: research-aware tier upgrades from capability requirements. */
+    researchAware?: {
+      enabled?: boolean;
+      tierUpgrade?: boolean;
+    };
+    /** Phase 2: amortized ranker + uncertainty-gated judge. */
+    learning?: {
+      enabled?: boolean;
+      minObservations?: number;
+      minMargin?: number;
+    };
+    /** Sticky selection guardrails: TTL and quality-failure release. */
+    sticky?: {
+      enabled?: boolean;
+      ttlMs?: number;
+      maxQualityFailures?: number;
+    };
   } & Record<string, unknown>;
   gateway?: { enabled?: boolean; home?: string } & Record<string, unknown>;
   tools?: {
@@ -223,9 +241,25 @@ type RigoriumConfig = {
       model?: string;
     };
   };
+  /** Phase 3.3: vision assistant (describe_image / automatic enrichment). */
+  vision?: {
+    enabled?: boolean;
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
+    timeoutMs?: number;
+  };
+  /** Phase 3.4: GPT Image figure generation (figure_generate). */
+  figureGen?: {
+    enabled?: boolean;
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
+    timeoutMs?: number;
+  };
 };
 
-type SectionId = 'models' | 'agents' | 'memory' | 'tools' | 'deepseekNativeSearch' | 'router' | 'gateway' | 'officePreview' | 'customEnv' | 'alwaysOn' | 'cron' | 'advanced';
+type SectionId = 'models' | 'agents' | 'memory' | 'tools' | 'deepseekNativeSearch' | 'router' | 'gateway' | 'officePreview' | 'customEnv' | 'alwaysOn' | 'cron' | 'advanced' | 'vision' | 'figureGen';
 
 const SECTIONS: Array<{ id: SectionId; labelKey: string; descriptionKey: string }> = [
   { id: 'advanced',  labelKey: 'runtime',   descriptionKey: 'runtime' },
@@ -237,6 +271,8 @@ const SECTIONS: Array<{ id: SectionId; labelKey: string; descriptionKey: string 
   { id: 'tools',     labelKey: 'tools',     descriptionKey: 'tools' },
   { id: 'deepseekNativeSearch', labelKey: 'deepseekNativeSearch', descriptionKey: 'deepseekNativeSearch' },
   { id: 'router',    labelKey: 'router',    descriptionKey: 'router' },
+  { id: 'vision',    labelKey: 'vision',    descriptionKey: 'vision' },
+  { id: 'figureGen', labelKey: 'figureGen', descriptionKey: 'figureGen' },
   { id: 'gateway',   labelKey: 'gateway',   descriptionKey: 'gateway' },
   { id: 'officePreview', labelKey: 'officePreview', descriptionKey: 'officePreview' },
   { id: 'customEnv', labelKey: 'customEnv', descriptionKey: 'customEnv' },
@@ -244,7 +280,7 @@ const SECTIONS: Array<{ id: SectionId; labelKey: string; descriptionKey: string 
 
 const SECTION_GROUPS: Array<{ id: 'basic' | 'features' | 'extensions' | 'advanced'; sections: SectionId[] }> = [
   { id: 'basic', sections: ['models', 'agents'] },
-  { id: 'features', sections: ['router', 'memory', 'tools', 'deepseekNativeSearch', 'alwaysOn', 'cron', 'gateway'] },
+  { id: 'features', sections: ['router', 'vision', 'figureGen', 'memory', 'tools', 'deepseekNativeSearch', 'alwaysOn', 'cron', 'gateway'] },
   { id: 'extensions', sections: ['officePreview'] },
   { id: 'advanced', sections: ['advanced', 'customEnv'] },
 ];
@@ -262,6 +298,8 @@ const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   officePreview: FileText,
   advanced: Server,
   customEnv: FileCog,
+  vision: Eye,
+  figureGen: ImageIcon,
 };
 
 // ── Config status presentation ──────────────────────────────────────────
@@ -3536,6 +3574,9 @@ function RouterSection({ config, onChange }: { config: RigoriumConfig; onChange:
   const ao = r.autoOrchestrate ?? {};
   const zr = r.zeroUsageRetry ?? {};
   const tr = r.transientRetry ?? {};
+  const ra = r.researchAware ?? {};
+  const ln = r.learning ?? {};
+  const st = r.sticky ?? {};
   const statsEnabled = r.stats?.enabled !== false;
   const zeroUsageEnabled = zr.enabled !== false;
   const transientRetryEnabled = tr.enabled !== false;
@@ -3854,6 +3895,96 @@ function RouterSection({ config, onChange }: { config: RigoriumConfig; onChange:
                 </SettingsCard>
 
                 {statsEnabled && <ModelPricingEditor config={config} onChange={onChange} />}
+
+                {/* ── Research-aware routing (Phase 2) ─────────────────────── */}
+                <SettingsCard className="space-y-4 p-4">
+                  <SettingsRow
+                    label={t('rigoriumConfig.panels.router.researchAware.label')}
+                    description={t('rigoriumConfig.panels.router.researchAware.description')}
+                  >
+                    <SettingsToggle
+                      checked={ra.enabled !== false}
+                      ariaLabel={t('rigoriumConfig.panels.router.researchAware.label')}
+                      onChange={(v) => onChange(patch(config, ['router', 'researchAware', 'enabled'], v))}
+                    />
+                  </SettingsRow>
+                  {ra.enabled !== false && (
+                    <SettingsRow
+                      label={t('rigoriumConfig.panels.router.researchAware.tierUpgrade.label')}
+                      description={t('rigoriumConfig.panels.router.researchAware.tierUpgrade.description')}
+                    >
+                      <SettingsToggle
+                        checked={ra.tierUpgrade !== false}
+                        ariaLabel={t('rigoriumConfig.panels.router.researchAware.tierUpgrade.label')}
+                        onChange={(v) => onChange(patch(config, ['router', 'researchAware', 'tierUpgrade'], v))}
+                      />
+                    </SettingsRow>
+                  )}
+                </SettingsCard>
+
+                {/* ── Amortized learning (Phase 2) ────────────────────────── */}
+                <SettingsCard className="space-y-4 p-4">
+                  <SettingsRow
+                    label={t('rigoriumConfig.panels.router.learning.label')}
+                    description={t('rigoriumConfig.panels.router.learning.description')}
+                  >
+                    <SettingsToggle
+                      checked={ln.enabled !== false}
+                      ariaLabel={t('rigoriumConfig.panels.router.learning.label')}
+                      onChange={(v) => onChange(patch(config, ['router', 'learning', 'enabled'], v))}
+                    />
+                  </SettingsRow>
+                  {ln.enabled !== false && (
+                    <>
+                      <FormRow label={t('rigoriumConfig.panels.router.learning.minObservations.label')} description={t('rigoriumConfig.panels.router.learning.minObservations.description')}>
+                        <NumberInput
+                          value={ln.minObservations}
+                          placeholder="4"
+                          onChange={(v) => onChange(patch(config, ['router', 'learning', 'minObservations'], v))}
+                        />
+                      </FormRow>
+                      <FormRow label={t('rigoriumConfig.panels.router.learning.minMargin.label')} description={t('rigoriumConfig.panels.router.learning.minMargin.description')}>
+                        <NumberInput
+                          value={ln.minMargin}
+                          placeholder="0.15"
+                          onChange={(v) => onChange(patch(config, ['router', 'learning', 'minMargin'], v))}
+                        />
+                      </FormRow>
+                    </>
+                  )}
+                </SettingsCard>
+
+                {/* ── Sticky guardrails (Phase 0) ─────────────────────────── */}
+                <SettingsCard className="space-y-4 p-4">
+                  <SettingsRow
+                    label={t('rigoriumConfig.panels.router.sticky.label')}
+                    description={t('rigoriumConfig.panels.router.sticky.description')}
+                  >
+                    <SettingsToggle
+                      checked={st.enabled !== false}
+                      ariaLabel={t('rigoriumConfig.panels.router.sticky.label')}
+                      onChange={(v) => onChange(patch(config, ['router', 'sticky', 'enabled'], v))}
+                    />
+                  </SettingsRow>
+                  {st.enabled !== false && (
+                    <>
+                      <FormRow label={t('rigoriumConfig.panels.router.sticky.ttlMs.label')} description={t('rigoriumConfig.panels.router.sticky.ttlMs.description')}>
+                        <NumberInput
+                          value={st.ttlMs}
+                          placeholder="1800000"
+                          onChange={(v) => onChange(patch(config, ['router', 'sticky', 'ttlMs'], v))}
+                        />
+                      </FormRow>
+                      <FormRow label={t('rigoriumConfig.panels.router.sticky.maxQualityFailures.label')} description={t('rigoriumConfig.panels.router.sticky.maxQualityFailures.description')}>
+                        <NumberInput
+                          value={st.maxQualityFailures}
+                          placeholder="2"
+                          onChange={(v) => onChange(patch(config, ['router', 'sticky', 'maxQualityFailures'], v))}
+                        />
+                      </FormRow>
+                    </>
+                  )}
+                </SettingsCard>
               </>
             )}
           </>
@@ -3889,8 +4020,134 @@ function GatewaySection({ config, onChange }: { config: RigoriumConfig; onChange
   );
 }
 
-function ConfigSectionGroup({ title, description, children }: { title: ReactNode; description?: ReactNode; children: ReactNode }) {
+/**
+ * Phase 3.3 — vision assistant. OpenAI-compatible endpoint (GitHub Copilot
+ * models, OpenAI, or any /v1-compatible service) used to describe images for
+ * non-vision main models. Config-surface only: incomplete entries are
+ * tolerated by the backend and simply keep the tools unregistered.
+ */
+function VisionSection({ config, onChange }: { config: RigoriumConfig; onChange: (next: RigoriumConfig) => void }) {
+  const { t } = useTranslation('settings');
+  const v = config.vision ?? {};
+  const configured = Boolean(v.baseUrl && v.apiKey && v.model);
   return (
+    <SettingsSection
+      title={t('rigoriumConfig.panels.vision.title')}
+      description={t('rigoriumConfig.panels.vision.description')}
+    >
+      <SettingsCard className="space-y-4 p-4">
+        <SettingsRow
+          label={t('rigoriumConfig.panels.vision.enabled.label')}
+          description={t('rigoriumConfig.panels.vision.enabled.description')}
+        >
+          <SettingsToggle
+            checked={v.enabled !== false}
+            ariaLabel={t('rigoriumConfig.panels.vision.enabled.label')}
+            onChange={(next) => onChange(patch(config, ['vision', 'enabled'], next))}
+          />
+        </SettingsRow>
+        <FormRow label={t('rigoriumConfig.panels.vision.baseUrl.label')} description={t('rigoriumConfig.panels.vision.baseUrl.description')}>
+          <TextInput
+            value={v.baseUrl ?? ''}
+            placeholder="https://models.github.ai/v1"
+            monospace
+            onChange={(next) => onChange(patch(config, ['vision', 'baseUrl'], next || undefined))}
+          />
+        </FormRow>
+        <FormRow label={t('rigoriumConfig.panels.vision.apiKey.label')} description={t('rigoriumConfig.panels.vision.apiKey.description')}>
+          <TextInput
+            value={v.apiKey ?? ''}
+            placeholder="sk-…"
+            type="password"
+            monospace
+            onChange={(next) => onChange(patch(config, ['vision', 'apiKey'], next || undefined))}
+          />
+        </FormRow>
+        <FormRow label={t('rigoriumConfig.panels.vision.model.label')} description={t('rigoriumConfig.panels.vision.model.description')}>
+          <TextInput
+            value={v.model ?? ''}
+            placeholder="gpt-4o-mini"
+            monospace
+            onChange={(next) => onChange(patch(config, ['vision', 'model'], next || undefined))}
+          />
+        </FormRow>
+        <FormRow label={t('rigoriumConfig.panels.vision.timeoutMs.label')} description={t('rigoriumConfig.panels.vision.timeoutMs.description')}>
+          <NumberInput
+            value={v.timeoutMs}
+            placeholder="30000"
+            onChange={(next) => onChange(patch(config, ['vision', 'timeoutMs'], next))}
+          />
+        </FormRow>
+        <p className="text-xs leading-5 text-muted-foreground">
+          {configured
+            ? t('rigoriumConfig.panels.vision.configuredHint')
+            : t('rigoriumConfig.panels.vision.incompleteHint')}
+        </p>
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
+/**
+ * Phase 3.4 — figure generation (GPT Image class models). Config-surface
+ * only: the endpoint is exercised only when the user provides credentials.
+ */
+function FigureGenSection({ config, onChange }: { config: RigoriumConfig; onChange: (next: RigoriumConfig) => void }) {
+  const { t } = useTranslation('settings');
+  const f = config.figureGen ?? {};
+  const configured = Boolean(f.baseUrl && f.apiKey && f.model);
+  return (
+    <SettingsSection
+      title={t('rigoriumConfig.panels.figureGen.title')}
+      description={t('rigoriumConfig.panels.figureGen.description')}
+    >
+      <SettingsCard className="space-y-4 p-4">
+        <SettingsRow
+          label={t('rigoriumConfig.panels.figureGen.enabled.label')}
+          description={t('rigoriumConfig.panels.figureGen.enabled.description')}
+        >
+          <SettingsToggle
+            checked={f.enabled !== false}
+            ariaLabel={t('rigoriumConfig.panels.figureGen.enabled.label')}
+            onChange={(next) => onChange(patch(config, ['figureGen', 'enabled'], next))}
+          />
+        </SettingsRow>
+        <FormRow label={t('rigoriumConfig.panels.figureGen.baseUrl.label')} description={t('rigoriumConfig.panels.figureGen.baseUrl.description')}>
+          <TextInput
+            value={f.baseUrl ?? ''}
+            placeholder="https://api.openai.com/v1"
+            monospace
+            onChange={(next) => onChange(patch(config, ['figureGen', 'baseUrl'], next || undefined))}
+          />
+        </FormRow>
+        <FormRow label={t('rigoriumConfig.panels.figureGen.apiKey.label')} description={t('rigoriumConfig.panels.figureGen.apiKey.description')}>
+          <TextInput
+            value={f.apiKey ?? ''}
+            placeholder="sk-…"
+            type="password"
+            monospace
+            onChange={(next) => onChange(patch(config, ['figureGen', 'apiKey'], next || undefined))}
+          />
+        </FormRow>
+        <FormRow label={t('rigoriumConfig.panels.figureGen.model.label')} description={t('rigoriumConfig.panels.figureGen.model.description')}>
+          <TextInput
+            value={f.model ?? ''}
+            placeholder="gpt-image-2"
+            monospace
+            onChange={(next) => onChange(patch(config, ['figureGen', 'model'], next || undefined))}
+          />
+        </FormRow>
+        <p className="text-xs leading-5 text-muted-foreground">
+          {configured
+            ? t('rigoriumConfig.panels.figureGen.configuredHint')
+            : t('rigoriumConfig.panels.figureGen.incompleteHint')}
+        </p>
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
+function ConfigSectionGroup({ title, description, children }: { title: ReactNode; description?: ReactNode; children: ReactNode }) {  return (
     <section className="space-y-2.5">
       <div>
         <h3 className="text-[15px] font-semibold leading-5 text-foreground">{title}</h3>
@@ -4217,6 +4474,8 @@ export default function RigoriumConfigTab({
               {activeSection === 'tools' && <ToolsSection config={parsedConfig} onChange={onFormChange} />}
               {activeSection === 'deepseekNativeSearch' && <DeepSeekNativeSearchSection config={parsedConfig} onChange={onFormChange} />}
               {activeSection === 'router' && <RouterSection config={parsedConfig} onChange={onFormChange} />}
+              {activeSection === 'vision' && <VisionSection config={parsedConfig} onChange={onFormChange} />}
+              {activeSection === 'figureGen' && <FigureGenSection config={parsedConfig} onChange={onFormChange} />}
               {activeSection === 'gateway' && <GatewaySection config={parsedConfig} onChange={onFormChange} />}
               {activeSection === 'officePreview' && <OfficePreviewSection config={parsedConfig} onChange={onFormChange} />}
               {activeSection === 'customEnv' && <CustomEnvSection config={parsedConfig} onChange={onFormChange} />}

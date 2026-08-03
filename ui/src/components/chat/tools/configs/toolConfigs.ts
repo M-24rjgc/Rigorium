@@ -694,6 +694,94 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
     }
   },
 
+  // ============================================================================
+  // PHASE 4 RESEARCH TOOLS (belief-driven orchestration surface)
+  // ============================================================================
+
+  research_plan: {
+    input: {
+      type: 'one-line',
+      icon: 'map',
+      label: 'Research plan',
+      getValue: () => 'Compute belief-driven research plan',
+    },
+    result: {
+      type: 'collapsible',
+      contentType: 'markdown',
+      title: 'Research plan',
+      defaultOpen: true,
+    },
+  },
+  claim_monitor: {
+    input: {
+      type: 'one-line',
+      icon: 'eye',
+      label: 'Claim monitor',
+      getValue: (input) => `Monitor ${input.limit ?? ''} claims`.trim() || 'Monitor claims',
+    },
+    result: {
+      type: 'collapsible',
+      contentType: 'text',
+      title: 'Claim monitor',
+    },
+  },
+  venue_template: {
+    input: {
+      type: 'one-line',
+      icon: 'file-text',
+      label: 'Venue template',
+      getValue: (input) => `${input.action ?? ''} ${input.venue ?? ''}`.trim() || 'Venue template',
+    },
+    result: {
+      type: 'collapsible',
+      contentType: 'text',
+      title: 'Venue template',
+    },
+  },
+  venue_corpus: {
+    input: {
+      type: 'one-line',
+      icon: 'book',
+      label: 'Venue corpus',
+      getValue: (input) => `${input.action ?? ''} ${input.venue ?? ''}`.trim() || 'Venue corpus',
+    },
+    result: {
+      type: 'collapsible',
+      contentType: 'text',
+      title: 'Venue corpus',
+    },
+  },
+  describe_image: {
+    input: {
+      type: 'one-line',
+      icon: 'image',
+      label: 'Describe image',
+      getValue: () => 'Vision assistant description',
+    },
+    result: {
+      type: 'collapsible',
+      contentType: 'text',
+      title: 'Image description',
+    },
+  },
+  figure_generate: {
+    input: {
+      type: 'one-line',
+      icon: 'image',
+      label: 'Generate figure',
+      getValue: (input) => input.spec || input.prompt || 'Generate figure',
+    },
+    result: {
+      type: 'collapsible',
+      contentType: 'text',
+      title: 'Generated figure',
+    },
+  },
+
+  // ============================================================================
+  // LITERATURE TOOLS
+  // ============================================================================
+
   literature_search: {
     input: {
       type: 'one-line',

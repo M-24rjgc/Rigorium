@@ -17,6 +17,13 @@ const RESEARCH_ACTIVITY_TOOLS = new Set([
   'manuscript_latex',
   'research_review',
   'research_director',
+  // Phase 4: belief-driven orchestration + PaperStudio surface.
+  'research_plan',
+  'claim_monitor',
+  'venue_template',
+  'venue_corpus',
+  'describe_image',
+  'figure_generate',
 ]);
 
 type ActivityInput = {

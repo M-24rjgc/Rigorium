@@ -311,13 +311,22 @@ v0.2.1 · Early development
 **Shipped:**
 - Full Agent execution loop (multi-phase recovery, circuit breaker, transparent synthetic prompts)
 - 4 sub-agent presets (general-purpose / explore / plan / verify)
-- Intelligent model router (scenario routing / Token Saver / fallback chains / cache-aware switching, health tracking)
+- Intelligent model router (scenario routing / Token Saver / fallback chains / cache-aware switching / health tracking / sticky guardrails)
+- **Research-aware routing** (capability-requirement tier priors + amortized per-bucket ranker + uncertainty-gated judge — learned, per-project)
 - Three-tier context compaction (Micro / Snip / Full) with ToolResultBudget
 - 30+ built-in tools + research-specific tool suite
 - Multi-source literature search (arXiv / OpenAlex / Crossref / OpenReview)
 - Research Artifact DAG (18 types, content-addressed, invalidation propagation)
+- **Belief-driven orchestration** (claim graph + belief propagation + EIG/cost planning + anomaly-boosted principle revision + belief-revision backtracking, `research_plan` / `claim_monitor` tools)
+- **PaperStudio** (18 built-in venue templates with year fallback, per-venue exemplar corpus + fine-grained style profiles, ICLR 2026 verified template pin)
+- **Vision assistant** (`vision:` config — OpenAI-compatible endpoint, GitHub Copilot compatible; automatic image enrichment for non-vision models + `describe_image`)
+- **GPT Image figure generation** (`figureGen:` config — `figure_generate`, config-surface only until a key is supplied)
 - Research Director (6 decision types, capability-dependency planning)
 - Remote experiment execution (local / SSH / Slurm, 3 authorization modes)
+- Literature evidence packs and automated surveys
+- Experiment analysis pipeline (statistical tests / optimization / failure analysis)
+- Research direction lifecycle management
+- Research method formalization
 - LaTeX manuscript pipeline (citations / rendering / compliance checks)
 - Seven-lane independent review + preflight + revision decisions
 - 20+ communication channel adapters
@@ -325,13 +334,21 @@ v0.2.1 · Early development
 - Cron scheduling + Always-On autonomous execution
 - Local file-based memory (MEMORY.md / user profile / project memory)
 - Dashboard (cost tracking / usage analytics)
-- Plugin system + 30+ bundled skills + MCP protocol extension
+- Plugin system + 30+ bundled skills + MCP protocol extension (unified manifest v2, UI enable toggle, machine-checkable capability contracts)
 
 **Building:**
-- Literature evidence packs and automated surveys
-- Experiment analysis pipeline (statistical tests / optimization / failure analysis)
-- Research direction lifecycle management
-- Research method formalization
+- Live template/venue verification probes against official author kits
+- Self-bootstrapping framework paper (bootstrap project included — see `bootstrap/framework-paper/`)
+
+---
+
+## Quick Start (first run)
+
+1. **Install** — `corepack pnpm install --frozen-lockfile` then `corepack pnpm dev` (or run the packaged app; the first launch guides you through model configuration).
+2. **Configure your model** — the onboarding screen writes `~/.rigorium/rigorium.yaml` for you: pick a provider, enter base URL / API key / model, test the connection. For manual setup, copy [`products/_example/config/rigorium.yaml`](./products/_example/config/rigorium.yaml) — it documents every section, including research-aware routing, the vision assistant, and figure generation.
+3. **Chat** — ask anything. Routing, compaction, recovery, and memory work out of the box.
+4. **Research (optional but recommended)** — open a project folder and ask for a research direction; the platform walks the belief-driven loop: claim graph → EIG plan → literature → experiments → manuscript. The bundled `bootstrap/framework-paper/` project demonstrates the full loop end-to-end.
+5. **Plugins & skills** — managed from the UI plugin manager (git install) and `~/.rigorium/skills/` (import with `scripts/import-open-science-skills.mjs`).
 
 ---
 

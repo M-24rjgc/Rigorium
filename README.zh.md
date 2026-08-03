@@ -295,13 +295,22 @@ v0.2.1 · 早期开发阶段
 **已落地：**
 - 完整 Agent 执行循环（多阶段恢复、熔断器、透明合成提示）
 - 4 种子 Agent 预设（general-purpose / explore / plan / verify）
-- 智能模型路由（场景路由 / Token Saver / 回退链 / 缓存感知）
+- 智能模型路由（场景路由 / Token Saver / 回退链 / 缓存感知 / 健康跟踪 / 粘性守卫）
+- **科研感知路由**（能力需求层级先验 + 摊销分桶排序器 + 不确定性门控 judge——按项目在线学习）
 - 三层上下文压缩（Micro / Snip / Full）
 - 30+ 内置工具 + 科研专用工具集
 - 多源文献检索（arXiv / OpenAlex / Crossref / OpenReview）
 - Research Artifact DAG（18 种类型，内容寻址，失效传播）
+- **信念驱动编排**（claim 图 + 信念传播 + EIG/成本规划 + 异常增强的原则修订 + 信念修正回溯，`research_plan` / `claim_monitor` 工具）
+- **PaperStudio**（18 个内置会议/期刊模板带年份回退、按 venue 的范文语料 + 细粒度风格画像、ICLR 2026 已验证模板钉扎）
+- **视觉助手**（`vision:` 配置节——OpenAI 兼容端点、兼容 GitHub Copilot；无视觉主模型自动图片富集 + `describe_image`）
+- **GPT Image 配图生成**（`figureGen:` 配置节——`figure_generate`，配置面先行、提供 Key 后实测）
 - Research Director（6 种决策，能力-依赖规划）
 - 远程实验执行（local / SSH / Slurm，三档授权模式）
+- 文献证据包与自动综述
+- 实验分析流水线（统计检验 / 优化 / 失效分析）
+- 研究方向生命周期管理
+- 研究方法元数据形式化
 - LaTeX 完整工作流（引文 / 渲染 / 合规检查）
 - 七路独立评审 + 预检 + 修订决策
 - 20+ 通信渠道适配器
@@ -309,12 +318,21 @@ v0.2.1 · 早期开发阶段
 - Cron 定时任务 + Always-On 常驻执行
 - 本地文件式记忆（MEMORY.md / 用户画像 / 项目记忆）
 - 仪表盘（成本追踪 / 用量分析）
+- 插件系统 + 30+ 内置技能 + MCP 协议扩展（统一 manifest v2、UI 启用开关、机器可检查的能力契约）
 
 **持续构建中：**
-- 文献证据包与自动综述
-- 实验分析流水线（统计检验 / 优化 / 失效分析）
-- 研究方向生命周期管理
-- 研究方法元数据形式化
+- 官方模板在线验证探针（probe）
+- 自举框架论文（仓库内已含 bootstrap 项目，见 `bootstrap/framework-paper/`）
+
+---
+
+## 快速上手（首次使用）
+
+1. **安装** — `corepack pnpm install --frozen-lockfile` 后 `corepack pnpm dev`（或直接运行打包版应用；首次启动会引导你配置模型）。
+2. **配置模型** — 引导页会帮你写入 `~/.rigorium/rigorium.yaml`：选择服务商、填 base URL / API key / 模型并测试连接。手动配置可复制 [`products/_example/config/rigorium.yaml`](./products/_example/config/rigorium.yaml)——其中逐节说明了科研路由、视觉助手与配图生成。
+3. **开始对话** — 路由、上下文压缩、恢复与记忆开箱即用。
+4. **科研（推荐）** — 打开一个项目文件夹，提出研究方向；平台沿信念驱动闭环推进：claim 图 → EIG 计划 → 文献 → 实验 → 论文。仓库自带的 `bootstrap/framework-paper/` 项目演示了完整闭环。
+5. **插件与技能** — 在 UI 插件管理器中管理（git 安装），技能库位于 `~/.rigorium/skills/`（可用 `scripts/import-open-science-skills.mjs` 批量导入开源技能）。
 
 ---
 
