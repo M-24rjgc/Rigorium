@@ -9,6 +9,7 @@ import { PluginsProvider } from './contexts/PluginsContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { ResearchPanelProvider } from './contexts/ResearchPanelContext';
 import AppShellV2 from './components/app-shell/AppShellV2';
+import FeatureTourHost from './components/onboarding/view/FeatureTourHost';
 import DesktopUpdateNotifier from './components/updates/DesktopUpdateNotifier';
 import i18n from './i18n/config.js';
 
@@ -28,6 +29,7 @@ export default function App() {
                     <TaskMasterProvider>
                       <ProtectedRoute>
                         <DesktopUpdateNotifier />
+                        <FeatureTourHost />
                         <Router basename={window.__ROUTER_BASENAME__ || ''}>
                           <Routes>
                             <Route path="*" element={<AppShellV2 />} />

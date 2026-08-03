@@ -139,7 +139,8 @@
     },
     "gateway": {
       "detail": "连接飞书、微信等 IM 通道"
-    }
+    },
+    "replayTour": "重新观看功能引导"
   },
   "notifications": {
     "title": "通知",

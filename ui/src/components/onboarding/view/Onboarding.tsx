@@ -17,6 +17,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || 'Failed to complete onboarding');
       }
+      // Completing onboarding mounts the main shell, whose FeatureTourHost
+      // shows the full-product guided tour (once).
       await onComplete?.();
     } catch (caughtError) {
       setErrorMessage(caughtError instanceof Error ? caughtError.message : 'Failed to complete onboarding');

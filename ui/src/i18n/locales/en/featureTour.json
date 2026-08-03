@@ -1,0 +1,52 @@
+{
+  "ariaLabel": "Feature tour",
+  "skip": "Skip",
+  "back": "Back",
+  "next": "Next",
+  "done": "Start using",
+  "stepIndicator": "Step {{index}}",
+  "anchorMissingHint": "This surface appears once you open a project.",
+  "poweredBy": "Powered by belief-driven orchestration",
+  "steps": {
+    "welcome": {
+      "title": "Welcome to Rigorium",
+      "body": "This short tour walks you through every major surface — chat, research, settings, routing, vision, and the self-bootstrapping paper workflow. You can skip it anytime."
+    },
+    "chat": {
+      "title": "Chat is the entry point",
+      "body": "Ask anything here. The agent routes each request to the best model tier, compacts context automatically, and recovers from failures. Research-language queries (literature, experiment, manuscript…) automatically activate the research panel on the right."
+    },
+    "sidebar": {
+      "title": "Sidebar: sessions and global tools",
+      "body": "The sidebar lists your projects and sessions. The bottom group opens the global tools — Memory, Always-On, Tasks, and the cost Dashboard."
+    },
+    "research": {
+      "title": "Research panel: evidence-first science",
+      "body": "The research panel is your lab bench: multi-source literature search (arXiv / OpenAlex / Crossref / OpenReview / Zotero), the claim graph, and the artifact DAG. Every research step lands as an immutable, content-addressed artifact — fully auditable."
+    },
+    "workspace": {
+      "title": "Workspace: files, git and shell",
+      "body": "Files, Git, and Shell tabs give the agent a full working environment. Experiment scripts, LaTeX sources, and results live here; the agent can execute remote jobs (local / SSH / Slurm) and render manuscripts."
+    },
+    "settings": {
+      "title": "Settings: one config, every surface",
+      "body": "All configuration lives in one place. Model pool, agents, memory, web search, cron, gateway — and the research features on the next steps."
+    },
+    "router": {
+      "title": "Research-aware routing",
+      "body": "The router learns which model tier actually succeeds for each task signature: capability requirements upgrade weak classifications, an amortized ranker skips the judge once enough observations exist, and sticky guardrails release broken pinning automatically."
+    },
+    "vision": {
+      "title": "Vision assistant & figure generation",
+      "body": "Configure an OpenAI-compatible vision endpoint (GitHub Copilot compatible) so text-only models can still read figures — images are described and injected automatically. The figure generation section adds GPT Image style figure creation for papers."
+    },
+    "globalTools": {
+      "title": "Global tools: memory, automation, dashboard",
+      "body": "Memory persists what the agent learns about you and each project. Always-On and Cron keep autonomous discovery and scheduled research running. The Dashboard tracks cost and usage per model tier."
+    },
+    "bootstrap": {
+      "title": "The self-bootstrapping milestone",
+      "body": "Open a project folder and ask for a research direction: the platform walks the belief-driven loop — claim graph → expected-information-gain plan → literature → experiments → manuscript → review. The repository ships a bootstrap framework paper project (bootstrap/framework-paper/) that demonstrates the whole loop. Good luck with your research!"
+    }
+  }
+}

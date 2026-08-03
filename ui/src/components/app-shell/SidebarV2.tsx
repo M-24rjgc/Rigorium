@@ -1012,6 +1012,7 @@ export default function SidebarV2({
   return (
     <aside
       data-sidebar-v2-root
+      data-tour-id="tour-sidebar"
       style={{ width: `${sidebarWidth}px` }}
       className={cn(
         // On mobile the parent wraps this aside in an overlay constrained

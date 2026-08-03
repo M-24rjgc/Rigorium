@@ -139,7 +139,8 @@
     },
     "gateway": {
       "detail": "Connect Feishu, WeChat, and other IM channels"
-    }
+    },
+    "replayTour": "Replay feature tour"
   },
   "notifications": {
     "title": "Notifications",

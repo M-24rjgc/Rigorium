@@ -3657,6 +3657,7 @@ function RouterSection({ config, onChange }: { config: RigoriumConfig; onChange:
 
   return (
     <SettingsSection
+      data-tour-id="tour-settings-router"
       title={t('rigoriumConfig.panels.router.title')}
       description={t('rigoriumConfig.panels.router.description')}
     >
@@ -4032,6 +4033,7 @@ function VisionSection({ config, onChange }: { config: RigoriumConfig; onChange:
   const configured = Boolean(v.baseUrl && v.apiKey && v.model);
   return (
     <SettingsSection
+      data-tour-id="tour-settings-vision"
       title={t('rigoriumConfig.panels.vision.title')}
       description={t('rigoriumConfig.panels.vision.description')}
     >

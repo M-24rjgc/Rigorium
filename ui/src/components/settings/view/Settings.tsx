@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Server,
   Shield,
+  Sparkles,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -30,6 +31,7 @@ import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useRigoriumConfig } from '../../../hooks/useRigoriumConfig';
 import { useSettingsController } from '../hooks/useSettingsController';
 import { useGitVersion } from '../../../hooks/useGitVersion';
+import { startFeatureTour } from '../../onboarding/view/FeatureTour';
 import { useDesktopVersion } from '../../../hooks/useDesktopVersion';
 import type {
   CodeEditorSettingsState,
@@ -118,7 +120,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
   const maxWidth = page === 'config' || page === 'research' ? 'max-w-[820px]' : 'max-w-[760px]';
 
   return (
-    <div className="modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center bg-background/80 backdrop-blur-sm md:p-4">
+    <div data-tour-id="tour-settings" className="modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center bg-background/80 backdrop-blur-sm md:p-4">
       <div className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-2xl md:h-[90vh] md:max-w-4xl md:rounded-xl">
         <Button
           variant="ghost"
@@ -352,6 +354,15 @@ function SettingsHome({ projectSortOrder, onProjectSortOrderChange, onOpenPage, 
       <div ref={updateSectionRef} data-testid="desktop-version-update-section">
         <VersionUpdateSection />
       </div>
+
+      <button
+        type="button"
+        onClick={startFeatureTour}
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        {t('settingsHome.replayTour')}
+      </button>
     </div>
   );
 }

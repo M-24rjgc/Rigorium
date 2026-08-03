@@ -144,7 +144,7 @@ function ResearchActivationPanel({ activation }: { activation: ResearchPanelActi
   const intents = activation?.intents ?? [];
   const boundaries = activation?.confirmationBoundaries ?? [];
   return (
-    <div data-testid="research-intent-activation" className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-neutral-50/70 dark:bg-neutral-950">
+    <div data-testid="research-intent-activation" data-tour-id="tour-research" className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto bg-neutral-50/70 dark:bg-neutral-950">
       <section className="border-b border-neutral-200 bg-white px-4 py-4 dark:border-neutral-800 dark:bg-neutral-950">
         <div className="flex items-start gap-2.5">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300">

@@ -29,6 +29,7 @@ import enAlwaysOn from './locales/en/alwaysOn.json';
 import enRouting from './locales/en/routing.json';
 // eslint-disable-next-line import-x/order
 import enTasks from './locales/en/tasks.json';
+import enFeatureTour from './locales/en/featureTour.json';
 
 import zhCommon from './locales/zh-CN/common.json';
 import zhSettings from './locales/zh-CN/settings.json';
@@ -39,6 +40,7 @@ import zhAlwaysOn from './locales/zh-CN/alwaysOn.json';
 import zhRouting from './locales/zh-CN/routing.json';
 // eslint-disable-next-line import-x/order
 import zhCodeEditor from './locales/zh-CN/codeEditor.json';
+import zhFeatureTour from './locales/zh-CN/featureTour.json';
 
 import { languages } from './languages.js';
 
@@ -69,6 +71,7 @@ i18n
         tasks: enTasks,
         alwaysOn: enAlwaysOn,
         routing: enRouting,
+        featureTour: enFeatureTour,
       },
       'zh-CN': {
         common: zhCommon,
@@ -79,6 +82,7 @@ i18n
         codeEditor: zhCodeEditor,
         alwaysOn: zhAlwaysOn,
         routing: zhRouting,
+        featureTour: zhFeatureTour,
       },
     },
 

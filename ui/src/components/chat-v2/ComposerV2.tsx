@@ -412,6 +412,7 @@ export default function ComposerV2({
           <form
             onSubmit={onSubmit as (event: FormEvent<HTMLFormElement>) => void}
             className="pd-composer-container relative"
+            data-tour-id="tour-chat-input"
           >
             {attachedImages.length > 0 || documentReferences.length > 0 ? (
               <div className="pd-composer-attachment-panel mb-2 overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50 p-2 dark:border-neutral-800 dark:bg-neutral-900">
