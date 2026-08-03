@@ -29,6 +29,8 @@ The mark uses an `R` as a stable frame and a connected path as the research trac
 - `rigorium-mark-256.png`: desktop preview
 - `rigorium-mark-32.png`: small-size preview
 - `rigorium-mark-16.png`: minimum-size preview
+- `rigorium-mark.ico`: Windows application icon
+- `rigorium-mark.icns`: macOS application icon
 - `rigorium-lockup.png`: wordmark preview
 
-These are proposal assets only. Product code and existing Rigorium branding remain unchanged until the proposal is approved.
+These files are the canonical Rigorium product assets used by the desktop packages and documentation.

@@ -15,7 +15,11 @@ const version = firstNonEmpty(
   stripVersionPrefix(process.env.GITHUB_REF_NAME),
   packageJson.version,
 ) || '0.0.0';
-const commit = firstNonEmpty(process.env.GITHUB_SHA, readGitValue(['rev-parse', 'HEAD']));
+const commit = firstNonEmpty(
+  process.env.RIGORIUM_RELEASE_COMMIT,
+  process.env.GITHUB_SHA,
+  readGitValue(['rev-parse', 'HEAD']),
+);
 const buildTime = firstNonEmpty(
   process.env.RIGORIUM_BUILD_TIME,
   process.env.SOURCE_DATE_EPOCH ? new Date(Number(process.env.SOURCE_DATE_EPOCH) * 1000).toISOString() : null,

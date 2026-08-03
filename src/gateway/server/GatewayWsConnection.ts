@@ -256,6 +256,11 @@ export class GatewayWsConnection {
         return requireSkillMethod(this.options.gateway.skillValidate, this.options.gateway)(frame.params as never);
       case "skill_scan":
         return requireSkillMethod(this.options.gateway.skillScan, this.options.gateway)(frame.params as never);
+      case "capability_list":
+        if (this.options.gateway.capabilitiesList) {
+          return this.options.gateway.capabilitiesList(frame.params as never);
+        }
+        return Promise.resolve({ capabilities: [], issues: [] });
       case "always_on_apply":
         if (this.options.gateway.alwaysOnApply) {
           return this.options.gateway.alwaysOnApply(frame.params as never);

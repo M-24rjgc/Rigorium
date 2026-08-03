@@ -267,6 +267,15 @@ A file-based, multi-tier memory architecture:
 
 Download from [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) (current v0.2.1, ~142 MB). Built-in auto-update with SHA-256 verification.
 
+### macOS Desktop App
+
+Download the DMG for your Mac from [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest):
+
+- Apple Silicon (M-series): `Rigorium-Setup-<version>-mac-arm64.dmg`
+- Intel: `Rigorium-Setup-<version>-mac-x64.dmg`
+
+Open the DMG and drag Rigorium into Applications. The desktop updater selects the matching architecture and verifies its SHA-256 checksum before opening an update installer.
+
 ### Docker
 
 ```bash

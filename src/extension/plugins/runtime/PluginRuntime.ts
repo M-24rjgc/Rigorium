@@ -2,7 +2,10 @@ import { resolvePluginDirectories } from "../discovery/PluginDirectoryResolver.j
 import { discoverPluginPaths, discoverSkillPaths } from "../discovery/discoverLocalPlugins.js";
 import { loadPluginFromPath, loadSkillFromPath } from "../loading/PluginLoader.js";
 import { loadPluginHooks } from "../loading/PluginHookLoader.js";
+import { readFileSync } from "node:fs";
 import type { LoadedPluginCommand } from "../loading/PluginCommandLoader.js";
+import { CapabilityRegistry } from "../../capabilities/CapabilityRegistry.js";
+import type { RigoriumCapability } from "../../capabilities/index.js";
 import type { RigoriumLoadedPlugin } from "../protocol/plugin.js";
 import { PluginRegistry } from "./PluginRegistry.js";
 import { truncateMcpInstructionString } from "./truncateMcpString.js";
@@ -37,6 +40,13 @@ export type PluginRuntimeOptions = {
   builtinSkillsRoot?: string;
   builtinPlugins?: RigoriumLoadedPlugin[];
   builtinPluginsEnabled?: Record<string, boolean>;
+  /**
+   * Path to the shared plugin enable config (`~/.rigorium/plugins.json`).
+   * The UI toggle writes here; the gateway reads it so a plugin disabled in
+   * the UI contributes nothing to the agent (skills/hooks/capabilities/MCP).
+   * Missing file → all plugins enabled.
+   */
+  pluginEnableConfigPath?: string;
 };
 
 export type PluginRefreshResult = {
@@ -75,15 +85,24 @@ export type PluginContributionSnapshot = {
   mcpServers: Record<string, unknown>;
   lspServers: Record<string, unknown>;
   mcpInstructions: PluginMcpInstruction[];
+  /** Machine-checkable capability contracts declared by loaded plugins. */
+  capabilities: RigoriumCapability[];
 };
 
 export class PluginRuntime {
   private readonly registry = new PluginRegistry();
+  /** Capability contracts of the currently loaded plugins. */
+  private readonly capabilityRegistry = new CapabilityRegistry();
 
   constructor(private readonly options: PluginRuntimeOptions) {}
 
   snapshot(): RigoriumLoadedPlugin[] {
     return this.registry.list();
+  }
+
+  /** Capability registry of the currently loaded plugins (live). */
+  capabilities(): CapabilityRegistry {
+    return this.capabilityRegistry;
   }
 
   mcpServers(): Record<string, unknown> {
@@ -140,6 +159,7 @@ export class PluginRuntime {
       mcpServers: this.mcpServers(),
       lspServers: this.lspServers(),
       mcpInstructions: this.getAllMcpInstructions(),
+      capabilities: this.capabilityRegistry.list(),
     };
   }
 
@@ -234,14 +254,65 @@ export class PluginRuntime {
       ...loaded.filter(isLoadedPlugin),
       ...loadedSkills.filter(isLoadedPlugin),
     ];
-    this.registry.replaceAll(plugins);
+    // Apply the UI-side enable toggle: a plugin disabled in `plugins.json`
+    // (UI plugin manager) must not contribute skills/hooks/capabilities/MCP
+    // to the agent runtime either. Builtins keep their own enable map.
+    const enabledByConfig = readPluginEnableConfig(this.options.pluginEnableConfigPath);
+    const gated = plugins.filter(
+      (plugin) =>
+        plugin.source === "builtin" ||
+        enabledByConfig[plugin.name] !== false,
+    );
+    this.registry.replaceAll(gated);
+    // Rebuild the capability registry from the freshly loaded plugins so the
+    // director/router/UI always see the capabilities of the *current* set.
+    this.capabilityRegistry.replaceAll(
+      gated.flatMap((plugin) => plugin.capabilities ?? []),
+    );
     return {
       previous,
-      next: plugins,
-      added: plugins.filter((plugin) => !hasPlugin(previous, plugin)),
-      removed: previous.filter((plugin) => !hasPlugin(plugins, plugin)),
+      next: gated,
+      added: gated.filter((plugin) => !hasPlugin(previous, plugin)),
+      removed: previous.filter((plugin) => !hasPlugin(gated, plugin)),
     };
   }
+}
+
+/**
+ * Read the shared plugin enable map (`~/.rigorium/plugins.json`, written by
+ * the UI plugin manager). Missing/unreadable → everything enabled.
+ *
+ * Tolerates both shapes the UI has written over time:
+ * - flat:   `{ "plugin-a": false }`
+ * - nested: `{ "plugin-a": { enabled: false } }`
+ * (`ui/server/routes/plugins.js` writes the nested shape; older builds wrote
+ * the flat one.) A plugin is disabled iff its entry is `false` or an object
+ * with `enabled === false` — anything else (including a missing entry) keeps
+ * it enabled.
+ */
+function readPluginEnableConfig(path: string | undefined): Record<string, unknown> {
+  if (!path) {
+    return {};
+  }
+  let raw: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    raw = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+  const normalized: Record<string, unknown> = {};
+  for (const [name, entry] of Object.entries(raw)) {
+    if (entry === false) {
+      normalized[name] = false;
+    } else if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const enabled = (entry as { enabled?: unknown }).enabled;
+      normalized[name] = enabled === false ? false : true;
+    } else {
+      normalized[name] = entry;
+    }
+  }
+  return normalized;
 }
 
 function isLoadedPlugin(value: RigoriumLoadedPlugin | undefined): value is RigoriumLoadedPlugin {

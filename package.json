@@ -35,10 +35,13 @@
     "desktop:rebuild-native": "node scripts/rebuild-electron-native.mjs",
     "desktop:pack": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && pnpm run desktop:rebuild-native && electron-builder --dir --win --x64",
     "desktop:build": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && pnpm run desktop:rebuild-native && electron-builder --win nsis --x64 --publish never",
+    "desktop:pack:mac": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:rebuild-native && electron-builder --dir --mac --publish never",
+    "desktop:build:mac": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:rebuild-native && electron-builder --mac dmg --publish never",
     "predev": "npm run check:runtime && node scripts/bootstrap-rigorium-config.mjs",
     "dev": "node scripts/dev-launcher.mjs",
     "test": "npm run build && node --test --test-force-exit --test-timeout 60000 \"dist/tests/**/*.test.js\" \"dist/tests/**/*.spec.js\"",
     "test:research-bridge": "node --test desktop/zotero-broker.test.mjs ui/server/routes/zoteroCloudTransport.node-test.mjs",
+    "test:desktop-runtime": "node --test desktop/platform-runtime.test.mjs",
     "test:desktop-update": "node --test ui/server/services/desktopUpdateService.node-test.mjs",
     "release:verify-tag": "node scripts/verify-release-tag.mjs",
     "release:verify-public-update": "node scripts/verify-public-desktop-update.mjs",
@@ -142,6 +145,15 @@
         }
       ],
       "icon": "branding/rigorium/rigorium-mark.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "branding/rigorium/rigorium-mark.icns",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "artifactName": "${productName}-Setup-${version}-mac-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

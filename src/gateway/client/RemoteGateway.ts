@@ -45,6 +45,10 @@ import type {
   SkillsListResult,
 } from "../../extension/skills/types.js";
 import type {
+  CapabilitiesListInput,
+  CapabilitiesListResult,
+} from "../protocol/types.js";
+import type {
   CronCreateInput,
   CronCreateResult,
   CronDeleteInput,
@@ -196,6 +200,10 @@ export class RemoteGateway implements Gateway {
 
   async skillScan(input: SkillScanInput): Promise<SkillScanResult> {
     return (await this.client.request("skill_scan", input)) as SkillScanResult;
+  }
+
+  async capabilitiesList(input: CapabilitiesListInput): Promise<CapabilitiesListResult> {
+    return (await this.client.request("capability_list", input)) as CapabilitiesListResult;
   }
 
   async alwaysOnApply(input: AlwaysOnApplyInput): Promise<AlwaysOnApplyResult> {

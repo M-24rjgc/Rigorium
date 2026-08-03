@@ -37,6 +37,8 @@ import type {
   AlwaysOnApplyResult,
   AlwaysOnRerunPlanInput,
   AlwaysOnRerunPlanResult,
+  CapabilitiesListInput,
+  CapabilitiesListResult,
   ReloadConfigResult,
   WebDescribeProjectInput,
   WebListProjectsResult,
@@ -144,6 +146,11 @@ export type InProcessGatewayOptions = {
    * SDK) reads and writes the same skill directory the agent loads from.
    */
   skillManager?: SkillManager;
+  /**
+   * Pluggable capability enumeration wired by `createLocalGateway` to the
+   * per-project `PluginRuntime` capability registry.
+   */
+  capabilitiesList?: (input: CapabilitiesListInput) => Promise<CapabilitiesListResult>;
   dispatchHookForSession?: (sessionKey: string, event: string, payload: Record<string, unknown>) => void;
   /** Directory to persist large tool outputs for TUI/Web viewing. */
   toolResultsDir?: string;
@@ -459,6 +466,7 @@ export class InProcessGateway implements Gateway {
               allow: [...sessionAllowRules, ...persistedRules.allow],
             },
             ...(syntheticMessages.length > 0 ? { syntheticMessages } : {}),
+            ...(input.research ? { researchContext: input.research } : {}),
           },
         )) {
           if (this.turnCompletions.get(input.sessionKey) !== turnDone) {
@@ -826,6 +834,13 @@ export class InProcessGateway implements Gateway {
 
   async skillScan(input: SkillScanInput): Promise<SkillScanResult> {
     return this.requireSkills().scan(input);
+  }
+
+  async capabilitiesList(input: CapabilitiesListInput): Promise<CapabilitiesListResult> {
+    if (!this.options.capabilitiesList) {
+      return { capabilities: [], issues: [] };
+    }
+    return this.options.capabilitiesList(input);
   }
 
   private requireSkills(): SkillManager {

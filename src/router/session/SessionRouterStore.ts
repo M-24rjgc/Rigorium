@@ -67,6 +67,32 @@ export class SessionRouterStore {
     this.map.delete(makeKey(sessionId, isSubagent));
   }
 
+  /**
+   * Increment the consecutive quality-failure counter for a session slot.
+   * Returns the updated count (0 when no slot exists).
+   */
+  recordQualityFailure(sessionId: string, isSubagent: boolean): number {
+    const key = makeKey(sessionId, isSubagent);
+    const slot = this.map.get(key);
+    if (!slot) {
+      return 0;
+    }
+    const count = (slot.state.qualityFailures ?? 0) + 1;
+    slot.state = { ...slot.state, qualityFailures: count };
+    this.map.set(key, slot);
+    return count;
+  }
+
+  resetQualityFailures(sessionId: string, isSubagent: boolean): void {
+    const key = makeKey(sessionId, isSubagent);
+    const slot = this.map.get(key);
+    if (!slot || (slot.state.qualityFailures ?? 0) === 0) {
+      return;
+    }
+    slot.state = { ...slot.state, qualityFailures: 0 };
+    this.map.set(key, slot);
+  }
+
   size(): number {
     return this.map.size;
   }

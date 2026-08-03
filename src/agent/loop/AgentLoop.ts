@@ -4,20 +4,14 @@ import {
   assembleAssistantMessage,
   cloneMessages,
   createModelMessageAssemblerState,
-  messageContent,
   type CanonicalToolCall,
-  PROMPT_TOO_LONG_ANTHROPIC_PATTERN,
-  PROMPT_TOO_LONG_OPENAI_PATTERN,
-  REQUEST_TOO_LARGE_PATTERN,
   type CanonicalMessage,
   type CanonicalModelError,
   ModelProviderError,
   type CanonicalModelRequest,
-  type CanonicalToolSchema,
   type CanonicalUsage,
   type CanonicalToolCallBlock,
   materializeMediaReferences,
-  type PartialTextToolCallInfo,
   getSelfCorrectPrompt,
   detectFormatByText,
 } from "../../model/index.js";
@@ -50,37 +44,68 @@ import { createMissingToolResult, ensureToolResultPairing } from "./ensureToolRe
 import { LargeFileRepair, type LargeFileRepairDecision } from "./LargeFileRepair.js";
 import { resolveOutputTokenRetryBump } from "./outputTokenRetry.js";
 import { projectToolResults } from "./projectToolResults.js";
+import {
+  CIRCUIT_BREAKER_GRACE_PROMPT,
+  DEFAULT_RESERVED_OUTPUT_TOKENS,
+  EMPTY_LENGTH_OUTPUT_RETRY_FLOOR,
+  SUBAGENT_STATUS_HEARTBEAT_MS,
+  TOOL_EVENT_PUMP_INTERVAL_MS,
+} from "./recovery/constants.js";
+import {
+  appendPlanModeReminder,
+  buildPartialTextToolCallRecoveryPrompt,
+  normalizeMessagesForModelRequest,
+  removeTransientPromptsById,
+  stripImagesFromMessages,
+  stripTrailingErrorPair,
+  textFromMessage,
+  truncateHeadKeepRatio,
+} from "./recovery/messages.js";
+import {
+  annotateRepeatedToolFailures,
+  bindSupplementalMessagesToToolCalls,
+  buildInvalidFingerprint,
+  collectPermissionDenials,
+  detectRepeatedToolFailure,
+} from "./recovery/toolFailures.js";
+import {
+  classifyModelError,
+  createEmptyResponseStatus,
+  createFinishReasonStatus,
+  createLifecycleBlockedStatus,
+  createMaxOutputRecoveryExhaustedStatus,
+  createMaxTurnsStatus,
+  createModelRequestFailedStatus,
+  createStructuredOutputCompletedStatus,
+  createToolCallRecoveryExhaustedStatus,
+  createToolErrorLoopStatus,
+  createTurnAbortedStatus,
+  shouldSurfaceAbortStatus,
+  stringifyAbortReason,
+  type AgentStatusMessage,
+} from "./recovery/status.js";
+import {
+  clampOutputToModelCap,
+  composeAbortSignal,
+  mergeUsage,
+  modelErrorTarget,
+  tokensFromUsage,
+} from "./recovery/usage.js";
+import {
+  cloneReadFileStateMap,
+  cloneWriteSnapshotMap,
+  filterAskModeTools,
+  findLifecycleBlock,
+  findToolLifecycleBlock,
+  mergeUserRules,
+  readRequestedMode,
+  subagentIdFromSessionId,
+  toolToCanonicalSchema,
+} from "./assembly.js";
+import { enrichMessagesWithVisionDescriptions } from "./visionEnrichment.js";
 import { requiresPromptCapability } from "../../tool/userInteractionConstraints.js";
 import type { AgentRunMode } from "../protocol/input.js";
-import {
-  ASK_MODE_DESCRIPTION_SUFFIX,
-  isAskModeAllowedTool,
-} from "../../tool/askModeConstraints.js";
-import { buildAskModeAgentToolSchema } from "../../tool/builtin/agent.js";
 import { repairToolName } from "../../model/streaming/repairToolName.js";
-import {
-  createAgentStatusDetail,
-  createVisibleErrorStatusDetail,
-  type AgentStatusI18nDescriptor,
-} from "../../status/agentStatus.js";
-
-const TOOL_EVENT_PUMP_INTERVAL_MS = 500;
-const SUBAGENT_STATUS_HEARTBEAT_MS = 2_000;
-const DEFAULT_RESERVED_OUTPUT_TOKENS = 4_096;
-const EMPTY_LENGTH_OUTPUT_RETRY_FLOOR = 4_096;
-const CIRCUIT_BREAKER_GRACE_PROMPT = [
-  "Your last several tool calls all failed input validation with the same error.",
-  "This may indicate a tool-side issue rather than a problem with your approach.",
-  "Options: (1) try a different tool or different parameters,",
-  "(2) explain the situation in text without calling tools,",
-  "(3) if you believe the tool should work, try once more with corrected input.",
-].join(" ");
-const PLAN_MODE_REMINDER_MESSAGE = [
-  "Plan mode is active.",
-  "Read first using read-only tools, then write or refine plan markdown only under `.rigorium/plans/`.",
-  "Do not make implementation changes while planning.",
-  "When the plan is ready for user review, call `exit_plan_mode` with the plan file path.",
-].join("\n");
 
 type ActiveSubagentStatus = {
   subagentId: string;
@@ -89,13 +114,6 @@ type ActiveSubagentStatus = {
   lastHeartbeatMs: number;
   currentToolCallId?: string;
   currentToolName?: string;
-};
-
-type AgentStatusMessage = {
-  event: string;
-  kind: "status" | "error";
-  text: string;
-  detail?: Record<string, unknown>;
 };
 
 export type AgentLoopInput = {
@@ -113,6 +131,8 @@ export type AgentLoopInput = {
   canPrompt?: boolean;
   permissionRules?: Partial<PermissionRuleSet>;
   abortSignal?: AbortSignal;
+  /** Research context (artifact kinds + EIG action type) for research-aware routing. */
+  researchContext?: import("../../router/index.js").ResearchRoutingHint;
   onDurableMessage?: (message: CanonicalMessage) => void | Promise<void>;
   onAgentStatusMessage?: (status: AgentStatusMessage) => void | Promise<void>;
 };
@@ -419,13 +439,16 @@ export class AgentLoop {
         request,
         sessionId: input.sessionId,
         isMainAgent: !this.config.isSubagent,
-        metadata: stickyInfo
-          ? {
-            previousTier,
-            previousProvider: stickyInfo.previousProvider,
-            previousModel: stickyInfo.previousModel,
-          }
-          : previousTier ? { previousTier } : undefined,
+        metadata: {
+          ...(stickyInfo
+            ? {
+              previousTier,
+              previousProvider: stickyInfo.previousProvider,
+              previousModel: stickyInfo.previousModel,
+            }
+            : previousTier ? { previousTier } : {}),
+          ...(input.researchContext ? { research: input.researchContext } : {}),
+        },
       });
       const routedLimits = this.getModelTokenLimits(decision.provider, decision.model);
       const routedMaxOutputTokens = routedLimits?.maxOutputTokens;
@@ -1740,12 +1763,31 @@ export class AgentLoop {
       );
     }
 
+    // Phase 4: automatic vision enrichment — when the main model cannot see
+    // images and a vision assistant is configured, describe images before
+    // they reach the model instead of letting the multimodal downgrade turn
+    // them into bare placeholders.
+    const baseMessages = this.config.permissionMode === "plan"
+      ? appendPlanModeReminder(materialized.messages)
+      : materialized.messages;
+    let visionEnrichedMessages = baseMessages;
+    if (this.dependencies.visionAssistant && this.config.modelMultimodal?.input.includes("image") !== true) {
+      const enrichment = await enrichMessagesWithVisionDescriptions(baseMessages, {
+        modelInputModalities: this.config.modelMultimodal?.input,
+        assistant: this.dependencies.visionAssistant,
+        signal: input.abortSignal,
+      });
+      for (const diagnostic of enrichment.diagnostics) {
+        // eslint-disable-next-line no-console
+        console.warn(`[rigorium] vision-enrichment: ${diagnostic}`);
+      }
+      visionEnrichedMessages = enrichment.messages;
+    }
+
     return {
       provider: this.config.provider,
       model: this.config.model,
-      messages: this.config.permissionMode === "plan"
-        ? appendPlanModeReminder(materialized.messages)
-        : materialized.messages,
+      messages: visionEnrichedMessages,
       systemPrompt: prepared.systemPrompt ?? this.config.systemPrompt,
       tools: prepared.tools,
       toolChoice: this.config.toolChoice,
@@ -2338,930 +2380,3 @@ export class AgentLoop {
   private readonly now = (): Date => this.dependencies.now?.() ?? new Date();
 }
 
-function mergeUserRules(target: PermissionRule[], userRules: PermissionRule[] | undefined): void {
-  const nonUserRules = target.filter((rule) => rule.source !== "user");
-  target.splice(0, target.length, ...nonUserRules, ...(userRules ?? []));
-}
-
-function filterAskModeTools(tools: RigoriumToolDefinition[]): CanonicalToolSchema[] {
-  const agentOverride = buildAskModeAgentToolSchema();
-  return tools
-    .filter(isAskModeAllowedTool)
-    .map((tool) => {
-      if (tool.name === "agent") {
-        return { ...toolToCanonicalSchema(tool), description: agentOverride.description, inputSchema: agentOverride.inputSchema };
-      }
-      const suffix = ASK_MODE_DESCRIPTION_SUFFIX[tool.name];
-      const schema = toolToCanonicalSchema(tool);
-      return suffix ? { ...schema, description: schema.description + suffix } : schema;
-    });
-}
-
-function toolToCanonicalSchema(tool: RigoriumToolDefinition): CanonicalToolSchema {
-  return {
-    name: tool.name,
-    description: tool.description,
-    inputSchema: tool.inputSchema,
-  };
-}
-
-function findLifecycleBlock(result: LifecycleDispatchResult): { reason: string; stopReason?: string } | undefined {
-  return result.effects.find(
-    (effect): effect is { type: "block"; reason: string; stopReason?: string } => effect.type === "block",
-  );
-}
-
-function findToolLifecycleBlock(results: RigoriumToolResult[]): { reason: string; stopReason?: string } | undefined {
-  for (const result of results) {
-    const lifecycle = result.metadata?.lifecycle;
-    if (isRecord(lifecycle) && isRecord(lifecycle.blocked) && typeof lifecycle.blocked.reason === "string") {
-      return {
-        reason: lifecycle.blocked.reason,
-        stopReason: typeof lifecycle.blocked.stopReason === "string" ? lifecycle.blocked.stopReason : undefined,
-      };
-    }
-  }
-  return undefined;
-}
-
-function textFromMessage(message: CanonicalMessage): string {
-  return message.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n");
-}
-
-function appendPlanModeReminder(messages: CanonicalMessage[]): CanonicalMessage[] {
-  return [
-    ...messages,
-    {
-      role: "user",
-      content: [{ type: "text", text: PLAN_MODE_REMINDER_MESSAGE }],
-      metadata: { synthetic: true, purpose: "plan_mode_reminder" },
-    },
-  ];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function cloneReadFileStateMap(
-  state: RigoriumReadFileStateMap | undefined,
-): RigoriumReadFileStateMap {
-  const out: RigoriumReadFileStateMap = new Map();
-  if (!state) return out;
-  for (const [key, value] of state.entries()) {
-    out.set(key, { ...value });
-  }
-  return out;
-}
-
-function cloneWriteSnapshotMap(
-  state: RigoriumWriteSnapshotMap | undefined,
-): RigoriumWriteSnapshotMap {
-  const out: RigoriumWriteSnapshotMap = new Map();
-  if (!state) return out;
-  for (const [key, value] of state.entries()) {
-    out.set(key, { ...value });
-  }
-  return out;
-}
-
-function subagentIdFromSessionId(sessionId: string): string | undefined {
-  const marker = "::sub::";
-  const index = sessionId.lastIndexOf(marker);
-  if (index < 0) return undefined;
-  const subagentId = sessionId.slice(index + marker.length).trim();
-  return subagentId.length > 0 ? subagentId : undefined;
-}
-
-function buildPartialTextToolCallRecoveryPrompt(
-  partial: PartialTextToolCallInfo | undefined,
-): string {
-  const evidence = partial
-    ? `Detected partial text tool-call syntax (${partial.format}/${partial.reason}). Preview: ${partial.preview}`
-    : "Detected partial text tool-call syntax.";
-  return [
-    "The previous response contained partial tool-call XML/text and could not be safely executed.",
-    evidence,
-    "Resend the complete intended tool call with all required parameters, or continue in visible text if no tool is needed.",
-    "Do not repeat dangling XML/tool-call fragments.",
-  ].join("\n");
-}
-
-/** Keep only the trailing `keepRatio` portion of the message history. */
-function truncateHeadKeepRatio(messages: CanonicalMessage[], keepRatio: number): CanonicalMessage[] {
-  const ratio = Math.max(0.05, Math.min(1, keepRatio));
-  const keep = Math.max(1, Math.floor(messages.length * ratio));
-  return messages.slice(-keep);
-}
-
-function buildInvalidFingerprint(results: RigoriumToolResult[]): string {
-  return results
-    .filter(
-      (result): result is RigoriumToolErrorResult =>
-        result.type === "error" && result.error.code === "invalid_tool_input",
-    )
-    .map((result) => `${result.toolName}::${result.error.message}`)
-    .sort()
-    .join("\n");
-}
-
-/**
- * Drop the trailing `[assistant_message_with_partial_tool_call,
- * synthetic_tool_result]` pair the loop just appended on a model error so a
- * retry doesn't replay an unfinished tool call. Safe no-op if the trailing
- * shape doesn't match.
- */
-function stripTrailingErrorPair(messages: CanonicalMessage[]): CanonicalMessage[] {
-  const out = [...messages];
-  const last = out[out.length - 1];
-  if (
-    last &&
-    last.role === "user" &&
-    last.content.every((block) => block.type === "tool_result")
-  ) {
-    out.pop();
-  }
-  const newLast = out[out.length - 1];
-  if (newLast && newLast.role === "assistant") {
-    out.pop();
-  }
-  return out;
-}
-
-/**
- * Strip all image blocks from messages, replacing them with a text placeholder.
- * Used as a recovery strategy when a multimodal processor fails on corrupted images.
- */
-function stripImagesFromMessages(messages: CanonicalMessage[]): CanonicalMessage[] {
-  return messages.map((msg) => {
-    const newContent = msg.content.map((block) => {
-      if (block.type === "image") {
-        return { type: "text" as const, text: "[Image removed: multimodal processor error recovery]" };
-      }
-      if (block.type === "tool_result" && block.content.some((c) => c.type === "image")) {
-        return {
-          ...block,
-          content: block.content.map((c) =>
-            c.type === "image"
-              ? { type: "text" as const, text: "[Image removed: multimodal processor error recovery]" }
-              : c,
-          ),
-        };
-      }
-      return block;
-    });
-    return { ...msg, content: newContent };
-  });
-}
-
-function removeTransientPromptsById(
-  messages: CanonicalMessage[],
-  transientIds: Set<string>,
-): CanonicalMessage[] {
-  return messages.filter((message) => {
-    const transientId = message.metadata?.transientId;
-    return !(
-      message.role === "user" &&
-      message.metadata?.transient === true &&
-      typeof transientId === "string" &&
-      transientIds.has(transientId)
-    );
-  });
-}
-
-function normalizeMessagesForModelRequest(messages: CanonicalMessage[]): CanonicalMessage[] {
-  const out: CanonicalMessage[] = [];
-  for (const rawMessage of messages) {
-    const message: CanonicalMessage = {
-      ...rawMessage,
-      content: messageContent(rawMessage),
-    };
-    const last = out[out.length - 1];
-    if (
-      last?.role === "assistant" &&
-      message.role === "assistant" &&
-      canMergeAssistantMessages(last, message)
-    ) {
-      out[out.length - 1] = {
-        role: "assistant",
-        content: [...messageContent(last), ...messageContent(message)],
-        metadata: mergeMessageMetadata(last.metadata, message.metadata),
-      };
-      continue;
-    }
-    if (message.role === "assistant" && message.content.length === 0) {
-      continue;
-    }
-    out.push(message);
-  }
-  return out;
-}
-
-function canMergeAssistantMessages(first: CanonicalMessage, second: CanonicalMessage): boolean {
-  return !hasToolCallBlock(first) && !hasToolCallBlock(second);
-}
-
-function hasToolCallBlock(message: CanonicalMessage): boolean {
-  return messageContent(message).some((block) => block.type === "tool_call");
-}
-
-function mergeMessageMetadata(
-  first: CanonicalMessage["metadata"],
-  second: CanonicalMessage["metadata"],
-): CanonicalMessage["metadata"] {
-  if (!first && !second) {
-    return undefined;
-  }
-  return {
-    ...(first ?? {}),
-    ...(second ?? {}),
-  };
-}
-
-function detectRepeatedToolFailure(
-  results: RigoriumToolResult[],
-  lastFingerprint: string | undefined,
-): {
-  currentFingerprint?: string;
-  repeatedKeys: Set<string>;
-} {
-  const keys = buildToolFailureKeys(results);
-  const fingerprint = keys.length > 0 ? keys.join("\n") : undefined;
-  const repeatedKeys = findRepeatedValues(keys);
-  if (fingerprint && fingerprint === lastFingerprint) {
-    for (const key of keys) {
-      repeatedKeys.add(key);
-    }
-  }
-  if (!fingerprint) {
-    return { repeatedKeys };
-  }
-  return {
-    currentFingerprint: fingerprint,
-    repeatedKeys,
-  };
-}
-
-function buildToolFailureKeys(results: RigoriumToolResult[]): string[] {
-  return results
-    .filter((result): result is RigoriumToolErrorResult => result.type === "error")
-    .map((result) => {
-      const recovery = readRecoveryMetadata(result);
-      return toolFailureKey(result, recovery);
-    })
-    .sort();
-}
-
-function annotateRepeatedToolFailures(
-  results: RigoriumToolResult[],
-  repeatedKeys: Set<string>,
-): RigoriumToolResult[] {
-  if (repeatedKeys.size === 0) {
-    return results;
-  }
-
-  return results.map((result) => {
-    if (result.type !== "error") {
-      return result;
-    }
-    const recovery = readRecoveryMetadata(result);
-    if (!repeatedKeys.has(toolFailureKey(result, recovery))) {
-      return result;
-    }
-    const avoidRetryReason = typeof recovery?.avoidRetryReason === "string"
-      ? recovery.avoidRetryReason
-      : "The same tool, error code, and recovery class repeated. Retrying unchanged is likely to fail again.";
-    const repeatedText =
-      `\n\nRepeated failure: ${avoidRetryReason}\n` +
-      "Change at least one of the tool, parameters, path, scope, permission path, or explain the blocker in text.";
-    return {
-      ...result,
-      content: appendTextToFirstContent(result.content, repeatedText),
-      metadata: {
-        ...(result.metadata ?? {}),
-        recovery: recovery
-          ? {
-              ...recovery,
-              avoidRetryReason,
-              repeatedFailure: true,
-            }
-          : {
-              avoidRetryReason,
-              repeatedFailure: true,
-            },
-      },
-    };
-  });
-}
-
-function toolFailureKey(
-  result: RigoriumToolErrorResult,
-  recovery: Record<string, unknown> | undefined,
-): string {
-  return `${result.toolName}::${result.error.code}::${recovery?.failureClass ?? "unknown"}`;
-}
-
-function findRepeatedValues(values: string[]): Set<string> {
-  const seen = new Set<string>();
-  const repeated = new Set<string>();
-  for (const value of values) {
-    if (seen.has(value)) {
-      repeated.add(value);
-    } else {
-      seen.add(value);
-    }
-  }
-  return repeated;
-}
-
-function appendTextToFirstContent(
-  content: RigoriumToolErrorResult["content"],
-  suffix: string,
-): RigoriumToolErrorResult["content"] {
-  const [first, ...rest] = content;
-  if (!first) {
-    return [{ type: "text", text: suffix.trimStart() }];
-  }
-  if (first.type !== "text") {
-    return [{ type: "text", text: suffix.trimStart() }, first, ...rest];
-  }
-  return [{ ...first, text: `${first.text}${suffix}` }, ...rest];
-}
-
-function readRecoveryMetadata(result: RigoriumToolErrorResult): Record<string, unknown> | undefined {
-  const recovery = result.metadata?.recovery;
-  return isRecord(recovery) ? recovery : undefined;
-}
-
-function collectPermissionDenials(results: RigoriumToolResult[]): AgentPermissionDenial[] {
-  return results.flatMap((result) => {
-    if (
-      result.type === "error" &&
-      (result.error.code === "permission_denied" ||
-        result.error.code === "permission_required" ||
-        result.error.code === "permission_cancelled")
-    ) {
-      return [
-        {
-          toolCallId: result.toolCallId,
-          toolName: result.toolName,
-          errorCode: result.error.code,
-        },
-      ];
-    }
-    return [];
-  });
-}
-
-function mergeUsage(first: CanonicalUsage, second: CanonicalUsage | undefined): CanonicalUsage {
-  if (!second) {
-    return first;
-  }
-  return {
-    inputTokens: add(first.inputTokens, second.inputTokens),
-    outputTokens: add(first.outputTokens, second.outputTokens),
-    cacheReadTokens: add(first.cacheReadTokens, second.cacheReadTokens),
-    cacheWriteTokens: add(first.cacheWriteTokens, second.cacheWriteTokens),
-    totalTokens: add(first.totalTokens, second.totalTokens),
-  };
-}
-
-function add(first: number | undefined, second: number | undefined): number | undefined {
-  if (first === undefined && second === undefined) {
-    return undefined;
-  }
-  return (first ?? 0) + (second ?? 0);
-}
-
-function readRequestedMode(value: unknown): AgentRuntimeConfig["permissionMode"] | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-  const requestedMode = (value as Record<string, unknown>).requestedMode;
-  return isPermissionMode(requestedMode) ? requestedMode : undefined;
-}
-
-function bindSupplementalMessagesToToolCalls(
-  results: RigoriumToolResult[],
-  supplementalMessages: CanonicalMessage[],
-): ContextSupplementalToolResultMessage[] {
-  const bound: ContextSupplementalToolResultMessage[] = [];
-  let index = 0;
-  for (const result of results) {
-    const count = result.supplementalMessages?.length ?? 0;
-    for (let offset = 0; offset < count && index < supplementalMessages.length; offset += 1) {
-      bound.push({ toolCallId: result.toolCallId, message: supplementalMessages[index] });
-      index += 1;
-    }
-  }
-  return bound;
-}
-
-function isPermissionMode(value: unknown): value is AgentRuntimeConfig["permissionMode"] {
-  return (
-    value === "default" ||
-    value === "plan" ||
-    value === "bypassPermissions"
-  );
-}
-
-function classifyModelError(error: CanonicalModelError): {
-  stopReason: AgentTurnResult["stopReason"];
-  error: ReturnType<typeof agentError>;
-} {
-  if (isPromptTooLong(error)) {
-    return {
-      stopReason: "prompt_too_long",
-      error: agentError(
-        "agent_prompt_too_long",
-        error.message,
-        error,
-        error.userHint ?? "Input exceeds the model context window. Try /compact to compress history or /new for a fresh session.",
-      ),
-    };
-  }
-  return {
-    stopReason: "model_error",
-    error: agentError("agent_model_error", error.message, error, error.userHint),
-  };
-}
-
-function createModelRequestFailedStatus(args: {
-  error: ReturnType<typeof agentError>;
-  modelError?: CanonicalModelError;
-}): AgentStatusMessage {
-  const providerMessage = args.error.message || args.modelError?.message || "The model request failed, so this turn has stopped.";
-  const text = formatModelRequestFailureMessage(providerMessage, args.modelError);
-  const action = modelFailureAction(args.modelError);
-  return {
-    event: "model_request_failed",
-    kind: "error",
-    text,
-    detail: createAgentTurnErrorDetail({
-      message: text,
-      messageI18n: {
-        key: "chat:agentStatus.modelRequestFailed.message",
-        params: { providerMessage },
-      },
-      code: args.error.code,
-      userHint: action.userHint,
-      userHintI18n: action.userHintI18n,
-      detail: {
-        provider: args.modelError?.provider,
-        protocol: args.modelError?.protocol,
-        status: args.modelError?.status,
-        modelErrorCode: args.modelError?.code,
-        retryable: args.modelError?.retryable,
-        providerMessage,
-        settingsFix: args.modelError?.settingsFix,
-        fixTarget: action.fixTarget,
-      },
-    }),
-  };
-}
-
-export function formatModelRequestFailureMessage(providerMessage: string, error: CanonicalModelError | undefined): string {
-  const cleanMessage = providerMessage.trim() || "The model request failed.";
-  const action = modelFailureAction(error);
-  return `${cleanMessage}\n\n${action.shortAction}`;
-}
-
-export function modelFailureAction(error: CanonicalModelError | undefined): {
-  shortAction: string;
-  userHint: string;
-  userHintI18n: AgentStatusI18nDescriptor;
-  fixTarget: "settings" | "provider" | "network" | "prompt" | "retry";
-} {
-  if (!error) {
-    const hint = "Check Settings → Model Provider and verify the selected provider, base URL, API key, model name, and timeoutMs. If the provider is slow or the network is unstable, increase timeoutMs or check provider status.";
-    return modelFailureActionResult(hint, "settings", "settingsDefault");
-  }
-
-  const providerLabel = error.provider ? ` provider "${error.provider}"` : " provider";
-  const modelLabel = error.model ? ` model "${error.model}"` : " selected model";
-
-  if (error.status === 401 || error.status === 403 || error.code === "auth_error") {
-    const hint = `Update the API key or access permissions for${providerLabel} in Settings → Model Provider, or run rigorium setup.`;
-    return modelFailureActionResult(hint, "settings", "auth", { provider: error.provider ?? "the provider" });
-  }
-  if (error.code === "model_not_found") {
-    const hint = `Choose a valid${modelLabel} for${providerLabel} in Settings → Model Provider, or add it under model.providers.<id>.models in rigorium.yaml.`;
-    return modelFailureActionResult(hint, "settings", "modelNotFound", { provider: error.provider ?? "the provider", model: error.model });
-  }
-  if (error.code === "timeout") {
-    const hint = `Increase timeoutMs for${providerLabel} in Settings → Model Provider → Advanced, or check local network/proxy and provider status.`;
-    return modelFailureActionResult(hint, "network", "timeout", { provider: error.provider ?? "the provider" });
-  }
-  if (error.status === 429 || error.code === "rate_limit_error") {
-    const hint = `Wait for the provider rate limit to reset, reduce concurrency, or switch to another provider/model in Settings.`;
-    return modelFailureActionResult(hint, "provider", "rateLimit");
-  }
-  if (error.code === "billing") {
-    const hint = `Top up billing/quota on the provider API side, or switch to another provider/model in Settings.`;
-    return modelFailureActionResult(hint, "provider", "billing");
-  }
-  if (error.code === "prompt_too_long" || error.code === "context_overflow") {
-    const hint = "Run /compact, start a new session, remove large attachments, or switch to a larger-context model in Settings.";
-    return modelFailureActionResult(hint, "prompt", "contextOverflow");
-  }
-  if (error.code === "payload_too_large" || error.code === "request_too_large") {
-    const hint = "Reduce attachments/context size, run /compact, or start a new session before retrying.";
-    return modelFailureActionResult(hint, "prompt", "payloadTooLarge");
-  }
-  if (error.code === "max_output_reached") {
-    const hint = "Increase max output tokens in Settings → Model Provider, or ask the agent to split the answer into smaller parts.";
-    return modelFailureActionResult(hint, "settings", "maxOutput");
-  }
-  if (error.code === "image_too_large") {
-    const hint = "Resize or remove large images, then retry.";
-    return modelFailureActionResult(hint, "prompt", "imageTooLarge");
-  }
-  if (error.retryable || error.code === "server_error" || error.code === "overloaded_error") {
-    const hint = `Retry later, check provider API status, or switch to another provider/model in Settings if it repeats.`;
-    return modelFailureActionResult(hint, "provider", "providerRetry");
-  }
-
-  const hint = `Check Settings → Model Provider for base URL/API key/model and timeoutMs. If settings look correct, check local network/proxy and provider API status/logs.`;
-  return modelFailureActionResult(hint, "settings", "settingsDefault");
-}
-
-function modelFailureActionResult(
-  hint: string,
-  fixTarget: "settings" | "provider" | "network" | "prompt" | "retry",
-  key: string,
-  params: Record<string, unknown> = {},
-): {
-  shortAction: string;
-  userHint: string;
-  userHintI18n: AgentStatusI18nDescriptor;
-  fixTarget: "settings" | "provider" | "network" | "prompt" | "retry";
-} {
-  return {
-    shortAction: `Action: ${hint}`,
-    userHint: hint,
-    userHintI18n: { key: `chat:agentStatus.modelRequestFailed.actions.${key}`, params },
-    fixTarget,
-  };
-}
-
-function createToolCallRecoveryExhaustedStatus(args: {
-  error: ReturnType<typeof agentError>;
-  attempts?: number;
-  reason?: string;
-}): AgentStatusMessage {
-  const text = args.error.message || "Tool-call recovery was exhausted, so this turn has stopped.";
-  return {
-    event: "tool_call_recovery_exhausted",
-    kind: "error",
-    text,
-    detail: createAgentTurnErrorDetail({
-      message: text,
-      messageI18n: { key: "chat:agentStatus.toolCallRecoveryExhausted.message", params: { message: text } },
-      code: args.error.code,
-      userHint: args.error.userHint ?? "Retry with a shorter prompt, ask the agent to split large tool inputs into smaller steps, or switch to a model with stronger tool-calling support in Settings → Model Provider.",
-      userHintI18n: { key: "chat:agentStatus.toolCallRecoveryExhausted.hint" },
-      detail: {
-        attempts: args.attempts,
-        reason: args.reason,
-      },
-    }),
-  };
-}
-
-function createToolErrorLoopStatus(args: {
-  error: ReturnType<typeof agentError>;
-  repeatedFailures?: number;
-}): AgentStatusMessage {
-  const text = args.error.message || "The agent repeatedly hit the same tool error, so this turn has stopped.";
-  return {
-    event: "tool_error_loop",
-    kind: "error",
-    text,
-    detail: createAgentTurnErrorDetail({
-      message: text,
-      code: args.error.code,
-      userHint: args.error.userHint ?? "Change the request to avoid repeating the same failing tool call, grant any required permission, or switch to a model with stronger tool-calling support in Settings → Model Provider.",
-      detail: {
-        repeatedFailures: args.repeatedFailures,
-      },
-    }),
-  };
-}
-
-function createLifecycleBlockedStatus(args: {
-  error: ReturnType<typeof agentError>;
-  stage: string;
-}): AgentStatusMessage {
-  const text = args.error.message || "A lifecycle hook blocked this turn.";
-  return {
-    event: "lifecycle_blocked",
-    kind: "error",
-    text,
-    detail: createAgentTurnErrorDetail({
-      message: text,
-      code: args.error.code,
-      userHint: args.error.userHint ?? "Review the blocking lifecycle hook output or disable the hook, then retry.",
-      detail: {
-        stage: args.stage,
-      },
-    }),
-  };
-}
-
-function defaultModelFailureHint(error: CanonicalModelError | undefined): string {
-  if (!error) {
-    return "Check the model provider settings and retry.";
-  }
-  if (error.retryable) {
-    return "The provider marked this error as retryable. Retry the turn; if it repeats, check provider status and rate limits.";
-  }
-  if (error.status === 401 || error.status === 403 || error.code === "auth_error") {
-    return "Check the provider API key and model access settings.";
-  }
-  if (error.status === 429 || error.code === "rate_limit_error") {
-    return "Wait for the rate limit to reset or switch to another provider/model.";
-  }
-  if (error.code === "billing") {
-    return "Check the provider billing or quota settings.";
-  }
-  return "Check the provider/model settings and retry.";
-}
-
-function createEmptyResponseStatus(args: {
-  provider?: string;
-  model?: string;
-  attempts: number;
-}): AgentStatusMessage {
-  const text = "The model returned empty content repeatedly, so this turn has stopped. Try again later or increase max output tokens.";
-  return {
-    event: "model_empty_response_exhausted",
-    kind: "error",
-    text,
-    detail: createAgentTurnErrorDetail({
-      message: text,
-      messageI18n: { key: "chat:agentStatus.emptyResponse.message" },
-      code: "model_empty_response_exhausted",
-      userHint: "Increase max output tokens in Settings → Model Provider, retry with a shorter prompt, or check whether this provider/model supports the requested output format.",
-      userHintI18n: { key: "chat:agentStatus.emptyResponse.hint" },
-      detail: {
-        provider: args.provider,
-        model: args.model,
-        attempts: args.attempts,
-      },
-    }),
-  };
-}
-
-function createMaxTurnsStatus(args: {
-  maxTurns: number;
-  error: ReturnType<typeof agentError>;
-}): AgentStatusMessage {
-  const text = `Reached the maximum number of turns (${args.maxTurns}), so this turn has stopped. Increase maxTurns or split the task into smaller steps and try again.`;
-  return {
-    event: "max_turns_reached",
-    kind: "error",
-    text,
-    detail: createAgentTurnErrorDetail({
-      message: text,
-      messageI18n: { key: "chat:agentStatus.maxTurns.message", params: { maxTurns: args.maxTurns } },
-      code: args.error.code,
-      userHint: args.error.userHint ?? "Increase maxTurns in local config if this task legitimately needs more agent steps, or split the task into smaller prompts and try again.",
-      userHintI18n: { key: "chat:agentStatus.maxTurns.hint" },
-      detail: {
-        maxTurns: args.maxTurns,
-      },
-    }),
-  };
-}
-
-function createMaxOutputRecoveryExhaustedStatus(args: {
-  attempts: number;
-}): AgentStatusMessage {
-  const text = "Output token recovery was exhausted, so the visible response may be incomplete. Increase max output tokens or split the task into smaller steps and try again.";
-  return {
-    event: "max_output_recovery_exhausted",
-    kind: "error",
-    text,
-    detail: createAgentTurnErrorDetail({
-      message: text,
-      messageI18n: { key: "chat:agentStatus.maxOutputRecoveryExhausted.message" },
-      severity: "warning",
-      code: "max_output_recovery_exhausted",
-      userHint: "Increase max output tokens in Settings → Model Provider, or ask the agent to split the answer into smaller parts.",
-      userHintI18n: { key: "chat:agentStatus.maxOutputRecoveryExhausted.hint" },
-      detail: {
-        attempts: args.attempts,
-      },
-    }),
-  };
-}
-
-function createStructuredOutputCompletedStatus(): AgentStatusMessage {
-  const text = "Structured output was returned, so this turn has completed.";
-  return {
-    event: "structured_output_completed",
-    kind: "status",
-    text,
-    detail: createAgentTurnStatusDetail({
-      message: text,
-      messageI18n: { key: "chat:agentStatus.structuredOutputCompleted.message" },
-      code: "structured_output_completed",
-    }),
-  };
-}
-
-function createContentFilterStopStatus(): AgentStatusMessage {
-  const text = "The response may be incomplete because the model stopped due to content filtering.";
-  return {
-    event: "content_filter_stop",
-    kind: "error",
-    text,
-    detail: createAgentTurnErrorDetail({
-      message: text,
-      messageI18n: { key: "chat:agentStatus.contentFilter.message" },
-      severity: "warning",
-      code: "content_filter_stop",
-      userHint: "Retry with a narrower request or adjust the prompt to avoid filtered content; if this seems wrong, check the provider API policy/status for the selected model.",
-      userHintI18n: { key: "chat:agentStatus.contentFilter.hint" },
-    }),
-  };
-}
-
-function createUnknownFinishReasonStatus(): AgentStatusMessage {
-  const text = "The model stream ended without a normal finish reason, so the response may be incomplete.";
-  return {
-    event: "unknown_finish_reason",
-    kind: "error",
-    text,
-    detail: createAgentTurnErrorDetail({
-      message: text,
-      messageI18n: { key: "chat:agentStatus.unknownFinishReason.message" },
-      severity: "warning",
-      code: "unknown_finish_reason",
-      userHint: "Retry the turn; if it repeats, check provider API status/logs for stream finish reasons and verify the selected provider/model in Settings → Model Provider.",
-      userHintI18n: { key: "chat:agentStatus.unknownFinishReason.hint" },
-    }),
-  };
-}
-
-function createTurnAbortedStatus(args: { reason?: string }): AgentStatusMessage {
-  const text = "This turn was aborted before completion.";
-  return {
-    event: "turn_aborted",
-    kind: "status",
-    text,
-    detail: createAgentTurnStatusDetail({
-      message: text,
-      messageI18n: { key: "chat:agentStatus.turnAborted.message" },
-      code: "turn_aborted",
-      userHint: "Retry when you are ready to continue. If this was unexpected, check whether you clicked Stop, switched sessions during a run, or lost the gateway connection.",
-      userHintI18n: { key: "chat:agentStatus.turnAborted.hint" },
-      detail: {
-        reason: args.reason,
-      },
-    }),
-  };
-}
-
-function createFinishReasonStatus(finishReason: string | undefined, assistantText: string): AgentStatusMessage | undefined {
-  if (assistantText.trim().length === 0) return undefined;
-  if (finishReason === "content_filter") return createContentFilterStopStatus();
-  if (finishReason === "unknown") return createUnknownFinishReasonStatus();
-  return undefined;
-}
-
-function createAgentTurnErrorDetail(input: {
-  message: string;
-  messageI18n?: AgentStatusI18nDescriptor;
-  code: string;
-  userHint: string;
-  userHintI18n?: AgentStatusI18nDescriptor;
-  severity?: "error" | "warning";
-  detail?: Record<string, unknown>;
-}): Record<string, unknown> {
-  return createVisibleErrorStatusDetail({
-    ...input,
-    scope: "turn",
-    source: "agent",
-  });
-}
-
-function createAgentTurnStatusDetail(input: {
-  message: string;
-  messageI18n?: AgentStatusI18nDescriptor;
-  code: string;
-  userHint?: string;
-  userHintI18n?: AgentStatusI18nDescriptor;
-  detail?: Record<string, unknown>;
-}): Record<string, unknown> {
-  return createAgentStatusDetail({
-    ...input,
-    visible: true,
-    scope: "turn",
-    source: "agent",
-  });
-}
-
-function shouldSurfaceAbortStatus(reason: unknown): boolean {
-  if (reason === undefined || reason === null) return false;
-  const text = (stringifyAbortReason(reason) ?? "").toLowerCase();
-  return text.includes("timeout") || text.includes("cancel") || text.includes("abort");
-}
-
-function stringifyAbortReason(reason: unknown): string | undefined {
-  if (reason === undefined || reason === null) return undefined;
-  if (typeof reason === "string") return reason;
-  if (reason instanceof Error) return reason.message;
-  try {
-    return JSON.stringify(reason);
-  } catch {
-    return String(reason);
-  }
-}
-
-function isPromptTooLong(error: CanonicalModelError): boolean {
-  if (error.code === "prompt_too_long" || error.recoverableViaCompact) {
-    return true;
-  }
-  if (PROMPT_TOO_LONG_ANTHROPIC_PATTERN.test(error.message)) {
-    return true;
-  }
-  if (PROMPT_TOO_LONG_OPENAI_PATTERN.test(error.message)) {
-    return true;
-  }
-  if (REQUEST_TOO_LARGE_PATTERN.test(error.message)) {
-    return true;
-  }
-  return false;
-}
-
-function clampOutputToModelCap(requested: number, modelMaxOutputTokens: number | undefined): number | undefined {
-  if (!Number.isFinite(requested) || requested <= 0) return undefined;
-  const next = Math.floor(requested);
-  if (modelMaxOutputTokens !== undefined && Number.isFinite(modelMaxOutputTokens) && modelMaxOutputTokens > 0) {
-    return Math.min(next, Math.floor(modelMaxOutputTokens));
-  }
-  return next;
-}
-
-function tokensFromUsage(usage: CanonicalUsage | undefined): number | undefined {
-  if (!usage) return undefined;
-  const inputTokens = usage.inputTokens;
-  if (typeof inputTokens !== "number" || !Number.isFinite(inputTokens) || inputTokens <= 0) {
-    return undefined;
-  }
-  const outputTokens = typeof usage.outputTokens === "number" && Number.isFinite(usage.outputTokens) && usage.outputTokens > 0
-    ? usage.outputTokens
-    : 0;
-  return Math.ceil(inputTokens + outputTokens);
-}
-
-function modelErrorTarget(error: CanonicalModelError, fallbackProvider: string, fallbackModel: string): {
-  provider: string;
-  model: string;
-} {
-  return {
-    provider: error.provider || fallbackProvider,
-    model: error.model || fallbackModel,
-  };
-}
-
-function composeAbortSignal(args: {
-  parent?: AbortSignal;
-  timeoutMs?: number;
-}): { signal: AbortSignal | undefined; cleanup: () => void; timedOut: () => boolean } {
-  const { parent, timeoutMs } = args;
-  if (!parent && (!timeoutMs || timeoutMs <= 0)) {
-    return { signal: undefined, cleanup: () => {}, timedOut: () => false };
-  }
-  const controller = new AbortController();
-  const cleanupFns: Array<() => void> = [];
-  let timedOut = false;
-  if (parent) {
-    if (parent.aborted) {
-      controller.abort(parent.reason);
-    } else {
-      const onAbort = () => controller.abort(parent.reason);
-      parent.addEventListener("abort", onAbort, { once: true });
-      cleanupFns.push(() => parent.removeEventListener("abort", onAbort));
-    }
-  }
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  if (timeoutMs && timeoutMs > 0 && !controller.signal.aborted) {
-    timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort(new Error(`Subagent timed out after ${timeoutMs}ms.`));
-    }, timeoutMs);
-    cleanupFns.push(() => clearTimeout(timeout));
-  }
-  return {
-    signal: controller.signal,
-    cleanup: () => {
-      for (const fn of cleanupFns) fn();
-    },
-    timedOut: () => timedOut,
-  };
-}

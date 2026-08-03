@@ -7,7 +7,14 @@ import { prepareCliSpawn } from './processSpawn.js';
 const PLUGINS_DIR = path.join(os.homedir(), '.rigorium', 'plugins');
 const PLUGINS_CONFIG_PATH = path.join(os.homedir(), '.rigorium', 'plugins.json');
 
-const REQUIRED_MANIFEST_FIELDS = ['name', 'displayName', 'entry'];
+/**
+ * Unified manifest v2 (see `src/extension/plugins/protocol/manifest.ts`):
+ * only `name` is required. `displayName` / `entry` are UI-only, `skills` /
+ * `hooks` / `settings` are gateway-only — a plugin may be either or both.
+ * The gateway side reads the same manifest (plugin.json first, manifest.json
+ * fallback), so one installed plugin contributes to both surfaces.
+ */
+const REQUIRED_MANIFEST_FIELDS = ['name'];
 
 /** Strip embedded credentials from a repo URL before exposing it to the client. */
 function sanitizeRepoUrl(raw) {
@@ -74,9 +81,12 @@ export function validateManifest(manifest) {
     return { valid: false, error: `Invalid plugin slot: ${manifest.slot}. Must be one of: ${ALLOWED_SLOTS.join(', ')}` };
   }
 
-  // Validate entry is a relative path without traversal
-  if (manifest.entry.includes('..') || path.isAbsolute(manifest.entry)) {
-    return { valid: false, error: 'Entry must be a relative path without ".."' };
+  // Validate entry is a relative path without traversal (UI-only field —
+  // a pure gateway plugin has no entry and must not be rejected).
+  if (manifest.entry !== undefined && manifest.entry !== null) {
+    if (typeof manifest.entry !== 'string' || manifest.entry.includes('..') || path.isAbsolute(manifest.entry)) {
+      return { valid: false, error: 'Entry must be a relative path without ".."' };
+    }
   }
 
   if (manifest.server !== undefined && manifest.server !== null) {
@@ -164,8 +174,9 @@ export function scanPlugins() {
     // Skip transient temp directories from in-progress installs
     if (entry.name.startsWith('.tmp-')) continue;
 
-    const manifestPath = path.join(pluginsDir, entry.name, 'manifest.json');
-    if (!fs.existsSync(manifestPath)) continue;
+    // Unified manifest v2: read `plugin.json` (new) or `manifest.json` (legacy).
+    const manifestPath = findPluginManifest(path.join(pluginsDir, entry.name));
+    if (!manifestPath) continue;
 
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
@@ -203,16 +214,26 @@ export function scanPlugins() {
 
       plugins.push({
         name: manifest.name,
-        displayName: manifest.displayName,
+        displayName: manifest.displayName || manifest.name,
         version: manifest.version || '0.0.0',
         description: manifest.description || '',
         author: manifest.author || '',
         icon: manifest.icon || 'Puzzle',
         type: manifest.type || 'module',
         slot: manifest.slot || 'tab',
-        entry: manifest.entry,
+        // A pure gateway plugin (skills/hooks only) has no UI entry — the UI
+        // lists it read-only without mounting a tab.
+        entry: manifest.entry || null,
+        hasUi: typeof manifest.entry === 'string' && manifest.entry.length > 0,
         server: manifest.server || null,
         permissions: manifest.permissions || [],
+        // Gateway-side contributions, surfaced read-only here so the UI can
+        // show what an installed plugin actually provides. `settings` is an
+        // arbitrary author blob that may contain secrets — strip credential-
+        // shaped keys before exposing it to the browser client.
+        skills: manifest.skills || null,
+        hooks: manifest.hooks || null,
+        settings: sanitizePluginSettings(manifest.settings),
         enabled: config[manifest.name]?.enabled !== false, // enabled by default
         dirName: entry.name,
         repoUrl,
@@ -223,6 +244,30 @@ export function scanPlugins() {
   }
 
   return plugins;
+}
+
+/** Resolve the manifest file for a plugin dir: plugin.json first, then manifest.json. */
+function findPluginManifest(pluginDir) {
+  const preferred = path.join(pluginDir, 'plugin.json');
+  if (fs.existsSync(preferred)) return preferred;
+  const legacy = path.join(pluginDir, 'manifest.json');
+  if (fs.existsSync(legacy)) return legacy;
+  return null;
+}
+
+const SECRET_KEY_PATTERN = /api[_-]?key|token|secret|password|credential|auth[_-]?header/i;
+
+/** Strip credential-shaped keys from an arbitrary plugin settings blob. */
+function sanitizePluginSettings(settings) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return settings || null;
+  }
+  const out = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (SECRET_KEY_PATTERN.test(key)) continue;
+    out[key] = value;
+  }
+  return out;
 }
 
 export function getPluginDir(name) {
@@ -310,11 +355,11 @@ export function installPluginFromGit(url) {
         return reject(new Error(`git clone failed (exit code ${code}): ${stderr.trim()}`));
       }
 
-      // Validate manifest exists
-      const manifestPath = path.join(tempDir, 'manifest.json');
-      if (!fs.existsSync(manifestPath)) {
+      // Validate manifest exists (plugin.json or legacy manifest.json)
+      const manifestPath = findPluginManifest(tempDir);
+      if (!manifestPath) {
         cleanupTemp();
-        return reject(new Error('Cloned repository does not contain a manifest.json'));
+        return reject(new Error('Cloned repository does not contain a plugin.json or manifest.json'));
       }
 
       let manifest;
@@ -322,7 +367,7 @@ export function installPluginFromGit(url) {
         manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
       } catch {
         cleanupTemp();
-        return reject(new Error('manifest.json is not valid JSON'));
+        return reject(new Error(`${path.basename(manifestPath)} is not valid JSON`));
       }
 
       const validation = validateManifest(manifest);
@@ -396,12 +441,15 @@ export function updatePluginFromGit(name) {
       }
 
       // Re-validate manifest after update
-      const manifestPath = path.join(pluginDir, 'manifest.json');
+      const manifestPath = findPluginManifest(pluginDir);
+      if (!manifestPath) {
+        return reject(new Error('Plugin manifest missing after update'));
+      }
       let manifest;
       try {
         manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
       } catch {
-        return reject(new Error('manifest.json is not valid JSON after update'));
+        return reject(new Error(`${path.basename(manifestPath)} is not valid JSON after update`));
       }
 
       const validation = validateManifest(manifest);

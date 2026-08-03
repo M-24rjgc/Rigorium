@@ -61,6 +61,11 @@ export {
   type TokenSaverDecision,
 } from "./tokenSaver/classifyAndRoute.js";
 export {
+  JudgeTierClassifier,
+  createDefaultTierClassifier,
+  type TierClassifier,
+} from "./tokenSaver/tierClassifier.js";
+export {
   applyOrchestration,
   type OrchestrationInput,
   type OrchestrationResult,
@@ -76,3 +81,24 @@ export {
   ProviderHealthTracker,
   type ProviderHealthState,
 } from "./health/ProviderHealthTracker.js";
+export type { RouterStickyConfig, RouterLearningConfig, RouterResearchAwareConfig } from "./config/schema.js";
+export {
+  AmortizedRanker,
+  type TierScoreResult,
+  type TierStat,
+  type TierOutcome,
+} from "./learning/AmortizedRanker.js";
+export {
+  UncertaintyGatedTierClassifier,
+  type LearnedClassifyInput,
+  type UncertaintyGatedClassifierOptions,
+} from "./learning/uncertaintyGatedClassifier.js";
+export {
+  applyTierPrior,
+  categorizeTool,
+  computeCapabilityRequirements,
+  tierPriorForRequirements,
+  type CapabilityRequirements,
+  type ResearchRoutingHint,
+  type ToolCategory,
+} from "./policy/capabilityRequirements.js";

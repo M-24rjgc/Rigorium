@@ -104,6 +104,12 @@ export type AgentRuntimeDependencies = {
    */
   getModelMaxOutputTokens?: (provider: string, model: string) => number | undefined;
   getModelTokenLimits?: (provider: string, model: string) => { maxContextTokens: number; maxOutputTokens: number } | undefined;
+  /**
+   * Vision assistant (Phase 3.3/4): when the main model has no vision
+   * capability and this is configured, images in requests are automatically
+   * described and replaced before reaching the model.
+   */
+  visionAssistant?: import("../../model/vision/VisionAssistant.js").VisionAssistant;
   now?: () => Date;
   uuid?: () => string;
   auditRecorder?: RigoriumToolAuditRecorder;

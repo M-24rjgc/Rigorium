@@ -85,7 +85,10 @@ export function useAppTabs({ shouldShowTasksTab }: UseAppTabsOptions): UseAppTab
       : [...BASE_APP_TABS, MEMORY_APP_TAB];
 
     const pluginTabs: PluginAppTab[] = plugins
-      .filter((plugin) => plugin.enabled)
+      // Only plugins with a browser entry mount a UI tab; pure gateway
+      // plugins (skills/hooks/capabilities only) are listed in the plugin
+      // manager but must not render an empty tab.
+      .filter((plugin) => plugin.enabled && plugin.hasUi !== false && plugin.entry)
       .map((plugin) => ({
         kind: 'plugin',
         id: `plugin:${plugin.name}` as AppTab,

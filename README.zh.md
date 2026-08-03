@@ -251,6 +251,15 @@ Rigorium 支持 20+ 外部渠道接入，所有渠道复用同一套 Agent 运�
 
 从 [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) 下载最新安装包（当前 v0.2.1，约 142 MB）。桌面应用内置自动更新。
 
+### macOS 桌面应用
+
+从 [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) 下载与 Mac 架构对应的 DMG：
+
+- Apple Silicon（M 系列）：`Rigorium-Setup-<version>-mac-arm64.dmg`
+- Intel：`Rigorium-Setup-<version>-mac-x64.dmg`
+
+打开 DMG 后将 Rigorium 拖入“应用程序”目录。桌面更新器会自动选择匹配当前架构的安装包，并在打开更新安装包前校验 SHA-256。
+
 ### Docker
 
 ```bash

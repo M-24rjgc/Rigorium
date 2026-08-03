@@ -209,8 +209,34 @@ export type FigureTablePayload = Readonly<{
 
 export type FigureTableArtifact = ResearchArtifactEnvelope<"figure_table", FigureTablePayload>;
 
+/**
+ * Venue provider id. Known venues are enumerated; unknown strings are allowed
+ * so user-defined venues (project-level registry entries) work without code
+ * changes — the venue-template tool and registry are open by design.
+ */
+export type ManuscriptVenueId =
+  | "iclr"
+  | "icml"
+  | "neurips"
+  | "acl"
+  | "emnlp"
+  | "naacl"
+  | "cvpr"
+  | "iccv"
+  | "aaai"
+  | "colm"
+  | "jmlr"
+  | "tmlr"
+  | "tpami"
+  | "ieeetrans"
+  | "neural_computation"
+  | "nature_mi"
+  | "science_advances"
+  | "pnas"
+  | (string & {});
+
 export type ManuscriptTemplatePin = Readonly<{
-  provider: "iclr";
+  provider: ManuscriptVenueId;
   conferenceYear: number;
   officialPageUrl: string;
   repositoryUrl: string;
@@ -225,7 +251,7 @@ export type ManuscriptTemplatePin = Readonly<{
 }>;
 
 export type TemplateProbe = Readonly<{
-  provider: "iclr";
+  provider: ManuscriptVenueId;
   conferenceYear: number;
   status: "verified" | "structure_verified" | "unverified_year" | "missing" | "hash_mismatch" | "incomplete";
   pin?: ManuscriptTemplatePin;
@@ -243,7 +269,7 @@ export type TemplateProbe = Readonly<{
 }>;
 
 export type ManuscriptTarget = Readonly<{
-  venue: "iclr" | "generic";
+  venue: ManuscriptVenueId | "generic";
   conferenceYear?: number;
   mode: "anonymous_submission" | "camera_ready" | "internal_draft";
   maxMainPages?: number;

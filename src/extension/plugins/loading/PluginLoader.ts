@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { parsePluginCapabilities } from "../../capabilities/parseCapabilities.js";
 import { parseHooksConfig } from "../../hooks/config/parseHooksConfig.js";
 import type { RigoriumPluginManifest } from "../protocol/manifest.js";
 import type { RigoriumLoadedPlugin, RigoriumPluginSourceKind } from "../protocol/plugin.js";
@@ -29,12 +30,16 @@ export async function loadPluginFromPath(
   pluginPath: string,
   source: RigoriumPluginSourceKind,
 ): Promise<RigoriumLoadedPlugin> {
-  const manifestPath = join(pluginPath, "plugin.json");
+  // Unified manifest v2: read `plugin.json` first, fall back to the legacy
+  // UI-plugin `manifest.json` name so previously-installed UI plugins are
+  // also discovered by the gateway side.
+  const manifestPath = await resolveManifestPath(pluginPath);
   const manifest = parsePluginManifest(JSON.parse(await readFile(manifestPath, "utf8")) as unknown);
   const hooksConfig = await loadHooksConfig(pluginPath, manifest);
   const commands = await loadConfiguredMarkdown(pluginPath, manifest.commands, "commands");
   const skills = await loadConfiguredMarkdown(pluginPath, manifest.skills, "skills");
   const outputStyles = await loadConfiguredMarkdown(pluginPath, manifest.outputStyles, "output-styles");
+  const capabilities = parsePluginCapabilities(manifest.settings, manifest.name);
 
   return {
     name: manifest.name,
@@ -47,7 +52,19 @@ export async function loadPluginFromPath(
     outputStyles,
     mcpServers: manifest.mcpServers,
     lspServers: manifest.lspServers,
+    capabilities,
   };
+}
+
+async function resolveManifestPath(pluginPath: string): Promise<string> {
+  const preferred = join(pluginPath, "plugin.json");
+  try {
+    await readFile(preferred);
+    return preferred;
+  } catch {
+    // fall through to the legacy name
+  }
+  return join(pluginPath, "manifest.json");
 }
 
 async function loadHooksConfig(pluginPath: string, manifest: RigoriumPluginManifest) {

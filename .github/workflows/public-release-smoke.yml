@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Latest public Rigorium release tag to verify
+        description: Latest eligible public release containing Windows and both macOS installers
         required: true
-        default: v0.2.1
         type: string
       current_version:
         description: Older installed version to simulate
@@ -23,13 +22,28 @@ concurrency:
 
 jobs:
   verify-public-update:
-    runs-on: windows-latest
+    name: Verify ${{ matrix.platform }} ${{ matrix.arch }} update
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win32
+            arch: x64
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       RIGORIUM_PUBLIC_RELEASE_TAG: ${{ inputs.tag }}
       RIGORIUM_PUBLIC_CURRENT_VERSION: ${{ inputs.current_version }}
       RIGORIUM_UPDATE_REPOSITORY: ${{ github.repository }}
+      RIGORIUM_UPDATE_INCLUDE_PRERELEASE: ${{ contains(inputs.tag, '-') && '1' || '0' }}
 
     steps:
       - name: Check out updater implementation
@@ -48,6 +62,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify runner platform and architecture
+        run: node -e "if (process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Unexpected runner ' + process.platform + '/' + process.arch)"
 
       - name: Verify public update download
         run: pnpm run release:verify-public-update

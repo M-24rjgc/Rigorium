@@ -17,6 +17,7 @@ import {
   RigoriumConfigError,
   type RigoriumAgentConfig,
   type RigoriumAgentModelSelection,
+  type RigoriumConfig,
   type RigoriumConfigDiagnostic,
   type RigoriumExtensionConfig,
   type RigoriumProxyConfig,
@@ -126,6 +127,8 @@ export function loadRigoriumConfig(options: RigoriumConfigLoadOptions = {}): Rig
   const tools = parseToolsConfig(rawConfig.tools, diagnostics);
   const telemetry = parseTelemetryConfig(rawConfig.telemetry);
   const proxy = parseProxyConfig(rawConfig, diagnostics);
+  const vision = parseVisionConfig(rawConfig.vision, diagnostics);
+  const figureGen = parseFigureGenConfig(rawConfig.figureGen, diagnostics);
   throwConfigErrorIfFatal(diagnostics);
 
   const redactedSnapshotConfig = redactConfig({
@@ -141,6 +144,8 @@ export function loadRigoriumConfig(options: RigoriumConfigLoadOptions = {}): Rig
     tools,
     telemetry,
     proxy,
+    ...(vision ? { vision } : {}),
+    ...(figureGen ? { figureGen } : {}),
   });
   return deepFreeze({
     version: options.version ?? 1,
@@ -162,8 +167,124 @@ export function loadRigoriumConfig(options: RigoriumConfigLoadOptions = {}): Rig
       ...(tools ? { tools } : {}),
       telemetry,
       ...(proxy ? { proxy } : {}),
+      ...(vision ? { vision } : {}),
+      ...(figureGen ? { figureGen } : {}),
     },
   });
+}
+
+/**
+ * Parse the `vision` section (Phase 3.3 — vision assistant). Tolerant by
+ * design: a malformed section produces a warning and is dropped, never a
+ * fatal — vision support is an optional enhancement, not a boot requirement.
+ */
+function parseVisionConfig(
+  raw: unknown,
+  diagnostics: RigoriumConfigDiagnostic[],
+): RigoriumConfig["vision"] {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    diagnostics.push({
+      code: "CONFIG_VISION_INVALID",
+      severity: "warning",
+      message: "vision config must be an object; ignoring.",
+      path: "vision",
+      recoverable: true,
+    });
+    return undefined;
+  }
+  const baseUrl = typeof raw.baseUrl === "string" && raw.baseUrl.length > 0 ? raw.baseUrl : undefined;
+  const apiKey = typeof raw.apiKey === "string" && raw.apiKey.length > 0 ? raw.apiKey : undefined;
+  const model = typeof raw.model === "string" && raw.model.length > 0 ? raw.model : undefined;
+  if (!baseUrl || !apiKey || !model) {
+    diagnostics.push({
+      code: "CONFIG_VISION_INCOMPLETE",
+      severity: "warning",
+      message: "vision config needs baseUrl, apiKey, and model; ignoring until complete.",
+      path: "vision",
+      recoverable: true,
+    });
+    return undefined;
+  }
+  const enabled = typeof raw.enabled === "boolean" ? raw.enabled : true;
+  const timeoutMs = readTolerantPositiveInteger(raw.timeoutMs, "vision.timeoutMs", diagnostics);
+  return {
+    enabled,
+    baseUrl,
+    apiKey,
+    model,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  };
+}
+
+/**
+ * Parse the `figureGen` section (Phase 3.4 — GPT Image 2 figure generation).
+ * Same tolerance rules as vision: config surface only, never fatal; the
+ * endpoint is exercised only when the user provides credentials.
+ */
+function parseFigureGenConfig(
+  raw: unknown,
+  diagnostics: RigoriumConfigDiagnostic[],
+): RigoriumConfig["figureGen"] {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    diagnostics.push({
+      code: "CONFIG_FIGURE_GEN_INVALID",
+      severity: "warning",
+      message: "figureGen config must be an object; ignoring.",
+      path: "figureGen",
+      recoverable: true,
+    });
+    return undefined;
+  }
+  const baseUrl = typeof raw.baseUrl === "string" && raw.baseUrl.length > 0 ? raw.baseUrl : undefined;
+  const apiKey = typeof raw.apiKey === "string" && raw.apiKey.length > 0 ? raw.apiKey : undefined;
+  const model = typeof raw.model === "string" && raw.model.length > 0 ? raw.model : undefined;
+  if (!baseUrl || !apiKey || !model) {
+    diagnostics.push({
+      code: "CONFIG_FIGURE_GEN_INCOMPLETE",
+      severity: "warning",
+      message: "figureGen config needs baseUrl, apiKey, and model; ignoring until complete.",
+      path: "figureGen",
+      recoverable: true,
+    });
+    return undefined;
+  }
+  const enabled = typeof raw.enabled === "boolean" ? raw.enabled : true;
+  const timeoutMs = readTolerantPositiveInteger(raw.timeoutMs, "figureGen.timeoutMs", diagnostics);
+  return {
+    enabled,
+    baseUrl,
+    apiKey,
+    model,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  };
+}
+
+/** Like readOptionalPositiveInteger but diagnostic-based (tolerant, no throw). */
+function readTolerantPositiveInteger(
+  value: unknown,
+  path: string,
+  diagnostics: RigoriumConfigDiagnostic[],
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    diagnostics.push({
+      code: "CONFIG_INVALID_VALUE",
+      severity: "warning",
+      message: `${path} must be a positive integer; ignoring.`,
+      path,
+      recoverable: true,
+    });
+    return undefined;
+  }
+  return Math.floor(value);
 }
 
 function readYamlSource(
@@ -314,6 +435,11 @@ function validateTopLevel(rawConfig: RigoriumRawConfig, diagnostics: RigoriumCon
     // config without producing diagnostic noise.
     "webui",
     "telemetry",
+    // Phase 3: vision assistant (describe_image / automatic enrichment) and
+    // figure generation (figure_generate). Both are config-surface only —
+    // they degrade to not-configured when incomplete, never fatal.
+    "vision",
+    "figureGen",
   ]);
   for (const key of Object.keys(rawConfig)) {
     if (!allowedKeys.has(key)) {

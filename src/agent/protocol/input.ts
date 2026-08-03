@@ -11,6 +11,12 @@ export type AgentSubmitOptions = {
   turnId?: string;
   maxTurns?: number;
   metadata?: Record<string, unknown>;
+  /**
+   * Research context (artifact kinds + EIG action type) forwarded to the
+   * router for research-aware routing. Usually carried inside
+   * `metadata.research`; hosts may pass it explicitly.
+   */
+  researchContext?: import("../../router/index.js").ResearchRoutingHint;
   runMode?: AgentRunMode;
   permissionMode?: PermissionMode;
   allowedReadFiles?: string[];

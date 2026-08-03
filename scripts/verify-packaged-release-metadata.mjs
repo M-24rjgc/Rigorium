@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, extname, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const projectRoot = resolve(import.meta.dirname, '..');
 const asarPath = resolve(projectRoot, process.argv[2] || 'release/win-unpacked/resources/app.asar');
+const installerPath = process.argv[3] ? resolve(projectRoot, process.argv[3]) : null;
 const packageJson = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf8'));
 
 assert.equal(existsSync(asarPath), true, `Packaged app archive was not found: ${asarPath}`);
@@ -31,14 +32,17 @@ assert.equal(
   'Packaged release metadata has the wrong update channel.',
 );
 
-const updateManifest = await verifyWindowsUpdateManifest({
-  releaseDirectory: resolve(projectRoot, 'release'),
-  product: metadata.product,
-  version: metadata.version,
-});
+const releaseArtifact = installerPath
+  ? await verifyStandaloneInstaller({ installerPath, product: metadata.product, version: metadata.version })
+  : await verifyWindowsUpdateManifest({
+      releaseDirectory: resolve(projectRoot, 'release'),
+      product: metadata.product,
+      version: metadata.version,
+    });
 
-if (process.env.GITHUB_SHA) {
-  assert.equal(metadata.commit, process.env.GITHUB_SHA, 'Packaged release metadata does not match GITHUB_SHA.');
+const expectedCommit = process.env.RIGORIUM_RELEASE_COMMIT || process.env.GITHUB_SHA;
+if (expectedCommit) {
+  assert.equal(metadata.commit, expectedCommit, 'Packaged release metadata does not match the checked-out release commit.');
 }
 
 console.log(JSON.stringify({
@@ -49,7 +53,7 @@ console.log(JSON.stringify({
   commit: metadata.commit,
   buildTime: metadata.buildTime,
   channel: metadata.channel,
-  updateManifest,
+  releaseArtifact,
   verified: true,
 }));
 
@@ -111,6 +115,25 @@ async function verifyWindowsUpdateManifest({ releaseDirectory, product, version 
     installer: installerName,
     blockmap: `${installerName}.blockmap`,
     sha512,
+  };
+}
+
+async function verifyStandaloneInstaller({ installerPath: artifactPath, product, version }) {
+  assert.equal(existsSync(artifactPath), true, `Release installer was not found: ${artifactPath}`);
+  const installer = basename(artifactPath);
+  const extension = extname(installer).toLowerCase();
+  assert.equal(['.dmg', '.pkg'].includes(extension), true, `Unsupported standalone installer type: ${extension}`);
+  assert.equal(installer.includes(product), true, 'Release installer does not include the product name.');
+  assert.equal(installer.includes(version), true, 'Release installer does not include the package version.');
+
+  const architecture = installer.match(/(?:^|[._-])(arm64|x64)(?:[._-]|$)/u)?.[1] || null;
+  assert.equal(architecture, process.arch, 'Release installer architecture does not match the build runner.');
+
+  return {
+    path: relative(projectRoot, artifactPath).replaceAll('\\', '/'),
+    installer,
+    architecture,
+    sha512: await hashFileSha512(artifactPath),
   };
 }
 

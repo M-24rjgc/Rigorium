@@ -32,6 +32,8 @@ export type TurnRunnerOptions = {
   abortSignal?: AbortSignal;
   /** Synthetic messages appended after user input; stored with metadata.synthetic flag. */
   syntheticMessages?: CanonicalMessage[];
+  /** Research context forwarded to the router (research-aware routing). */
+  researchContext?: import("../../router/index.js").ResearchRoutingHint;
 };
 
 export type TurnRunnerResult = {
@@ -165,6 +167,7 @@ export class TurnRunner {
         canPrompt: options.canPrompt,
         permissionRules: options.permissionRules,
         abortSignal: options.abortSignal,
+        researchContext: options.researchContext,
         onDurableMessage: (msg) => this.transcript.recordDurableMessage(options.sessionId, options.turnId, msg),
         onAgentStatusMessage: async (status) => {
           if (isVisibleFailureStatus(status)) {

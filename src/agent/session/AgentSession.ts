@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { LifecycleRuntime } from "../../lifecycle/index.js";
 import type { AgentEvent } from "../protocol/events.js";
 import type { AgentInput, AgentSubmitOptions } from "../protocol/input.js";
+import { parseResearchHint } from "../../router/policy/capabilityRequirements.js";
 import type { AgentSessionState as AgentSessionStateShape } from "../protocol/state.js";
 import type { AgentTranscriptReplayResult } from "../../session/transcript/TranscriptReplay.js";
 import type { TurnRunner } from "../turn/TurnRunner.js";
@@ -86,6 +87,9 @@ export class AgentSession {
       permissionRules: submitOptions.permissionRules,
       syntheticMessages: submitOptions.syntheticMessages,
       abortSignal: this.state.abortController.signal,
+      researchContext:
+        submitOptions.researchContext ??
+        parseResearchHint(submitOptions.metadata?.research),
     });
 
     this.state.messages = runResult.messages;

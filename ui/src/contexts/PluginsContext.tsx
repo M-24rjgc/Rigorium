@@ -11,7 +11,13 @@ export type Plugin = {
   icon: string;
   type: 'react' | 'module';
   slot: 'tab';
-  entry: string;
+  entry: string | null;
+  /** False when the plugin is a pure gateway plugin (no browser entry). */
+  hasUi?: boolean;
+  /** Gateway-side contributions surfaced read-only (skills/hooks/settings). */
+  skills?: string | string[] | null;
+  hooks?: unknown;
+  settings?: Record<string, unknown> | null;
   server: string | null;
   permissions: string[];
   enabled: boolean;

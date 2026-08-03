@@ -48,6 +48,10 @@ import type {
   SkillsListInput,
   SkillsListResult,
 } from "../../extension/skills/types.js";
+import type {
+  CapabilityValidationIssue,
+  RigoriumCapability,
+} from "../../extension/capabilities/index.js";
 
 export type GatewayChannelKey =
   | "cli" | "tui" | "feishu" | "weixin" | "qq" | "web" | "test"
@@ -118,6 +122,12 @@ export type GatewaySubmitTurnInput = {
    * so they are visible to the model but hidden from the Web UI.
    */
   syntheticMessages?: Array<{ text: string; purpose?: string }>;
+  /**
+   * Research context (artifact kinds + EIG action type) for research-aware
+   * routing. Consumed by the router's tier priors; the research director
+   * integration sets this when dispatching a planned action.
+   */
+  research?: import("../../router/index.js").ResearchRoutingHint;
 };
 
 export type GatewayRecordAgentStatusMessageInput = {
@@ -490,4 +500,22 @@ export interface Gateway {
   skillImport?(input: SkillImportInput): Promise<SkillImportResult>;
   skillValidate?(input: SkillValidateInput): Promise<SkillValidationResult>;
   skillScan?(input: SkillScanInput): Promise<SkillScanResult>;
+
+  /**
+   * Machine-checkable capability contracts of the currently loaded plugins
+   * for a project. Read-only enumeration for the UI and external hosts;
+   * the research director consumes the same registry in-process.
+   */
+  capabilitiesList?(input: CapabilitiesListInput): Promise<CapabilitiesListResult>;
 }
+
+export type CapabilitiesListInput = {
+  projectKey?: string;
+};
+
+export type CapabilitiesListResult = {
+  capabilities: RigoriumCapability[];
+  /** Dangling dependency references reported by the registry validation. */
+  issues: CapabilityValidationIssue[];
+  projectPath?: string;
+};

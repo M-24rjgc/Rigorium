@@ -32,10 +32,18 @@ export type ResearchArtifactKind = typeof RESEARCH_ARTIFACT_KINDS[number];
 export type ResearchArtifactStatus = "active" | "stale" | "superseded" | "rejected" | "archived";
 export type ResearchArtifactRelation = "derived_from" | "uses" | "supports" | "challenges" | "supersedes";
 
+/**
+ * Kinds a parent reference may point at that are NOT stored artifact
+ * envelopes: claim-graph nodes. Evidence artifacts (run_attempt, finding,
+ * evidence_pack, …) link to claims through `supports`/`challenges` parent
+ * edges; the claim itself lives in the claim graph, not the artifact store.
+ */
+export type ResearchArtifactRefKind = ResearchArtifactKind | "claim";
+
 export type ResearchArtifactRef = Readonly<{
   artifactId: string;
   revision: number;
-  kind: ResearchArtifactKind;
+  kind: ResearchArtifactRefKind;
   contentHash: string;
 }>;
 
@@ -222,13 +230,25 @@ function normalizeProducer(value: ResearchArtifactProducer): ResearchArtifactPro
 
 function normalizeRef(value: ResearchArtifactRef): ResearchArtifactRef {
   if (!value || typeof value !== "object") throw new TypeError("Artifact reference must be an object.");
-  assertArtifactKind(value.kind);
+  assertRefKind(value.kind);
   return Object.freeze({
     artifactId: requireIdentifier(value.artifactId, "artifact reference ID"),
     revision: requirePositiveInteger(value.revision, "artifact reference revision"),
     kind: value.kind,
     contentHash: requireHash(value.contentHash, "artifact reference contentHash"),
   });
+}
+
+/**
+ * Ref-kind validation: stored artifact kinds plus the claim-graph node kind.
+ * Claim nodes are valid edge targets even though no envelope is stored for
+ * them — the belief engine harvests `supports`/`challenges` edges by this
+ * exact kind (see research/claims/beliefPropagation.ts).
+ */
+function assertRefKind(value: string): asserts value is ResearchArtifactRefKind {
+  if (![...RESEARCH_ARTIFACT_KINDS, "claim"].includes(value)) {
+    throw new TypeError(`Unsupported research artifact kind: ${value}.`);
+  }
 }
 
 function assertArtifactKind(value: string): asserts value is ResearchArtifactKind {

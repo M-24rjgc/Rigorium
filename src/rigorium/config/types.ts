@@ -48,6 +48,10 @@ export type RigoriumRawConfig = {
   telemetry?: unknown;
   proxy?: unknown;
   webui?: unknown;
+  /** Phase 3.3: vision assistant (describe_image / automatic enrichment). */
+  vision?: unknown;
+  /** Phase 3.4: figure generation (figure_generate). */
+  figureGen?: unknown;
 };
 
 export type RigoriumExtensionConfig = {
@@ -231,6 +235,37 @@ export type RigoriumTelemetryConfig = {
   enabled: boolean;
 };
 
+/**
+ * Vision-assistant configuration (Phase 3.3, Codex read-image pattern).
+ *
+ * When the main agent model has no vision capability, images are delegated to
+ * this OpenAI-compatible vision endpoint (works with GitHub Copilot's model
+ * gateway and any OpenAI-compatible service). The `describe_image` tool
+ * exposes it explicitly; automatic injection at the multimodal boundary is
+ * wired in the platform-integration phase.
+ */
+export type RigoriumVisionConfig = {
+  /** Master switch; when off, vision tools report not-configured. */
+  enabled?: boolean;
+  /** OpenAI-compatible base URL, e.g. https://models.github.ai/v1 or https://api.openai.com/v1. */
+  baseUrl: string;
+  apiKey: string;
+  /** Vision model id, e.g. gpt-4o / gpt-4o-mini / glm-4.6v-flash. */
+  model: string;
+  timeoutMs?: number;
+};
+
+export type FigureGenConfig = {
+  /** Master switch; when off, figure_generate reports not-configured. */
+  enabled?: boolean;
+  /** OpenAI-compatible base URL (e.g. https://api.openai.com/v1). */
+  baseUrl: string;
+  apiKey: string;
+  /** Image model id (gpt-image-1 / gpt-image-2 — verify with the endpoint). */
+  model: string;
+  timeoutMs?: number;
+};
+
 export type RigoriumConfig = {
   agent: RigoriumAgentConfig;
   model: ModelConfig;
@@ -244,6 +279,16 @@ export type RigoriumConfig = {
   tools?: RigoriumToolsConfig;
   telemetry?: RigoriumTelemetryConfig;
   proxy?: RigoriumProxyConfig;
+  /** Vision-assistant (describe_image) configuration. */
+  vision?: RigoriumVisionConfig;
+  /**
+   * Figure-generation configuration (figure_generate tool).
+   *
+   * CONFIG-SURFACE ONLY: not yet validated against a live endpoint. The user
+   * supplies baseUrl/apiKey/model (e.g. an OpenAI-compatible image endpoint
+   * with gpt-image-1/gpt-image-2) and validates it; see README.
+   */
+  figureGen?: FigureGenConfig;
 };
 
 export type RigoriumConfigSnapshot = {

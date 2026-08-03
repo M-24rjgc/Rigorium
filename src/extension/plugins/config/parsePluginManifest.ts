@@ -12,6 +12,17 @@ export function parsePluginManifest(raw: unknown): RigoriumPluginManifest {
     name: raw.name,
     version: stringOrUndefined(raw.version),
     description: stringOrUndefined(raw.description),
+    displayName: stringOrUndefined(raw.displayName),
+    author: stringOrUndefined(raw.author),
+    icon: stringOrUndefined(raw.icon),
+    type: stringOrUndefined(raw.type),
+    slot: stringOrUndefined(raw.slot),
+    // UI entry/server must be relative paths without traversal; anything
+    // else is dropped so a malicious manifest can't smuggle an absolute
+    // path into the UI plugin host.
+    entry: safeRelativePath(raw.entry),
+    server: safeRelativePath(raw.server),
+    permissions: stringArrayOrUndefined(raw.permissions),
     commands: stringOrStringArray(raw.commands),
     agents: stringOrStringArray(raw.agents),
     skills: stringOrStringArray(raw.skills),
@@ -33,6 +44,31 @@ export function parsePluginManifest(raw: unknown): RigoriumPluginManifest {
       : undefined,
     settings: isRecord(raw.settings) ? raw.settings : undefined,
   };
+}
+
+function safeRelativePath(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim() === "") {
+    return undefined;
+  }
+  // Reject traversal, absolute paths (both separators), and drive-relative
+  // paths (`C:foo` and `C:\foo`). Mirrors the UI validator's path.isAbsolute
+  // semantics so both sides agree on what a safe relative entry is.
+  if (
+    value.includes("..") ||
+    value.startsWith("/") ||
+    value.startsWith("\\") ||
+    /^[a-zA-Z]:/u.test(value)
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
+function stringArrayOrUndefined(value: unknown): string[] | undefined {
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return value;
+  }
+  return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

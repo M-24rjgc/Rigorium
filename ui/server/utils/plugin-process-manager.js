@@ -27,13 +27,14 @@ export function startPluginServer(name, pluginDir, serverEntry) {
     const serverPath = path.join(pluginDir, serverEntry);
 
     // Restricted env — only essentials, no host secrets
-    const pluginProcess = spawn('node', [serverPath], {
+    const pluginProcess = spawn(process.execPath, [serverPath], {
       cwd: pluginDir,
       env: {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
         NODE_ENV: process.env.NODE_ENV || 'production',
         PLUGIN_NAME: name,
+        ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: process.platform === 'win32',

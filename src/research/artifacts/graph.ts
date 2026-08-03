@@ -34,6 +34,11 @@ export function buildResearchArtifactGraph(
   for (const artifact of artifacts) {
     const childKey = researchArtifactKey(artifact);
     for (const parent of artifact.parents) {
+      // Claim-graph nodes are external edge targets (evidence links): they
+      // have no stored envelope, so they can never be "missing" in this
+      // graph — the belief engine validates them against the claim graph at
+      // harvest time (research/claims/beliefPropagation.ts).
+      if (parent.artifact.kind === "claim") continue;
       const parentKey = researchArtifactKey(parent.artifact);
       const target = byKey.get(parentKey);
       if (!target) {

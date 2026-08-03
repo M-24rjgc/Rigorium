@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 import { terminologyVerificationFixture } from './research-verification-fixtures.mjs';
 import { openZoteroAttachment } from './zotero-attachment.mjs';
+import { macOSCommandPath, packagedEsbuildBinaryPath } from './platform-runtime.mjs';
 import { startZoteroBroker } from './zotero-broker.mjs';
 
 const STARTUP_TIMEOUT_MS = 90_000;
@@ -834,7 +835,7 @@ function startNodeProcess(label, args, environment, readyPattern, options = {}) 
     ...parentEnvironment
   } = process.env;
   const esbuildBinaryPath = app.isPackaged
-    ? join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@esbuild', 'win32-x64', 'esbuild.exe')
+    ? packagedEsbuildBinaryPath(process.resourcesPath)
     : undefined;
   const child = spawn(process.execPath, args, {
     cwd: runtimeWorkingDirectory(),
@@ -1120,6 +1121,9 @@ process.stderr?.on('error', () => {});
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0 && uiPort && !isQuitting) createWindow();
+});
 app.on('before-quit', (event) => {
   if (isQuitting) return;
   isQuitting = true;
@@ -1128,6 +1132,9 @@ app.on('before-quit', (event) => {
 });
 
 app.whenReady().then(async () => {
+  if (process.platform === 'darwin') {
+    process.env.PATH = macOSCommandPath(process.env.PATH, app.getPath('home'));
+  }
   registerZoteroIpc();
   try {
     if (isResearchVerification) {

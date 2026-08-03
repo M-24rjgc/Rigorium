@@ -18,6 +18,7 @@ import {
   resolveReleaseAssetRequest,
   resolveUpdateRepository,
   selectChecksumAsset,
+  selectDesktopAsset,
   startDesktopUpdateDownload,
 } from './desktopUpdateService.js';
 
@@ -130,6 +131,22 @@ test('newer releases without a compatible installer are not offered as installab
   assert.match(status.message, /compatible desktop installer/u);
 });
 
+test('macOS update selection keeps Apple Silicon and Intel installers separate', () => {
+  const arm64 = { name: 'Rigorium-Setup-0.2.0-mac-arm64.dmg' };
+  const x64 = { name: 'Rigorium-Setup-0.2.0-mac-x64.dmg' };
+  const release = {
+    assets: [
+      { name: 'Rigorium-Setup-0.2.0.exe' },
+      x64,
+      arm64,
+      { name: 'Rigorium-Setup-0.2.0-mac-arm64.dmg.sha256' },
+    ],
+  };
+
+  assert.equal(selectDesktopAsset(release, { platform: 'darwin', arch: 'arm64' }), arm64);
+  assert.equal(selectDesktopAsset(release, { platform: 'darwin', arch: 'x64' }), x64);
+});
+
 test('private release assets use the GitHub asset API and browser URLs never receive an auth header', () => {
   assert.deepEqual(
     resolveReleaseAssetRequest({ id: 42, downloadUrl: 'https://github.com/research-team/rigorium/releases/download/v1/setup.exe' }, 'research-team/rigorium'),
@@ -186,7 +203,7 @@ test('desktop update downloads only an installer that matches its release checks
   const server = await createFixtureServer(t, installerBody, sha256);
   const installer = {
     id: 1,
-    name: 'Rigorium-Setup-0.2.0.exe',
+    name: installerName('0.2.0'),
     size: installerBody.length,
     downloadUrl: `${server.origin}/installer`,
   };
@@ -232,7 +249,7 @@ test('checksum mismatch fails closed and removes the downloaded file', async (t)
   const installerBody = Buffer.from('tampered installer fixture');
   const server = await createFixtureServer(t, installerBody, '0'.repeat(64));
   const installer = {
-    name: 'Rigorium-Setup-0.3.0.exe',
+    name: installerName('0.3.0'),
     size: installerBody.length,
     downloadUrl: `${server.origin}/installer`,
   };
@@ -262,7 +279,7 @@ test('stalled installer downloads time out and clean their partial file', async 
   const server = await createStalledFixtureServer(t, 'a'.repeat(64));
   const installer = {
     id: 3,
-    name: 'Rigorium-Setup-0.3.1.exe',
+    name: installerName('0.3.1'),
     downloadUrl: `${server.origin}/installer`,
   };
   await startDesktopUpdateDownload({
@@ -293,7 +310,7 @@ test('assetId and assetName cannot bypass the current platform installer filter'
   const incompatibleArch = process.arch === 'arm64' ? 'x64' : 'arm64';
   const wrongArchitectureInstaller = {
     id: 8,
-    name: `Rigorium-Setup-0.4.0-${incompatibleArch}.exe`,
+    name: installerName('0.4.0', incompatibleArch),
     downloadUrl: 'https://example.invalid/wrong-architecture.exe',
   };
   const status = {
@@ -399,8 +416,8 @@ async function waitForDownload(timeoutMs = 5_000) {
   throw new Error('Desktop update did not reach a terminal state.');
 }
 
-function installerName(version) {
-  if (process.platform === 'darwin') return `Rigorium-Setup-${version}.dmg`;
-  if (process.platform === 'linux') return `Rigorium-Setup-${version}.AppImage`;
-  return `Rigorium-Setup-${version}.exe`;
+function installerName(version, arch = null) {
+  if (process.platform === 'darwin') return `Rigorium-Setup-${version}-mac-${arch || process.arch}.dmg`;
+  if (process.platform === 'linux') return `Rigorium-Setup-${version}-${arch || process.arch}.AppImage`;
+  return `Rigorium-Setup-${version}${arch ? `-${arch}` : ''}.exe`;
 }

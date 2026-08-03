@@ -8,7 +8,10 @@ export type RouterDecisionResolution =
   | "scenario"
   | "tokenSaver"
   | "custom"
-  | "fallback";
+  | "fallback"
+  | "judge"
+  | "default"
+  | "learned";
 
 export type RouterMutationsLog = {
   systemPromptSlim?: { from: number; to: number; preservedKeywords: string[] };
@@ -29,6 +32,12 @@ export type RouterMutationsLog = {
     cachedCost: number;
     prefillCost: number;
     estimatedInputTokens: number;
+  };
+  /** Phase 2: research-aware tier upgrade applied after classification. */
+  researchAwareTierUpgraded?: {
+    from: string;
+    to: string;
+    reason: string;
   };
 };
 
@@ -57,6 +66,13 @@ export type SessionRoutingState = {
   stickyModel?: string;
   orchestrating: boolean;
   lastUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  /**
+   * Consecutive routed-turn failures observed on this sticky selection
+   * (empty responses, exhausted fallback chains). Once this reaches the
+   * sticky `maxQualityFailures` threshold, `decide()` ignores the sticky
+   * so the request is re-classified instead of retrying a degraded model.
+   */
+  qualityFailures?: number;
   updatedAt: number;
 };
 
@@ -78,6 +94,8 @@ export type RouterDecisionInput = {
     previousTier?: string;
     previousProvider?: string;
     previousModel?: string;
+    /** Research context (artifact kinds + EIG action type) for research-aware routing. */
+    research?: import("../../router/policy/capabilityRequirements.js").ResearchRoutingHint;
   };
 };
 

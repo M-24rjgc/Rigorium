@@ -34,8 +34,10 @@ export async function discoverPluginPaths(
 }
 
 /**
- * Discovers standalone skill directories (containing SKILL.md without plugin.json).
- * Mirrors the legacy standalone skill directory convention.
+ * Discovers standalone skill directories (containing SKILL.md without a
+ * plugin manifest). Mirrors the legacy standalone skill directory convention.
+ * Directories that carry `plugin.json`/`manifest.json` are skipped — they are
+ * full plugins and must not double-load as standalone skills.
  */
 export async function discoverSkillPaths(
   directories: Array<{ path: string; source: RigoriumPluginSourceKind }>,
@@ -54,6 +56,9 @@ export async function discoverSkillPaths(
         if (!(await stat(skillDir)).isDirectory()) continue;
         const files = await readdir(skillDir);
         if (files.some((f) => /^skill\.md$/i.test(f))) {
+          if (files.some((f) => f === "plugin.json" || f === "manifest.json")) {
+            continue;
+          }
           discovered.push({ path: skillDir, source: directory.source });
         }
       } catch {

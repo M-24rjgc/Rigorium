@@ -2,15 +2,11 @@ import type {
   CanonicalModelEvent,
   CanonicalModelRequest,
   ModelRuntime,
-  ModelProtocol,
 } from "../model/index.js";
-import { cloneMessages, downgradeUnsupportedContent, ModelRequestError } from "../model/index.js";
-import type { InputModality } from "../model/index.js";
 import {
   LITELLM_DEFAULT_MAX_RETRIES,
   LITELLM_INITIAL_RETRY_DELAY_MS,
   LITELLM_MAX_RETRY_DELAY_MS,
-  LITELLM_RETRY_JITTER,
 } from "../model/streaming/streamModel.js";
 import { buildLiteLLMContinuationRequest } from "../model/streaming/continuationRequest.js";
 import {
@@ -32,26 +28,54 @@ import type {
   RouterMutationsLog,
   RouterScenarioType,
 } from "./protocol/decision.js";
-import type { RouterEvent, RouterEventBus } from "./protocol/events.js";
+import type { RouterEventBus } from "./protocol/events.js";
 import { decideScenario } from "./scenario/decideScenario.js";
 import { stripSubagentTagFromMessages } from "./scenario/subagentDetector.js";
 import { SessionRouterStore } from "./session/SessionRouterStore.js";
 import { SessionUsageCache } from "./session/sessionUsageCache.js";
 import { ProviderHealthTracker } from "./health/ProviderHealthTracker.js";
-import {
-  createZeroUsageState,
-  observeEventForZeroUsage,
-  shouldRetryZeroUsage,
-} from "./retry/zeroUsageRetry.js";
 import { TokenStatsCollector } from "./stats/TokenStatsCollector.js";
-import { classifyAndRoute } from "./tokenSaver/classifyAndRoute.js";
-import { countMessagesTokens, countResponseTokens, dispose as disposeTokenizer } from "./utils/countTokens.js";
-import { calculateCacheReadCost, calculateInputCost } from "./utils/modelPricing.js";
 import {
-  collectRequiredInputModalities,
-  missingInputModalities,
-} from "./utils/mediaRequirements.js";
+  createDefaultTierClassifier,
+  type TierClassifier,
+} from "./tokenSaver/tierClassifier.js";
+import { countMessagesTokens, countResponseTokens, dispose as disposeTokenizer } from "./utils/countTokens.js";
+import { collectRequiredInputModalities } from "./utils/mediaRequirements.js";
 import type { TelemetryClient } from "../telemetry/index.js";
+import { abortableDelay } from "./execution/abortable.js";
+import {
+  buildAttemptPlans,
+  clampMaxOutputTokensToModelCap,
+  downgradeRequestForAttempt,
+  type AttemptPlan,
+} from "./execution/attemptPlanning.js";
+import {
+  calculateLiteLLMRetryDelay,
+  classifyRetryReason,
+  createUnsupportedMediaError,
+  extractPartialText,
+  isMidStreamRateLimitError,
+  protocolForProvider,
+} from "./execution/errors.js";
+import {
+  streamAttempt,
+  type AttemptOutcome,
+} from "./execution/streamAttempt.js";
+import {
+  createMediaCapabilityChecks,
+  rerouteDecisionForMedia,
+} from "./policy/mediaCapability.js";
+import {
+  maybePreserveStickyForCache,
+  type CacheAwareSwitchingConfig,
+} from "./policy/cacheAwareSwitching.js";
+import { createStickyGuard } from "./policy/stickyGuard.js";
+import {
+  applyTierPrior,
+  computeCapabilityRequirements,
+  tierPriorForRequirements,
+} from "./policy/capabilityRequirements.js";
+import { AmortizedRanker } from "./learning/AmortizedRanker.js";
 
 export type RouterRuntimeDeps = {
   modelRuntime: ModelRuntime;
@@ -67,6 +91,26 @@ export type RouterRuntimeDeps = {
    * When provided, `shutdown()` will NOT clear it.
    */
   sessionStore?: SessionRouterStore;
+  /**
+   * Externally-owned health tracker shared across router instances.
+   * Provider degradation is a provider-level fact (a provider outage affects
+   * every session and every project), so it should not be re-discovered per
+   * session. When omitted, a per-session tracker is kept for compatibility.
+   */
+  healthTracker?: ProviderHealthTracker;
+  /**
+   * Strategy seam for tier classification (tokenSaver). Defaults to the
+   * judge-LLM classifier; Phase 2 swaps in an uncertainty-gated
+   * implementation without touching call sites.
+   */
+  tierClassifier?: TierClassifier;
+  /**
+   * Phase 2: amortized ranker for the uncertainty-gated classifier. When
+   * provided, the router computes capability requirements per request and
+   * feeds routed-turn outcomes back into the ranker (success/failure/cost).
+   * `persistPath` (when set) makes shutdown() flush the ranker state.
+   */
+  learning?: { ranker: AmortizedRanker; persistPath?: string };
 };
 
 export type InvalidateStickyResult = {
@@ -121,8 +165,13 @@ export function createRouterRuntime(
   const judgeRuntime = deps.judgeRuntime ?? deps.modelRuntime;
   const events = deps.events ?? { emit: () => undefined };
   const telemetry = deps.telemetry;
+  const tierClassifier = deps.tierClassifier ?? createDefaultTierClassifier();
+  const sharedHealthTracker = deps.healthTracker;
   const healthTrackers = new Map<string, ProviderHealthTracker>();
   function getHealthTracker(sessionId: string): ProviderHealthTracker {
+    if (sharedHealthTracker) {
+      return sharedHealthTracker;
+    }
     let tracker = healthTrackers.get(sessionId);
     if (!tracker) {
       tracker = new ProviderHealthTracker();
@@ -131,29 +180,43 @@ export function createRouterRuntime(
     return tracker;
   }
 
-  function missingForModel(
-    ref: RouterModelRef,
-    required: readonly InputModality[],
-  ): InputModality[] {
-    if (required.length === 0) {
-      return [];
-    }
-    try {
-      return missingInputModalities(
-        deps.modelRuntime.getMultimodal(ref.provider, ref.model),
-        required,
-      );
-    } catch {
-      return [...required];
-    }
+  /**
+   * Feed a routed-turn outcome back into the amortized ranker. Cost units are
+   * a coarse token-derived proxy (1 unit ≈ 1k tokens); the taste-calibration
+   * loop refines the mapping later. Successes are only attributed to the
+   * decide-time tier when the *pinned attempt* delivered (attemptIndex 0) —
+   * a fallback-rescued turn says nothing about the pinned tier's quality.
+   */
+  function observeRoutingOutcome(
+    decision: RouterDecision,
+    outcome: "success" | "failure",
+    costUnits?: number,
+  ): void {
+    if (!learningRanker) return;
+    const pending = pendingByDecision.get(decision);
+    if (!pending) return;
+    learningRanker.observe(pending.bucket, pending.tier, outcome, costUnits);
   }
 
-  function supportsMediaRequirements(
-    ref: RouterModelRef,
-    required: readonly InputModality[],
-  ): boolean {
-    return missingForModel(ref, required).length === 0;
-  }
+  const mediaChecks = createMediaCapabilityChecks(deps.modelRuntime);
+  const isStickyUsable = createStickyGuard(config.sticky, () =>
+    (deps.now?.() ?? new Date()).getTime(),
+  );
+  const cacheAwareConfig: CacheAwareSwitchingConfig | undefined =
+    config.tokenSaver?.cacheAwareSwitching;
+  const researchAwareEnabled = config.researchAware?.enabled === true;
+  const learningRanker = deps.learning?.ranker;
+  /**
+   * Per-decision routing context stashed by decide() for execute() to feed
+   * outcome observations back into the amortized ranker. Keyed by the
+   * decision object itself (not sessionId): decide→execute pairs are matched
+   * 1:1 even when the agent loop interleaves parallel routed streams on the
+   * same session, and the entry is garbage-collected with the decision.
+   */
+  const pendingByDecision = new WeakMap<
+    RouterDecision,
+    { bucket: string; tier: string }
+  >();
 
   function fallbackCandidatesFor(scenarioType: RouterScenarioType): RouterModelRef[] {
     const candidates: RouterModelRef[] = [];
@@ -168,128 +231,6 @@ export function createRouterRuntime(
     add((config.fallback as Record<string, RouterModelRef[] | undefined> | undefined)?.[scenarioType]);
     add(config.fallback?.default);
     return candidates;
-  }
-
-  function findCompatibleFallback(
-    scenarioType: RouterScenarioType,
-    required: readonly InputModality[],
-  ): RouterModelRef | undefined {
-    return fallbackCandidatesFor(scenarioType)
-      .find((ref) => supportsMediaRequirements(ref, required));
-  }
-
-  function rerouteDecisionForMedia(
-    decision: RouterDecision,
-    messages: CanonicalModelRequest["messages"],
-    mutations: RouterMutationsLog,
-  ): RouterMutationsLog {
-    const required = collectRequiredInputModalities(messages);
-    if (required.length === 0) {
-      return mutations;
-    }
-
-    const selected: RouterModelRef = {
-      id: `${decision.provider}/${decision.model}`,
-      provider: decision.provider,
-      model: decision.model,
-    };
-    if (supportsMediaRequirements(selected, required)) {
-      return mutations;
-    }
-
-    const replacement = findCompatibleFallback(decision.scenarioType, required);
-    if (!replacement) {
-      return mutations;
-    }
-
-    decision.provider = replacement.provider;
-    decision.model = replacement.model;
-    decision.resolvedFrom = "fallback";
-    return {
-      ...mutations,
-      mediaCapabilityRerouted: {
-        required: [...required],
-        from: selected.id,
-        to: replacement.id || `${replacement.provider}/${replacement.model}`,
-      },
-    };
-  }
-
-  function maybePreserveStickyForCache(
-    current: RouterModelRef | undefined,
-    next: RouterModelRef,
-    messages: CanonicalModelRequest["messages"],
-    lastUsage: import("../model/index.js").CanonicalUsage | undefined,
-  ): { selection: RouterModelRef; mutation?: RouterMutationsLog["cacheAwareSwitch"] } {
-    const cacheAware = config.tokenSaver?.cacheAwareSwitching;
-    if (cacheAware?.enabled === false || !current) {
-      return { selection: next };
-    }
-    if (current.provider === next.provider && current.model === next.model) {
-      return { selection: next };
-    }
-
-    const estimatedInputTokens = countMessagesTokens(messages);
-    const observedInputTokens = lastUsage?.inputTokens ?? 0;
-    const observedCacheReadTokens = lastUsage?.cacheReadTokens ?? 0;
-    const observedCacheHitRatio = observedInputTokens > 0
-      ? Math.min(1, Math.max(0, observedCacheReadTokens / observedInputTokens))
-      : 0;
-    if (observedCacheHitRatio <= 0) {
-      return { selection: next };
-    }
-
-    const estimatedCacheReadTokens = Math.floor(estimatedInputTokens * observedCacheHitRatio);
-    const estimatedUncachedTokens = Math.max(0, estimatedInputTokens - estimatedCacheReadTokens);
-    const cachedCost = calculateCacheReadCost(
-      estimatedCacheReadTokens,
-      current.provider,
-      current.model,
-      config.stats?.modelPricing,
-    ) + calculateInputCost(
-      estimatedUncachedTokens,
-      current.provider,
-      current.model,
-      config.stats?.modelPricing,
-    );
-    const prefillCost = calculateInputCost(
-      estimatedInputTokens,
-      next.provider,
-      next.model,
-      config.stats?.modelPricing,
-    );
-
-    const minSavingsRatio = cacheAware?.minSavingsRatio ?? 0;
-    const requiredSavings = cachedCost * minSavingsRatio;
-    const shouldSwitch = prefillCost + Number.EPSILON < cachedCost - requiredSavings;
-    const from = `${current.provider}/${current.model}`;
-    const to = `${next.provider}/${next.model}`;
-
-    if (shouldSwitch) {
-      return {
-        selection: next,
-        mutation: {
-          action: "switched",
-          from,
-          to,
-          cachedCost,
-          prefillCost,
-          estimatedInputTokens,
-        },
-      };
-    }
-
-    return {
-      selection: current,
-      mutation: {
-        action: "kept_sticky",
-        from,
-        to,
-        cachedCost,
-        prefillCost,
-        estimatedInputTokens,
-      },
-    };
   }
 
   async function resolveCustom(
@@ -354,6 +295,13 @@ export function createRouterRuntime(
     const custom = await resolveCustom(inputWithUsage);
     const scenarioOutcome = decideScenario(inputWithUsage, config.scenarios ?? {} as any);
 
+    // Phase 2: deterministic capability requirements — derived once, consumed
+    // by the uncertainty-gated classifier, the research-aware tier upgrade,
+    // and the outcome observer.
+    const requirements = researchAwareEnabled || learningRanker
+      ? computeCapabilityRequirements(input.request, input.metadata?.research)
+      : undefined;
+
     let scenarioType: RouterScenarioType = scenarioOutcome.scenarioType;
     const previousStickySelection = (input.metadata?.previousProvider && input.metadata.previousModel)
       ? {
@@ -361,7 +309,7 @@ export function createRouterRuntime(
         provider: input.metadata.previousProvider,
         model: input.metadata.previousModel,
       }
-      : sticky?.stickyProvider && sticky.stickyModel
+      : isStickyUsable(sticky)
       ? { id: `${sticky.stickyProvider}/${sticky.stickyModel}`, provider: sticky.stickyProvider, model: sticky.stickyModel }
       : undefined;
     let selection: RouterModelRef | undefined =
@@ -388,7 +336,7 @@ export function createRouterRuntime(
 
       if (input.isMainAgent && input.request.messages.length > 1) {
         const mainSticky = sessionStore.get(input.sessionId, false);
-        if (mainSticky?.stickyProvider && mainSticky.stickyModel) {
+        if (isStickyUsable(mainSticky)) {
           selection = {
             id: `${mainSticky.stickyProvider}/${mainSticky.stickyModel}`,
             provider: mainSticky.stickyProvider,
@@ -402,7 +350,7 @@ export function createRouterRuntime(
 
       if (!input.isMainAgent && subagentPolicy === "judge" && input.request.messages.length > 1) {
         const subSticky = sessionStore.get(input.sessionId, true);
-        if (subSticky?.stickyProvider && subSticky.stickyModel) {
+        if (isStickyUsable(subSticky)) {
           selection = {
             id: `${subSticky.stickyProvider}/${subSticky.stickyModel}`,
             provider: subSticky.stickyProvider,
@@ -415,13 +363,14 @@ export function createRouterRuntime(
       }
 
       if (!stickyHit) {
-        const tokenSaver = await classifyAndRoute({
+        const tokenSaver = await tierClassifier.classify({
           config: config.tokenSaver,
           messages: input.request.messages,
           judgeRuntime,
           previousTier: input.metadata?.previousTier,
           sessionId: input.sessionId,
           telemetry,
+          ...(requirements ? { requirements } : {}),
         });
         if (tokenSaver) {
           if (tokenSaver.failureReason) {
@@ -434,12 +383,17 @@ export function createRouterRuntime(
           }
           if (tokenSaver.selection) {
             selection = tokenSaver.selection;
-            resolvedFrom = "tokenSaver";
+            // Preserve the classifier's provenance (judge vs learned vs
+            // default): the learned path must be observable in decisions and
+            // stats, not flattened into a generic "tokenSaver".
+            resolvedFrom = tokenSaver.resolvedFrom ?? "tokenSaver";
             const cacheAware = maybePreserveStickyForCache(
               previousStickySelection,
               selection,
               input.request.messages,
               baseUsage,
+              cacheAwareConfig,
+              config.stats?.modelPricing,
             );
             selection = cacheAware.selection;
             cacheAwareSwitch = cacheAware.mutation;
@@ -472,6 +426,36 @@ export function createRouterRuntime(
       throw new Error("Router: no default scenario configured and no model could be resolved");
     }
 
+    // Phase 2: research-aware tier upgrade — capability requirements may
+    // override a too-weak classification (e.g. a web-research task judged
+    // "simple" because its first message was short).
+    let researchAwareUpgrade: RouterMutationsLog["researchAwareTierUpgraded"];
+    if (
+      researchAwareEnabled &&
+      config.researchAware?.tierUpgrade !== false &&
+      requirements &&
+      tokenSaverTier
+    ) {
+      const knownTiers = Object.keys(config.tokenSaver?.tiers ?? {});
+      const priors = tierPriorForRequirements(requirements);
+      const { tier: targetTier, upgraded } = applyTierPrior(tokenSaverTier, priors, knownTiers);
+      if (upgraded && targetTier !== tokenSaverTier) {
+        const targetModel = config.tokenSaver?.tiers?.[targetTier]?.model;
+        if (targetModel) {
+          researchAwareUpgrade = {
+            from: tokenSaverTier,
+            to: targetTier,
+            reason: `requirements: ${priors.join(",")}`,
+          };
+          tokenSaverTier = targetTier;
+          selection = targetModel;
+        }
+      }
+    }
+
+    // Stash the routing context on the decision object so execute() can feed
+    // outcome observations back into the amortized ranker for this capability
+    // signature (matched by object identity — safe under interleaved streams).
     const decision: RouterDecision = {
       provider: selection.provider,
       model: selection.model,
@@ -482,17 +466,23 @@ export function createRouterRuntime(
       resolvedFrom,
       mutations: {},
     };
+    if (learningRanker && requirements) {
+      pendingByDecision.set(decision, {
+        bucket: learningRanker.bucketKey(requirements),
+        tier: tokenSaverTier ?? "default",
+      });
+    }
 
     const alreadyOrchestrating = sticky?.orchestrating === true;
     const tokenSaverActive = config.tokenSaver?.enabled === true && tokenSaverTier != null;
     const orchGate = tokenSaverActive || alreadyOrchestrating;
-    console.log(
-      `[router] decision: tier=${tokenSaverTier}, model=${selection.provider}/${selection.model}, orchGate=${orchGate}, alreadyOrch=${alreadyOrchestrating}, resolvedFrom=${resolvedFrom}`,
-    );
 
     let mutations: RouterMutationsLog = {};
     if (cacheAwareSwitch) {
       mutations = { ...mutations, cacheAwareSwitch };
+    }
+    if (researchAwareUpgrade) {
+      mutations = { ...mutations, researchAwareTierUpgraded: researchAwareUpgrade };
     }
     if (config.autoOrchestrate?.enabled && orchGate) {
       const orchestrated = applyOrchestration({
@@ -512,17 +502,29 @@ export function createRouterRuntime(
     }
 
     const mediaMessages = decision.requestPatch?.messages ?? input.request.messages;
-    mutations = rerouteDecisionForMedia(decision, mediaMessages, mutations);
+    mutations = rerouteDecisionForMedia(decision, mediaMessages, mutations, {
+      ...mediaChecks,
+      fallbackCandidatesFor,
+    });
 
     decision.mutations = mutations;
 
+    // The consecutive-failure counter describes the *model*, not the request:
+    // keep it while the sticky stays pinned to the same model (so a broken
+    // model released by re-judging doesn't restart at zero), and reset it
+    // when a different model is selected.
+    const stickyStaysOnSameModel =
+      sticky?.stickyProvider === decision.provider && sticky?.stickyModel === decision.model;
     sessionStore.set({
       sessionId: input.sessionId,
-      isSubagent: !input.isMainAgent,
+      // Slot key must match the execute() quality-failure calls, which use
+      // decision.isSubagent (subagent-tagged main turns included).
+      isSubagent: decision.isSubagent,
       tokenSaverTier,
       stickyProvider: decision.provider,
       stickyModel: decision.model,
       orchestrating: decision.orchestrating,
+      qualityFailures: stickyStaysOnSameModel ? sticky?.qualityFailures : undefined,
       lastUsage: sticky?.lastUsage,
       updatedAt: (deps.now?.() ?? new Date()).getTime(),
     });
@@ -603,15 +605,11 @@ export function createRouterRuntime(
         candidate.provider === attempt.provider && candidate.model === attempt.model
       ) === index
     );
-    const nativeAttempts: RouterModelRef[] = candidateAttempts
-      .filter((attempt) => supportsMediaRequirements(attempt, requiredModalities));
-    const downgradedAttempts: RouterModelRef[] = requiredModalities.length > 0
-      ? candidateAttempts.filter((attempt) => !supportsMediaRequirements(attempt, requiredModalities))
-      : [];
-    const attemptPlans: AttemptPlan[] = [
-      ...nativeAttempts.map((attempt) => ({ attempt, downgradeUnsupportedMedia: false })),
-      ...downgradedAttempts.map((attempt) => ({ attempt, downgradeUnsupportedMedia: true })),
-    ];
+    const attemptPlans: AttemptPlan[] = buildAttemptPlans(
+      candidateAttempts,
+      requiredModalities,
+      mediaChecks,
+    );
     const zeroUsageMax = Math.max(1, config.zeroUsageRetry?.maxAttempts ?? 5);
     const zeroUsageEnabled = config.zeroUsageRetry?.enabled ?? true;
     const transientRetryEnabled = config.transientRetry?.enabled ?? true;
@@ -627,7 +625,7 @@ export function createRouterRuntime(
     let lastHasYieldedContent = false;
 
     if (attemptPlans.length === 0) {
-      const missing = missingForModel(requestedAttempt, requiredModalities);
+      const missing = mediaChecks.missingForModel(requestedAttempt, requiredModalities);
       const error = createUnsupportedMediaError(
         requestedAttempt,
         requiredModalities,
@@ -742,6 +740,10 @@ export function createRouterRuntime(
           getHealthTracker(ctx.sessionId).recordFailure(attempt.provider);
           if (!hasYieldedContent && isFallbackEligible(outcome.error)) {
             if (attemptIndex < attemptPlans.length - 1) {
+              // Fall back to the next attempt. The quality-failure counter is
+              // intentionally NOT incremented here: a rescued turn either
+              // succeeds (reset at the pinned attempt below) or exhausts the
+              // whole chain (recorded once at the end) — never twice.
               const next = attemptPlans[attemptIndex + 1].attempt;
               events.emit({
                 type: "rigorium_router_fallback",
@@ -944,11 +946,30 @@ export function createRouterRuntime(
           startedAt,
           endedAt,
         });
+        // A completed turn on the PINNED attempt (index 0) proves that model
+        // still works — clear its consecutive-failure count. A fallback-
+        // rescued turn says nothing about the pinned model, so its counter is
+        // preserved (a permanently broken pinned model must be released, not
+        // kept alive by fallback successes). Same attribution for the ranker.
+        if (attemptIndex === 0) {
+          sessionStore.resetQualityFailures(ctx.sessionId, decision.isSubagent);
+          observeRoutingOutcome(
+            decision,
+            "success",
+            finalUsage?.totalTokens ? Math.max(1, Math.round(finalUsage.totalTokens / 1000)) : undefined,
+          );
+        }
         return;
       }
     }
 
     if (lastError && lastAttempt) {
+      // The whole attempt plan failed — the pinned model (and its fallbacks)
+      // did not deliver. Count it once against the sticky selection so the
+      // next decide() re-classifies instead of retrying the same broken
+      // model, and record the failure for the amortized ranker.
+      sessionStore.recordQualityFailure(ctx.sessionId, decision.isSubagent);
+      observeRoutingOutcome(decision, "failure");
       events.emit({
         type: "rigorium_router_execute_failed",
         sessionId: ctx.sessionId,
@@ -1023,6 +1044,7 @@ export function createRouterRuntime(
         tokenSaverTier: previousTier,
         stickyProvider: current?.stickyProvider,
         stickyModel: current?.stickyModel,
+        qualityFailures: current?.qualityFailures,
         updatedAt: (deps.now?.() ?? new Date()).getTime(),
       });
     } else {
@@ -1054,21 +1076,20 @@ export function createRouterRuntime(
       if (!externalStore) sessionStore.clear();
       usageCache.clear();
       healthTrackers.clear();
+      // Persist the amortized ranker so learned routing survives restarts.
+      if (learningRanker && deps.learning?.persistPath) {
+        try {
+          const { writeFile, mkdir } = await import("node:fs/promises");
+          const { dirname } = await import("node:path");
+          await mkdir(dirname(deps.learning.persistPath), { recursive: true });
+          await writeFile(deps.learning.persistPath, learningRanker.serialize(), { encoding: "utf8" });
+        } catch (error) {
+          console.warn(`[rigorium] Failed to persist router learning state: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
     },
   };
 }
-
-type AttemptPlan = {
-  attempt: RouterModelRef;
-  downgradeUnsupportedMedia: boolean;
-};
-
-type AttemptOutcome = {
-  buffered: CanonicalModelEvent[];
-  error?: import("../model/index.js").CanonicalModelError;
-  usage?: import("../model/index.js").CanonicalUsage;
-  shouldRetryZeroUsage: boolean;
-};
 
 /**
  * "Content" events are the ones that are visible to the end-user / agent
@@ -1084,250 +1105,4 @@ function isContentEvent(event: CanonicalModelEvent): boolean {
     event.type === "tool_call_delta" ||
     event.type === "tool_call_end"
   );
-}
-
-function clampMaxOutputTokensToModelCap(
-  request: CanonicalModelRequest,
-  modelRuntime: ModelRuntime,
-): CanonicalModelRequest {
-  const requested = request.maxOutputTokens;
-  if (requested === undefined) {
-    return request;
-  }
-
-  try {
-    const cap = modelRuntime.getCapabilities(request.provider, request.model).maxOutputTokens;
-    if (Number.isFinite(cap) && cap > 0 && requested > cap) {
-      return { ...request, maxOutputTokens: cap };
-    }
-  } catch {
-    // Unknown provider/model — let validateModelRequest surface the real error.
-  }
-  return request;
-}
-
-function downgradeRequestForAttempt(
-  request: CanonicalModelRequest,
-  attempt: RouterModelRef,
-  modelRuntime: ModelRuntime,
-): CanonicalModelRequest {
-  let multimodal: ReturnType<ModelRuntime["getMultimodal"]>;
-  try {
-    multimodal = modelRuntime.getMultimodal(attempt.provider, attempt.model);
-  } catch {
-    // Unknown provider/model should still be reported by validateModelRequest.
-    return request;
-  }
-  const messages = cloneMessages(request.messages);
-  downgradeUnsupportedContent(messages, multimodal);
-  return { ...request, messages };
-}
-
-/**
- * Live attempt — yields each model event the moment it arrives, then yields
- * a final `{ outcome }` sentinel with retry/usage metadata. The previous
- * implementation `await`-ed the entire stream into `buffered[]` before
- * returning, which silently broke streaming UX (TUI/CLI saw the assistant
- * text appear in one burst at the end of the turn).
- *
- * Trade-off: zero-usage retry and provider fallback can only fire BEFORE we
- * yield any content. If a provider crashes mid-stream after we've already
- * surfaced text, we can't transparently fall back without leaking duplicate
- * text. This matches OpenAI's / Anthropic's own clients.
- */
-async function* streamAttempt(
-  request: CanonicalModelRequest,
-  modelRuntime: ModelRuntime,
-  ctx: RouterExecuteContext,
-  events: RouterEventBus,
-): AsyncGenerator<
-  | { kind: "event"; event: CanonicalModelEvent }
-  | { kind: "outcome"; outcome: AttemptOutcome }
-> {
-  const buffered: CanonicalModelEvent[] = [];
-  const state = createZeroUsageState();
-  let providerError: import("../model/index.js").CanonicalModelError | undefined;
-  const abortSignal = ctx.abortSignal;
-
-  try {
-    for await (const event of modelRuntime.stream(request, {
-      signal: abortSignal,
-      onRetryProgress(progress) {
-        events.emit({
-          type: "rigorium_router_retry_progress",
-          sessionId: ctx.sessionId,
-          turnId: ctx.turnId,
-          attempt: progress.attempt,
-          maxAttempts: progress.maxAttempts,
-          delayMs: progress.delayMs,
-          reason: progress.reason,
-          provider: progress.provider,
-          model: progress.model,
-        });
-      },
-    })) {
-      if (abortSignal?.aborted) {
-        throwAbortError(abortSignal.reason);
-      }
-      observeEventForZeroUsage(state, event);
-      buffered.push(event);
-      if (event.type === "error") {
-        providerError = event.error;
-      }
-      yield { kind: "event", event };
-    }
-  } catch (error) {
-    if (abortSignal?.aborted) {
-      throw error;
-    }
-    const fromError = (error as { error?: import("../model/index.js").CanonicalModelError })?.error;
-    const protocol = protocolForProvider(modelRuntime, request.provider);
-    providerError = fromError ?? canonicalizeModelRequestError(error, request, protocol) ?? {
-      provider: request.provider,
-      protocol,
-      code: classifyNetworkErrorCode(error),
-      message: error instanceof Error ? error.message : String(error),
-      retryable: isNetworkTransient(error),
-    };
-  }
-
-  yield {
-    kind: "outcome",
-    outcome: {
-      buffered,
-      error: providerError,
-      usage: state.observedUsage,
-      shouldRetryZeroUsage: shouldRetryZeroUsage(state),
-    },
-  };
-}
-
-function canonicalizeModelRequestError(
-  error: unknown,
-  request: CanonicalModelRequest,
-  protocol: ModelProtocol,
-): import("../model/index.js").CanonicalModelError | undefined {
-  if (!(error instanceof ModelRequestError)) {
-    return undefined;
-  }
-
-  return {
-    provider: request.provider,
-    protocol,
-    code: error.code,
-    message: error.message,
-    retryable: false,
-    raw: error.details,
-  };
-}
-
-function protocolForProvider(modelRuntime: ModelRuntime, providerId: string): ModelProtocol {
-  try {
-    return modelRuntime.getProviderProtocol(providerId) ?? "openai";
-  } catch {
-    return "openai";
-  }
-}
-
-function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (!signal) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-  if (signal.aborted) {
-    throwAbortError(signal.reason);
-  }
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(createAbortError(signal.reason));
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-function throwAbortError(reason?: unknown): never {
-  throw createAbortError(reason);
-}
-
-function createAbortError(reason?: unknown): Error {
-  if (reason instanceof Error) return reason;
-  const message = typeof reason === "string" && reason ? reason : "Operation aborted.";
-  return new DOMException(message, "AbortError");
-}
-
-function isNetworkTransient(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const msg = error.message.toLowerCase();
-  return (
-    msg.includes("econnreset") ||
-    msg.includes("econnrefused") ||
-    msg.includes("etimedout") ||
-    msg.includes("epipe") ||
-    msg.includes("socket hang up") ||
-    msg.includes("network") ||
-    msg.includes("dns") ||
-    msg.includes("fetch failed") ||
-    msg.includes("abort") ||
-    error.name === "TimeoutError" ||
-    error.name === "AbortError"
-  );
-}
-
-function classifyNetworkErrorCode(error: unknown): string {
-  if (!(error instanceof Error)) return "unknown";
-  const msg = error.message.toLowerCase();
-  if (msg.includes("timeout") || error.name === "TimeoutError") return "timeout";
-  if (msg.includes("abort") || error.name === "AbortError") return "aborted";
-  return "network_error";
-}
-
-function isMidStreamRateLimitError(error: import("../model/index.js").CanonicalModelError): boolean {
-  return error.code === "rate_limit_error" || error.code === "overloaded_error";
-}
-
-function classifyRetryReason(errorCode: string): "rate_limit" | "server_error" | "network_error" | "zero_usage" | "overloaded" {
-  if (errorCode === "rate_limit_error") return "rate_limit";
-  if (errorCode === "overloaded_error") return "overloaded";
-  if (errorCode === "server_error") return "server_error";
-  if (errorCode === "network_error" || errorCode === "timeout") return "network_error";
-  return "server_error";
-}
-
-function calculateLiteLLMRetryDelay(attempt: number, baseDelayMs: number, maxDelayMs: number): number {
-  const deterministicDelay = baseDelayMs * (attempt + 1);
-  const jitterDelay = deterministicDelay * LITELLM_RETRY_JITTER * Math.random();
-  return Math.min(deterministicDelay + jitterDelay, maxDelayMs);
-}
-
-function createUnsupportedMediaError(
-  attempt: RouterModelRef,
-  required: readonly InputModality[],
-  missing: readonly InputModality[],
-  protocol: ModelProtocol,
-): import("../model/index.js").CanonicalModelError {
-  const missingText = (missing.length > 0 ? missing : required).join(", ");
-  const requiredText = required.join(", ");
-  return {
-    provider: attempt.provider,
-    protocol,
-    code: "unsupported_modality",
-    message:
-      `Router could not find a configured fallback model for ${attempt.provider}/${attempt.model} ` +
-      `that supports required input modalities: ${requiredText}. Missing: ${missingText}.`,
-    retryable: false,
-  };
-}
-
-function extractPartialText(buffered: CanonicalModelEvent[]): string {
-  let text = "";
-  for (const ev of buffered) {
-    if (ev.type === "text_delta") {
-      text += ev.text;
-    }
-  }
-  return text;
 }

@@ -1,4 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync as mkdirSyncFs, renameSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync as mkdirSyncFs, readFileSync, renameSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, resolve, join as joinPath } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -69,7 +70,7 @@ import {
 } from "../rigorium/index.js";
 import { createRigoriumConfigStoreSync, type RigoriumConfigStore } from "../rigorium/config/RigoriumConfigStore.js";
 import type { RigoriumAgentModelSelection, RigoriumConfigSnapshot } from "../rigorium/config/types.js";
-import { DEFAULT_JUDGE_TIMEOUT_MS, DEFAULT_ALLOWED_TOOLS, DEFAULT_TRIGGER_TIERS, type RouterConfig } from "../router/config/schema.js";
+import { DEFAULT_JUDGE_TIMEOUT_MS, DEFAULT_ALLOWED_TOOLS, DEFAULT_TRIGGER_TIERS, DEFAULT_STICKY_TTL_MS, DEFAULT_STICKY_MAX_QUALITY_FAILURES, type RouterConfig } from "../router/config/schema.js";
 import { createAgentProjectSessionStorage, listProjectSessions, resumeAgentSession } from "../session/index.js";
 import { sanitizeSessionIdForPath } from "../session/storage/ProjectSessionStorage.js";
 import { createSessionTitleGenerator } from "../session/title/SessionTitleGenerator.js";
@@ -85,7 +86,15 @@ import type {
   ToolRegistry,
 } from "../tool/index.js";
 import { createRouterRuntime, type RouterRuntime } from "../router/index.js";
+import {
+  AmortizedRanker,
+  UncertaintyGatedTierClassifier,
+} from "../router/index.js";
+import { createDefaultTierClassifier } from "../router/tokenSaver/tierClassifier.js";
+import { ProviderHealthTracker } from "../router/health/ProviderHealthTracker.js";
 import { SessionRouterStore } from "../router/session/SessionRouterStore.js";
+import { createVisionAssistant } from "../model/vision/VisionAssistant.js";
+import { createImageGenerator } from "../model/vision/ImageGenerator.js";
 import type { RouterEventBus, RouterEvent } from "../router/protocol/events.js";
 import type { EdgeClawMemoryProvider } from "../context/index.js";
 import { loadBuiltinPlugins } from "../extension/plugins/builtin/loadBuiltinPlugins.js";
@@ -293,6 +302,24 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
     toolResultsDir: resolve(tmpdir(), "rigorium-tool-output", process.pid.toString()),
     cron: options.cron,
     skillManager,
+    capabilitiesList: async (input) => {
+      const runtime = registry.resolve(input.projectKey);
+      const registryCapabilities = runtime.pluginRuntime.capabilities();
+      // The capability registry is rebuilt during plugin refresh, which only
+      // runs when a session is prepared. Refresh on demand so a fresh gateway
+      // (or one just invalidated by a config/extension change) answers with
+      // the *current* plugin set, not an empty one.
+      try {
+        await runtime.pluginRuntime.refresh();
+      } catch {
+        // Non-fatal: fall back to whatever the registry currently holds.
+      }
+      return {
+        capabilities: registryCapabilities.list(),
+        issues: registryCapabilities.validateDependencies(),
+        projectPath: runtime.projectRoot,
+      };
+    },
     setSessionCwd: (sessionKey, cwd) => registry.setSessionCwd(sessionKey, cwd),
     readSessionMessages: (input) =>
       readWebSessionMessages(input, {
@@ -525,6 +552,12 @@ class ProjectRuntimeRegistry {
   private readonly sharedSessionStore = new SessionRouterStore({
     now: () => this.options.now().getTime(),
   });
+  /**
+   * Provider health is a provider-level fact shared by every project runtime
+   * and every session in this gateway: a provider outage must be discovered
+   * once and honored everywhere, not re-discovered per session.
+   */
+  private readonly sharedHealthTracker = new ProviderHealthTracker();
 
   constructor(private readonly options: ProjectRuntimeRegistryOptions) {
     this._extraTools = options.extraTools ? [...options.extraTools] : [];
@@ -701,8 +734,34 @@ class ProjectRuntimeRegistry {
       builtinSkillsRoot: this.options.builtinSkillsRoot,
       builtinPlugins: loadBuiltinPlugins(),
       builtinPluginsEnabled: snapshot.config.extension.builtinPluginsEnabled,
+      // UI-side enable toggle shared file: plugins.json lives next to the
+      // plugins dir the gateway discovers.
+      pluginEnableConfigPath: joinPath(this.options.rigoriumHome, "plugins.json"),
     });
     const routerConfig = ensureRouterConfig(snapshot.config.router, snapshot.config.agent.model);
+    // Phase 2: amortized ranker + uncertainty-gated judge (opt-in via
+    // router.learning.enabled). The ranker is per-project (per runtime) and
+    // learns which tier actually succeeds for each capability signature.
+    let learning: { ranker: AmortizedRanker; persistPath?: string } | undefined;
+    let tierClassifier: ReturnType<typeof createDefaultTierClassifier> | undefined;
+    if (routerConfig.learning?.enabled) {
+      const ranker = new AmortizedRanker();
+      // Persist learning state per project (stable hash of the project root)
+      // so the ranker survives restarts — and multiple projects sharing one
+      // gateway never overwrite each other's learning on shutdown.
+      const projectHash = createHash("sha256").update(resolve(projectRoot)).digest("hex").slice(0, 12);
+      const persistPath = joinPath(this.options.rigoriumHome, "router", `learning-${projectHash}.json`);
+      try {
+        ranker.deserialize(readFileSync(persistPath, "utf8"));
+      } catch {
+        // First run or unreadable state → start fresh.
+      }
+      learning = { ranker, persistPath };
+      tierClassifier = new UncertaintyGatedTierClassifier(createDefaultTierClassifier(), ranker, {
+        minObservations: routerConfig.learning.minObservations,
+        minMargin: routerConfig.learning.minMargin,
+      });
+    }
     const router = createRouterRuntime(routerConfig, {
       modelRuntime: model,
       now: this.options.now,
@@ -710,6 +769,10 @@ class ProjectRuntimeRegistry {
       loadSkillPrompt: (extensionId) => pluginRuntime.loadSkillPrompt(extensionId),
       events: this.buildRouterEventBus(),
       telemetry: this.options.telemetry,
+      sessionStore: this.sharedSessionStore,
+      healthTracker: this.sharedHealthTracker,
+      ...(learning ? { learning } : {}),
+      ...(tierClassifier ? { tierClassifier } : {}),
     });
     const backgroundTasks = new BackgroundTaskRuntime({
       now: this.options.now,
@@ -728,6 +791,27 @@ class ProjectRuntimeRegistry {
         loader: (name) => pluginRuntime.loadSkillPrompt(name),
         lister: () => pluginRuntime.getAllSkills(),
       },
+      // Vision assistant (Phase 3.3): when configured in rigorium.yaml, the
+      // describe_image tool lets the agent see through a separate
+      // OpenAI-compatible vision endpoint even when the main model has no
+      // vision capability.
+      ...(snapshot.config.vision
+        ? {
+            describeImage: {
+              assistant: createVisionAssistant(snapshot.config.vision),
+            },
+          }
+        : {}),
+      // Figure generation (Phase 3.4): config-surface only — requires the
+      // user's figureGen: block; the tool is marked untested against a live
+      // endpoint until a Key is supplied.
+      ...(snapshot.config.figureGen
+        ? {
+            figureGenerate: {
+              generator: createImageGenerator(snapshot.config.figureGen),
+            },
+          }
+        : {}),
       // Pass YAML-configured search capabilities through without coupling the
       // generic web_search provider chain to DeepSeek native search.
       ...(webSearchConfig
@@ -1231,6 +1315,12 @@ class ProjectRuntimeRegistry {
         elicitation,
         planFileManager,
         planTodoManager,
+        // Phase 4: automatic vision enrichment — injected when the vision
+        // assistant is configured so image-bearing turns to non-vision models
+        // are described instead of downgraded to placeholders.
+        ...(runtime.snapshot.config.vision
+          ? { visionAssistant: createVisionAssistant(runtime.snapshot.config.vision) }
+          : {}),
       };
     };
     return {
@@ -1403,6 +1493,9 @@ function ensureRouterConfig(
       scenarios: router.scenarios ?? { default: defaultRef },
       fallback: router.fallback ?? { default: [defaultRef] },
       tokenSaver: router.tokenSaver ?? buildDefaultTokenSaver(defaultRef),
+      sticky: router.sticky ?? buildDefaultSticky(),
+      researchAware: router.researchAware ?? { enabled: false, tierUpgrade: true },
+      learning: router.learning ?? { enabled: false },
       autoOrchestrate: router.autoOrchestrate ?? buildDefaultAutoOrchestrate(),
       stats: { enabled: true, baselineModel: defaultRef, ...(router.stats ?? {}) },
     };
@@ -1413,8 +1506,19 @@ function ensureRouterConfig(
     fallback: { default: [defaultRef] },
     zeroUsageRetry: { enabled: true, maxAttempts: 2 },
     tokenSaver: buildDefaultTokenSaver(defaultRef),
+    sticky: buildDefaultSticky(),
+    researchAware: { enabled: false, tierUpgrade: true },
+    learning: { enabled: false },
     autoOrchestrate: buildDefaultAutoOrchestrate(),
     stats: { enabled: true, baselineModel: defaultRef },
+  };
+}
+
+function buildDefaultSticky() {
+  return {
+    enabled: true,
+    ttlMs: DEFAULT_STICKY_TTL_MS,
+    maxQualityFailures: DEFAULT_STICKY_MAX_QUALITY_FAILURES,
   };
 }
 

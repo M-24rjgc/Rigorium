@@ -73,6 +73,52 @@ export type RouterCustomRouterConfig = {
   extensionId: string;
 };
 
+/**
+ * Phase 2: research-aware routing.
+ *
+ * `researchAware.tierUpgrade` lets capability requirements (tool categories,
+ * modalities, EIG action type) override a *too-weak* tier classification:
+ * a web-research task is never pinned to the "simple" greeting tier just
+ * because its first message was short.
+ *
+ * `learning` enables the amortized ranker + uncertainty-gated judge: once a
+ * capability signature has enough observed outcomes, the judge LLM call is
+ * skipped for that signature (latency win), and tier choice follows observed
+ * success rather than a fresh judgment every turn. Both default to off —
+ * strictly opt-in.
+ */
+export type RouterResearchAwareConfig = {
+  enabled?: boolean;
+  /** Upgrade classified tiers that contradict capability requirements. */
+  tierUpgrade?: boolean;
+};
+
+export type RouterLearningConfig = {
+  enabled?: boolean;
+  minObservations?: number;
+  minMargin?: number;
+};
+
+/**
+ * Sticky model selection hardening.
+ *
+ * The sticky mechanism keeps a session pinned to a model/tier across the turns
+ * of one user request (and reuses it for continuation turns) so the judge isn't
+ * re-invoked every iteration. Without guardrails it can pin a session to a
+ * degraded model indefinitely. These knobs bound stickiness in wall-clock time
+ * and in observed quality:
+ *
+ * - `ttlMs`: a sticky selection older than this is ignored and re-judged.
+ * - `maxQualityFailures`: consecutive routed-turn failures (empty responses,
+ *   exhausted fallback chains) after which the sticky is released so the next
+ *   decide() re-classifies instead of retrying the same broken model.
+ */
+export type RouterStickyConfig = {
+  enabled?: boolean;
+  ttlMs?: number;
+  maxQualityFailures?: number;
+};
+
 export type RouterConfig = {
   /**
    * Master switch for all router behavior. When false, router-specific
@@ -93,6 +139,12 @@ export type RouterConfig = {
   zeroUsageRetry?: { enabled: boolean; maxAttempts: number };
   transientRetry?: { enabled: boolean; maxAttempts: number; baseDelayMs: number; maxDelayMs: number };
   tokenSaver?: RouterTokenSaverConfig;
+  /** Sticky selection guardrails: TTL and quality-failure release. */
+  sticky?: RouterStickyConfig;
+  /** Phase 2: research-aware tier upgrades from capability requirements. */
+  researchAware?: RouterResearchAwareConfig;
+  /** Phase 2: amortized ranker + uncertainty-gated judge. */
+  learning?: RouterLearningConfig;
   autoOrchestrate?: RouterAutoOrchestrateConfig;
   stats?: RouterStatsConfig;
   customRouter?: RouterCustomRouterConfig;
@@ -101,6 +153,10 @@ export type RouterConfig = {
 export const DEFAULT_JUDGE_TIMEOUT_MS = 15_000;
 export const DEFAULT_ZERO_USAGE_MAX_ATTEMPTS = 2;
 export const DEFAULT_TRIGGER_TIERS = ["complex"];
+export const DEFAULT_STICKY_TTL_MS = 30 * 60 * 1000;
+export const DEFAULT_STICKY_MAX_QUALITY_FAILURES = 2;
+export const DEFAULT_LEARNING_MIN_OBSERVATIONS = 4;
+export const DEFAULT_LEARNING_MIN_MARGIN = 0.15;
 
 /**
  * Default 4-tier classification descriptions, validated against PinchBench

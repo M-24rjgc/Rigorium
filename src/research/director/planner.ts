@@ -282,7 +282,12 @@ function addRepairActions(input: {
     for (const target of affected) {
       const latestTarget = input.latestByKey.get(researchArtifactKey(target));
       const effectiveTarget = latestTarget === undefined ? target : toResearchArtifactRef(latestTarget);
-      const capability = input.producers.get(effectiveTarget.kind)?.[0];
+      // Claim-graph nodes are valid edge targets but have no stored envelope
+      // and therefore no producer capability — the boundary below reports
+      // that honestly instead of a raw Map miss.
+      const capability = effectiveTarget.kind === "claim"
+        ? undefined
+        : input.producers.get(effectiveTarget.kind)?.[0];
       if (!capability) {
         addBoundary(input.mutable, {
           kind: "missing_capability",

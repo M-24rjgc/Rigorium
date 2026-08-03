@@ -1,6 +1,8 @@
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { parsePluginCapabilities } from "../../capabilities/parseCapabilities.js";
+import { parseHooksConfig } from "../../hooks/config/parseHooksConfig.js";
 import type { RigoriumLoadedPlugin } from "../protocol/plugin.js";
 import type { RigoriumPluginManifest } from "../protocol/manifest.js";
 import { parsePluginManifest } from "../config/parsePluginManifest.js";
@@ -41,11 +43,16 @@ export function loadBuiltinPluginsFromDirectory(builtinDir: string): RigoriumLoa
         path: pluginPath,
         source: "builtin",
         manifest,
+        hooksConfig:
+          manifest.hooks && typeof manifest.hooks === "object"
+            ? parseHooksConfig(manifest.hooks).settings
+            : undefined,
         commands: loadConfiguredMarkdownSync(pluginPath, manifest, manifest.commands, "commands"),
         skills: loadConfiguredMarkdownSync(pluginPath, manifest, manifest.skills, "skills"),
         outputStyles: loadConfiguredMarkdownSync(pluginPath, manifest, manifest.outputStyles, "output-styles"),
         mcpServers: manifest.mcpServers,
         lspServers: manifest.lspServers,
+        capabilities: parsePluginCapabilities(manifest.settings, manifest.name),
       });
     }
   } catch { /* builtin dir scan failed — fine, no builtins */ }

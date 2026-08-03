@@ -5,15 +5,15 @@ import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
-const executable = process.argv[2] || join(process.cwd(), 'release', 'win-unpacked', 'Rigorium.exe');
+const executable = process.argv[2] || defaultPackagedExecutable();
 const playwrightPath = process.argv[3]
   || join(process.cwd(), 'node_modules', '.pnpm', 'playwright@1.60.0', 'node_modules', 'playwright', 'index.mjs');
 const { _electron: electron } = await import(pathToFileURL(playwrightPath).href);
 const userData = await mkdtemp(join(tmpdir(), 'rigorium-packaged-research-'));
 const rigoriumHome = join(userData, 'rigorium-home');
-const executableName = executable.split(/[\\/]/u).at(-1)?.replace(/\.exe$/iu, '') || 'Rigorium';
+const executableName = basename(executable).replace(/\.exe$/iu, '') || 'Rigorium';
 const verificationCredential = 'x'.repeat(32);
 const credentialsPath = join(userData, 'research', 'credentials.v1.json');
 const arxivVerificationReportPath = join(userData, 'research', 'verification', 'arxiv-adapter.v1.json');
@@ -271,7 +271,7 @@ try {
   assert.deepEqual(credentialBridge.methods, ['clear', 'save', 'status']);
   assert.deepEqual(credentialBridge.methodTypes, ['function', 'function', 'function']);
   assertCredentialStatus(credentialBridge.initial, false, 'initial credential status');
-  assert.equal(credentialBridge.initial.encryptionAvailable, true, 'Windows packaged credential storage is unavailable.');
+  assert.equal(credentialBridge.initial.encryptionAvailable, true, 'Packaged credential storage is unavailable.');
 
   const savedCredentialStatus = await page.evaluate(async () => {
     return window.rigoriumZoteroCredentials.save('x'.repeat(32));
@@ -1000,12 +1000,36 @@ cron:
 }
 
 async function countBrowserProcesses() {
-  const names = ['chrome', 'msedge', 'firefox', 'brave'];
+  const names = process.platform === 'darwin'
+    ? ['Google Chrome', 'Microsoft Edge', 'firefox', 'Brave Browser']
+    : ['chrome', 'msedge', 'firefox', 'brave'];
   const counts = await Promise.all(names.map(countProcesses));
   return counts.reduce((total, count) => total + count, 0);
 }
 
 async function countProcesses(name) {
+  if (process.platform !== 'win32') {
+    return new Promise((resolve, reject) => {
+      const child = spawn('ps', ['-axo', 'comm=']);
+      let output = '';
+      child.stdout.on('data', (chunk) => { output += String(chunk); });
+      child.once('error', reject);
+      child.once('exit', (code) => {
+        if (code !== 0) {
+          reject(new Error(`ps exited with code ${code}`));
+          return;
+        }
+        const expected = name.toLowerCase();
+        const count = output
+          .split(/\r?\n/u)
+          .map((command) => basename(command.trim()).toLowerCase())
+          .filter((command) => command === expected)
+          .length;
+        resolve(count);
+      });
+    });
+  }
+
   return new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', [
       '-NoProfile',
@@ -1017,6 +1041,14 @@ async function countProcesses(name) {
     child.once('error', reject);
     child.once('exit', () => resolve(Number.parseInt(output.trim(), 10) || 0));
   });
+}
+
+function defaultPackagedExecutable() {
+  if (process.platform === 'darwin') {
+    const outputDirectory = process.arch === 'arm64' ? 'mac-arm64' : 'mac';
+    return join(process.cwd(), 'release', outputDirectory, 'Rigorium.app', 'Contents', 'MacOS', 'Rigorium');
+  }
+  return join(process.cwd(), 'release', 'win-unpacked', 'Rigorium.exe');
 }
 
 async function fulfillJson(route, body, status = 200) {

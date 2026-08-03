@@ -97,6 +97,9 @@ export function parseRouterConfig(
   const autoOrchestrate = parseAutoOrchestrate(raw.autoOrchestrate, modelConfig, tokenSaver, diagnostics);
   const stats = parseStats(raw.stats, modelConfig, diagnostics);
   const customRouter = parseCustomRouter(raw.customRouter, diagnostics);
+  const sticky = parseSticky(raw.sticky, diagnostics);
+  const researchAware = parseResearchAware(raw.researchAware, diagnostics);
+  const learning = parseLearning(raw.learning, diagnostics);
 
   return {
     config: {
@@ -108,8 +111,132 @@ export function parseRouterConfig(
       autoOrchestrate,
       stats,
       customRouter,
+      ...(sticky ? { sticky } : {}),
+      ...(researchAware ? { researchAware } : {}),
+      ...(learning ? { learning } : {}),
     },
     diagnostics,
+  };
+}
+
+function parseSticky(
+  raw: unknown,
+  diagnostics: RouterConfigDiagnostic[],
+): RouterConfig["sticky"] {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    diagnostics.push({
+      code: "ROUTER_STICKY_INVALID",
+      severity: "fatal",
+      path: "router.sticky",
+      message: "router.sticky must be an object.",
+    });
+    return undefined;
+  }
+  const enabled = typeof raw.enabled === "boolean" ? raw.enabled : true;
+  let ttlMs: number | undefined;
+  if (raw.ttlMs !== undefined) {
+    if (typeof raw.ttlMs === "number" && Number.isInteger(raw.ttlMs) && raw.ttlMs > 0) {
+      ttlMs = raw.ttlMs;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_STICKY_TTL_INVALID",
+        severity: "fatal",
+        path: "router.sticky.ttlMs",
+        message: "router.sticky.ttlMs must be a positive integer (milliseconds).",
+      });
+    }
+  }
+  let maxQualityFailures: number | undefined;
+  if (raw.maxQualityFailures !== undefined) {
+    if (typeof raw.maxQualityFailures === "number" && Number.isInteger(raw.maxQualityFailures) && raw.maxQualityFailures > 0) {
+      maxQualityFailures = raw.maxQualityFailures;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_STICKY_MAX_QUALITY_FAILURES_INVALID",
+        severity: "fatal",
+        path: "router.sticky.maxQualityFailures",
+        message: "router.sticky.maxQualityFailures must be a positive integer.",
+      });
+    }
+  }
+  return {
+    enabled,
+    ...(ttlMs !== undefined ? { ttlMs } : {}),
+    ...(maxQualityFailures !== undefined ? { maxQualityFailures } : {}),
+  };
+}
+
+function parseResearchAware(
+  raw: unknown,
+  diagnostics: RouterConfigDiagnostic[],
+): RouterConfig["researchAware"] {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    diagnostics.push({
+      code: "ROUTER_RESEARCH_AWARE_INVALID",
+      severity: "fatal",
+      path: "router.researchAware",
+      message: "router.researchAware must be an object.",
+    });
+    return undefined;
+  }
+  const enabled = typeof raw.enabled === "boolean" ? raw.enabled : true;
+  const tierUpgrade = typeof raw.tierUpgrade === "boolean" ? raw.tierUpgrade : true;
+  return { enabled, tierUpgrade };
+}
+
+function parseLearning(
+  raw: unknown,
+  diagnostics: RouterConfigDiagnostic[],
+): RouterConfig["learning"] {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    diagnostics.push({
+      code: "ROUTER_LEARNING_INVALID",
+      severity: "fatal",
+      path: "router.learning",
+      message: "router.learning must be an object.",
+    });
+    return undefined;
+  }
+  const enabled = typeof raw.enabled === "boolean" ? raw.enabled : true;
+  let minObservations: number | undefined;
+  if (raw.minObservations !== undefined) {
+    if (typeof raw.minObservations === "number" && Number.isInteger(raw.minObservations) && raw.minObservations > 0) {
+      minObservations = raw.minObservations;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_LEARNING_MIN_OBSERVATIONS_INVALID",
+        severity: "fatal",
+        path: "router.learning.minObservations",
+        message: "router.learning.minObservations must be a positive integer.",
+      });
+    }
+  }
+  let minMargin: number | undefined;
+  if (raw.minMargin !== undefined) {
+    if (typeof raw.minMargin === "number" && Number.isFinite(raw.minMargin) && raw.minMargin >= 0 && raw.minMargin < 1) {
+      minMargin = raw.minMargin;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_LEARNING_MIN_MARGIN_INVALID",
+        severity: "fatal",
+        path: "router.learning.minMargin",
+        message: "router.learning.minMargin must be a number in [0, 1).",
+      });
+    }
+  }
+  return {
+    enabled,
+    ...(minObservations !== undefined ? { minObservations } : {}),
+    ...(minMargin !== undefined ? { minMargin } : {}),
   };
 }
 

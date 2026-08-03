@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatModelRequestFailureMessage, modelFailureAction } from "../../src/agent/loop/AgentLoop.js";
+import { formatModelRequestFailureMessage, modelFailureAction } from "../../src/agent/loop/recovery/status.js";
 import { normalizeModelError } from "../../src/model/errors/normalizeModelError.js";
 import type { CanonicalModelError } from "../../src/model/protocol/errors.js";
 

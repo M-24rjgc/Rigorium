@@ -62,6 +62,30 @@ import {
   type CreateResearchReviewToolOptions,
 } from "../builtin/researchReview.js";
 import {
+  createVenueTemplateTool,
+  type CreateVenueTemplateToolOptions,
+} from "../builtin/venueTemplate.js";
+import {
+  createVenueCorpusTool,
+  type CreateVenueCorpusToolOptions,
+} from "../builtin/venueCorpus.js";
+import {
+  createDescribeImageTool,
+  type CreateDescribeImageToolOptions,
+} from "../builtin/describeImage.js";
+import {
+  createFigureGenerateTool,
+  type CreateFigureGenerateToolOptions,
+} from "../builtin/figureGenerate.js";
+import {
+  createClaimMonitorTool,
+  type CreateClaimMonitorToolOptions,
+} from "../builtin/claimMonitor.js";
+import {
+  createResearchPlanTool,
+  type CreateResearchPlanToolOptions,
+} from "../builtin/researchPlan.js";
+import {
   createResearchDirectorTool,
   type CreateResearchDirectorToolOptions,
 } from "../builtin/researchDirector.js";
@@ -188,6 +212,22 @@ export type CreateBuiltinRegistryOptions = {
   manuscript?: CreateManuscriptToolOptions | false;
   /** Rigorium deterministic preflight and anchored multi-review rounds. Registered by default. */
   researchReview?: CreateResearchReviewToolOptions | false;
+  /** Rigorium open venue/template query and pin registry (conferences + journals). Registered by default. */
+  venueTemplate?: CreateVenueTemplateToolOptions | false;
+  /** Rigorium per-venue paper corpus and fine-grained style profile store. Registered by default. */
+  venueCorpus?: CreateVenueCorpusToolOptions | false;
+  /** Rigorium vision-assistant image description (requires vision: config). Registered when configured. */
+  describeImage?: CreateDescribeImageToolOptions | false;
+  /** Rigorium text-to-image figure generation (requires figureGen: config). Registered when configured. */
+  figureGenerate?: CreateFigureGenerateToolOptions | false;
+  /** Rigorium claim-graph literature monitor (derives watch queries). Registered by default. */
+  claimMonitor?: CreateClaimMonitorToolOptions | false;
+  /**
+   * Rigorium belief-driven orchestration plan (claims+evidence → EIG-ranked
+   * next actions). Registered by default — the production entry point of the
+   * Phase 4 research loop. Read-only unless persistSummary=true.
+   */
+  researchPlan?: CreateResearchPlanToolOptions | false;
   /** Rigorium Project-local immutable research artifact persistence and retrieval. Registered by default. */
   researchArtifacts?: CreateResearchArtifactsToolOptions | false;
   /** Rigorium capability-driven research planning and receipt reconciliation. Registered by default. */
@@ -267,6 +307,24 @@ export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): T
   }
   if (options?.researchReview !== false) {
     registry.register(createResearchReviewTool(options?.researchReview));
+  }
+  if (options?.venueTemplate !== false) {
+    registry.register(createVenueTemplateTool(options?.venueTemplate));
+  }
+  if (options?.venueCorpus !== false) {
+    registry.register(createVenueCorpusTool(options?.venueCorpus));
+  }
+  if (options?.describeImage) {
+    registry.register(createDescribeImageTool(options.describeImage));
+  }
+  if (options?.figureGenerate) {
+    registry.register(createFigureGenerateTool(options.figureGenerate));
+  }
+  if (options?.claimMonitor !== false) {
+    registry.register(createClaimMonitorTool(options?.claimMonitor));
+  }
+  if (options?.researchPlan !== false) {
+    registry.register(createResearchPlanTool(options?.researchPlan));
   }
   if (options?.researchArtifacts !== false) {
     registry.register(createResearchArtifactsTool(options?.researchArtifacts));

@@ -4,28 +4,16 @@ import type {
   ModelRuntime,
 } from "../../model/index.js";
 import type { TelemetryClient } from "../../telemetry/index.js";
-import type { RouterModelRef, RouterTokenSaverConfig } from "../config/schema.js";
+import type { RouterTokenSaverConfig } from "../config/schema.js";
 import { extractLastUserMessage } from "./extractLastUserMessage.js";
 import { generateJudgePrompt } from "./generateJudgePrompt.js";
 import { parseTier } from "./parseTier.js";
+import type {
+  ClassifyAndRouteInput,
+  TokenSaverDecision,
+} from "./tierClassifier.js";
 
-export type TokenSaverDecision = {
-  tier: string;
-  selection: RouterModelRef;
-  resolvedFrom: "judge" | "default" | "fallback";
-  failureReason?: "timeout" | "model_error" | "parse_error";
-};
-
-export type ClassifyAndRouteInput = {
-  config: RouterTokenSaverConfig;
-  messages: CanonicalMessage[];
-  judgeRuntime: ModelRuntime;
-  abortSignal?: AbortSignal;
-  /** Tier from the previous turn; passed to the judge for context-aware classification. */
-  previousTier?: string;
-  sessionId?: string;
-  telemetry?: TelemetryClient;
-};
+export type { ClassifyAndRouteInput, TokenSaverDecision } from "./tierClassifier.js";
 
 export async function classifyAndRoute(
   input: ClassifyAndRouteInput,
