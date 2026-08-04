@@ -526,7 +526,7 @@ export default function PdfDocumentPreview({
     return () => {
       cancelled = true;
       if (loadedDocument) {
-        ignorePdfCleanupError(() => loadedDocument?.destroy?.());
+        ignorePdfCleanupError(() => (loadedDocument as unknown as { destroy?: () => void }).destroy?.());
       } else {
         ignorePdfCleanupError(() => loadingTask?.destroy?.());
       }

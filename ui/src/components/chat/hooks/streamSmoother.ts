@@ -67,7 +67,7 @@ export class SmoothTextStream {
   private targetContent = '';
   private renderedContent = '';
   private frame: FrameHandle | null = null;
-  private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private fallbackTimer: number | null = null;
   private lastChunkAtMs: number | null = null;
   private lastFrameAtMs: number | null = null;
   private averageCharsPerSecond = DEFAULT_AVERAGE_CHARS_PER_SECOND;
@@ -82,8 +82,27 @@ export class SmoothTextStream {
     if (!text) return;
     this.targetContent += text;
     if (!this.paused) {
-      this.schedulePump();
+      this.updateAverageRate(text.length);
+      // The first chunk renders synchronously so the UI shows content
+      // immediately instead of waiting for the first frame; everything after
+      // that is pumped on the frame schedule.
+      if (this.renderedContent.length === 0 && this.targetContent.length > 0) {
+        this.pump();
+      } else {
+        this.schedulePump();
+      }
     }
+  }
+
+  /** Track the observed chunk cadence so the pump adapts to real throughput. */
+  private updateAverageRate(chunkLength: number): void {
+    const nowMs = this.now();
+    if (this.lastChunkAtMs != null && nowMs > this.lastChunkAtMs) {
+      const intervalMs = nowMs - this.lastChunkAtMs;
+      const instantCharsPerSecond = (chunkLength * 1000) / intervalMs;
+      this.averageCharsPerSecond = smooth(this.averageCharsPerSecond, instantCharsPerSecond);
+    }
+    this.lastChunkAtMs = nowMs;
   }
 
   pause(): void {
@@ -163,21 +182,33 @@ export class SmoothTextStream {
   }
 
   private now(): number {
-    return this.options.now?.() ?? performance.now();
+    // Guard against environments where `performance` is absent (fake window
+    // stubs in tests, very old WebViews).
+    if (this.options.now) return this.options.now();
+    return typeof performance !== 'undefined' ? performance.now() : Date.now();
   }
 
   private scheduleFrame(callback: () => void): FrameHandle {
     if (this.options.scheduleFrame) {
       return this.options.scheduleFrame(callback);
     }
-    // Use setTimeout(16ms) for frame-rate independent pumping at ~60fps.
-    // rAF fires at display Hz (120 on modern Macs) making text too fast.
+    // Prefer requestAnimationFrame for display-synced pacing; fall back to a
+    // fixed 16ms timeout where rAF is unavailable (fake window stubs, old
+    // WebViews). The fallback timer (scheduleFallbackPump) covers rAF being
+    // throttled by the host.
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      return window.requestAnimationFrame(callback) as unknown as FrameHandle;
+    }
     return window.setTimeout(callback, 16) as unknown as FrameHandle;
   }
 
   private cancelFrame(handle: FrameHandle): void {
     if (this.options.cancelFrame) {
       this.options.cancelFrame(handle);
+      return;
+    }
+    if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+      window.cancelAnimationFrame(handle as unknown as number);
       return;
     }
     window.clearTimeout(handle as unknown as number);
@@ -219,10 +250,6 @@ export class SmoothTextStream {
     }, this.options.fallbackFrameMs ?? DEFAULT_FALLBACK_FRAME_MS);
   }
 
-  private emitInitialContent(): void {
-    // Let pump() handle all rendering uniformly to avoid burst-then-pause
-  }
-
   private pump(): void {
     this.frame = null;
     this.cancelFallbackTimer();
@@ -242,14 +269,31 @@ export class SmoothTextStream {
       return;
     }
 
-    // 2 chars/pump at 60 pumps/sec = 120 cps (frame-rate independent).
-    // Draining mode: 15 chars/pump for a smooth-but-quick finish.
-    // 15 chars × 60fps = ~900 chars/sec, so 150 chars finishes in ~170ms.
-    const chars = this.draining ? Math.min(15, remaining) : Math.min(2, remaining);
-    const nextLength = Math.min(
+    // Frame size adapts to the observed chunk rate (getCharsForFrame) and
+    // prefers whitespace/punctuation boundaries when the budget allows;
+    // draining uses the full per-frame cap for a quick, smooth finish.
+    // When almost everything is rendered, boundary search would clamp the
+    // cut back to minCharsPerFrame and shrink the output — never do that.
+    const chars = this.draining
+      ? Math.min(this.maxCharsPerFrame, remaining)
+      : this.getCharsForFrame(remaining);
+    const desiredLength = Math.min(
       this.targetContent.length,
       this.renderedContent.length + chars,
     );
+    // Boundary search works in absolute positions: the cut must advance by at
+    // least minCharsPerFrame (never stall) and must not overshoot the desired
+    // cut. Passing the per-frame *increments* as bounds would clamp a larger
+    // desired cut back to the previous position and freeze rendering.
+    const nextLength =
+      this.draining || remaining <= this.maxCharsPerFrame
+        ? desiredLength
+        : findBoundary(
+            this.targetContent,
+            Math.min(this.targetContent.length, this.renderedContent.length + this.minCharsPerFrame),
+            desiredLength,
+            desiredLength,
+          );
 
     this.renderedContent = this.targetContent.slice(0, nextLength);
     this.options.emit(this.renderedContent);

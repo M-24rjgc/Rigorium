@@ -93,7 +93,10 @@ export default defineConfig(({ mode }) => {
         deps: {
           inline: ['react', 'react-dom']
         }
-      }
+      },
+      // `e2e/` holds Playwright specs (node:test + @playwright/test); vitest
+      // must not pick them up as unit tests.
+      exclude: ['e2e/**', '**/node_modules/**', '**/dist/**']
     }
   }
 })

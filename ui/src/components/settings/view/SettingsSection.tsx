@@ -1,9 +1,10 @@
 import type { HTMLAttributes, ReactNode } from 'react';
 import { cn } from '../../../lib/utils';
 
-type SettingsSectionProps = HTMLAttributes<HTMLDivElement> & {
-  // ReactNode so callers can inline a small icon next to the title (the
-  // Permissions tab leans on this for its alert/shield glyphs).
+// Omit the inherited `title?: string` from HTMLAttributes — this component's
+// `title` is a ReactNode (icons + text) and the intersection would reject
+// every JSX title.
+type SettingsSectionProps = Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
   title: ReactNode;
   description?: ReactNode;
   children: ReactNode;

@@ -2752,23 +2752,19 @@ function ToolsSection({ config, onChange }: { config: RigoriumConfig; onChange: 
     resetTest();
   };
 
-  const setCustomField = (
-    field: keyof NonNullable<NonNullable<RigoriumConfig['tools']>['webSearch']>['customProvider'],
-    value: string,
-  ) => {
+  const setCustomField = (field: string, value: string) => {
     const nextWs: NonNullable<RigoriumConfig['tools']>['webSearch'] = {
       ...ws,
       provider: 'custom',
       customProvider: { ...(ws.customProvider ?? {}) },
     };
+    // Write through a string map: the customProvider fields are a union of
+    // optional keys, so indexed assignment needs a plain record view.
+    const custom = nextWs.customProvider as Record<string, string>;
     if (value === '') {
-      delete nextWs.customProvider?.[field];
-    } else if (field === 'auth') {
-      nextWs.customProvider![field] = value as 'bearer' | 'bodyApiKey' | 'queryApiKey' | 'none';
-    } else if (field === 'method') {
-      nextWs.customProvider![field] = value as 'GET' | 'POST';
+      delete custom[field];
     } else {
-      nextWs.customProvider![field] = value;
+      custom[field] = value;
     }
     if (Object.keys(nextWs.customProvider ?? {}).length === 0) {
       delete nextWs.customProvider;
@@ -3363,7 +3359,9 @@ function TokenSaverTierEditor({ config, onChange }: { config: RigoriumConfig; on
   const addTier = () => {
     const key = newKey.trim();
     if (!key || tiers[key]) return;
-    const preset = DEFAULT_TIERS[key];
+    // Custom tier names are allowed (the router treats unknown names as
+    // pass-through); only preset tiers carry a default description.
+    const preset = (DEFAULT_TIERS as Record<string, { description: string } | undefined>)[key];
     const model = modelOpts[0]?.value ?? '';
     onChange(patch(ensureModelRefConfigured(config, model), ['router', 'tokenSaver', 'tiers', key], {
       model,
@@ -3732,6 +3730,7 @@ function RouterSection({ config, onChange }: { config: RigoriumConfig; onChange:
                   >
                     <SettingsToggle
                       checked={transientRetryEnabled}
+                      ariaLabel={t('rigoriumConfig.panels.router.transientRetry.label')}
                       onChange={(v) => onChange(patch(config, ['router', 'transientRetry', 'enabled'], v))}
                     />
                   </SettingsRow>

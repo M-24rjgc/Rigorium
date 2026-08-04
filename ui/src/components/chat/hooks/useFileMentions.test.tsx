@@ -33,7 +33,7 @@ describe('useFileMentions conversation scope', () => {
   });
 
   it('does not reuse the previous conversation cursor for an external mention', () => {
-    const setInput = vi.fn() as Dispatch<SetStateAction<string>>;
+    const setInput = vi.fn<(value: SetStateAction<string>) => void>();
     const { result, rerender } = renderHook(
       (props: { mentionScopeKey: string; input: string }) => useFileMentions({
         selectedProject: project,

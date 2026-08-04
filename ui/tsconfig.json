@@ -13,8 +13,22 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "allowJs": true,
-    // "checkJs": true, 
-    "types": ["vite/client"]
+    // "checkJs": true,
+    "types": ["vite/client"],
+    // Pin every 'react' type resolution to the ui-local @types packages.
+    // React ships JS-only; library declarations (react-router-dom,
+    // lucide-react, …) resolve '@types/react' by walking up node_modules and
+    // land on the root-level @types/react@19 (ink's peer, hoisted for the CLI
+    // tooling), which conflicts with this project's React 18 types. Mapping
+    // the module names to the local @types declarations (which declare the
+    // `react` / `react-dom` modules) forces the whole type graph onto one
+    // React instance. Runtime resolution is untouched (vite uses real react).
+    "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"]
+    }
   },
   "include": ["src", "shared", "vite.config.js"]
 }

@@ -39,6 +39,7 @@ type LatestChatMessage = {
   resultText?: string;
   isError?: boolean;
   success?: boolean;
+  runId?: string;
   reason?: string;
   provider?: string;
   content?: string;
@@ -314,7 +315,7 @@ export function useChatRealtimeHandlers({
     /*  Legacy messages (no `kind` field) — handle and return           */
     /* ---------------------------------------------------------------- */
 
-    const msg = latestMessage as any;
+    const msg = latestMessage;
     const clearAccumulators = () => {
       thinkingBySessionRef.current.clear();
     };
@@ -735,13 +736,14 @@ export function useChatRealtimeHandlers({
 
       case 'permission_request': {
         if (!msg.requestId) break;
+        const pendingRequestId = msg.requestId;
         const isForCurrentSession = isForActiveView;
         if (!isForCurrentSession) break;
         onSessionProcessing?.(sid);
         setPendingPermissionRequests((prev) => {
-          if (prev.some((r: PendingPermissionRequest) => r.requestId === msg.requestId)) return prev;
+          if (prev.some((r: PendingPermissionRequest) => r.requestId === pendingRequestId)) return prev;
           return [...prev, {
-            requestId: msg.requestId,
+            requestId: pendingRequestId,
             toolName: msg.toolName || 'UnknownTool',
             input: msg.input,
             context: msg.context,

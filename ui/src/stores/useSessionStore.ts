@@ -53,6 +53,7 @@ export interface NormalizedMessage {
   role?: 'user' | 'assistant';
   content?: string;
   contentI18n?: { key: string; params?: Record<string, unknown> };
+  userHint?: string;
   userHintI18n?: { key: string; params?: Record<string, unknown> };
   images?: string[];
   attachments?: Array<{

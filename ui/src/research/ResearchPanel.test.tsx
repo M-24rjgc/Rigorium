@@ -649,7 +649,7 @@ function mapMutation(
   mapId = PROJECT_LITERATURE_MAP_ID,
   revision = 1,
   seedPaperId: string | null = null,
-  nodes = mapNodesFor(),
+  nodes: Array<{ id: string; aliases: string[]; status: string; position: { x: number; y: number; pinned: boolean } }> = mapNodesFor(),
 ) {
   return { map: { mapId, revision, nodes }, seedPaperId };
 }
@@ -733,7 +733,10 @@ describe('ResearchPanel', () => {
           }
         : {
             planId: 'note-plan-1', preparedAt: '2026-07-22T00:00:00.000Z', library: { type: 'user', id: '1', path: '/users/1' }, libraryVersion: 10,
-            requiresConfirmation: true, kind: 'note', operation: intent.operation, parentItemKey: 'ZITEM1', noteKey: intent.noteKey,
+            requiresConfirmation: true, kind: 'note', operation: intent.operation, parentItemKey: 'ZITEM1',
+            // `noteKey` only exists on update/delete note intents — the create
+            // intent has no note to key.
+            ...(intent.operation === 'create' ? {} : { noteKey: intent.noteKey }),
           },
     }));
     cloudConfirm = vi.fn().mockImplementation(async (plan: ZoteroCloudWritePlan) => ({

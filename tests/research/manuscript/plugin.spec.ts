@@ -6,11 +6,20 @@ import test from "node:test";
 import { loadBuiltinPlugins } from "../../../src/extension/plugins/builtin/loadBuiltinPlugins.js";
 import { PluginRuntime } from "../../../src/extension/plugins/runtime/PluginRuntime.js";
 
-test("rigorium-manuscript exposes a natural-language Skill without vendoring an unlicensed venue archive", async () => {
+test("rigorium-manuscript exposes its skills without vendoring an unlicensed venue archive", async () => {
   const builtins = loadBuiltinPlugins();
   const manuscript = builtins.find((plugin) => plugin.name === "rigorium-manuscript");
   assert.ok(manuscript);
-  assert.deepEqual(manuscript.skills?.map((skill) => skill.name), ["rigorium-manuscript:manuscript-latex"]);
+  // Phase 3 added the venue-template and style-learning skills alongside the
+  // original manuscript-latex skill.
+  assert.deepEqual(
+    [...(manuscript.skills ?? [])].map((skill) => skill.name).sort(),
+    [
+      "rigorium-manuscript:manuscript-latex",
+      "rigorium-manuscript:style-learning",
+      "rigorium-manuscript:venue-template",
+    ].sort(),
+  );
   assert.equal(manuscript.manifest.settings?.stageMachine, "none");
   assert.equal((manuscript.manifest.settings?.capabilities as string[]).includes("manuscript.render.deterministic_diagnostics"), true);
 

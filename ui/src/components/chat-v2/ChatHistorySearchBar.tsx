@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import type { Ref } from 'react';
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -10,7 +10,7 @@ type ChatHistorySearchBarProps = {
   onPrevious: () => void;
   onNext: () => void;
   onClose: () => void;
-  inputRef: RefObject<HTMLInputElement | null>;
+  inputRef: Ref<HTMLInputElement>;
 };
 
 export default function ChatHistorySearchBar({

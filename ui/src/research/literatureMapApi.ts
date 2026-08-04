@@ -244,5 +244,5 @@ function normalizePaperIdentity(identity: ResearchPaper['identity']): NonNullabl
 }
 
 function validProvenanceRank(value: number | undefined): value is number {
-  return Number.isSafeInteger(value) && value >= 1;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
 }

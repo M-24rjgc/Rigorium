@@ -23,6 +23,15 @@ const mocks = vi.hoisted(() => ({
       error: null,
       verified: true,
       sha256: 'a'.repeat(64),
+    } as {
+      state: string;
+      progress: number;
+      receivedBytes: number;
+      totalBytes: number;
+      filePath: string;
+      error: string | null;
+      verified: boolean;
+      sha256: string | null;
     },
     fetchStatus: vi.fn(),
     triggerDownload: vi.fn(),
