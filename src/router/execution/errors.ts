@@ -131,6 +131,11 @@ export function calculateLiteLLMRetryDelay(
   return exponentialBackoffDelay(attempt, baseDelayMs, maxDelayMs);
 }
 
+/** True when the buffered stream already emitted a tool-call block. */
+export function bufferedHasToolCall(buffered: readonly { type: string }[]): boolean {
+  return buffered.some((event) => event.type === "tool_call");
+}
+
 export function extractPartialText(buffered: readonly { type: string }[]): string {
   let text = "";
   for (const ev of buffered) {

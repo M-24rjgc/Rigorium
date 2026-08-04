@@ -153,3 +153,110 @@ test("ResearchOrchestrator: venue context reports style-profile readiness", asyn
     rmSync(projectRoot, { recursive: true, force: true });
   }
 });
+
+test("orchestrator: blocker/major findings without later referencing artifacts surface as open", async () => {
+  const projectRoot = createTempProject();
+  try {
+    const graph = new ClaimGraph({ projectRoot, loadArtifacts: async () => [] });
+    await graph.upsertClaim({ claimId: "c1", statement: "A claim needing review" });
+
+    // Create a review round with a blocker finding (production artifact path).
+    const { createResearchArtifact, toResearchArtifactRef } = await import("../../src/research/artifacts/index.js");
+    const { appendProjectResearchArtifacts } = await import("../../src/research/artifacts/repository.js");
+    const manuscript = createResearchArtifact({
+      kind: "manuscript_version",
+      artifactId: "m1",
+      producer: { kind: "user" },
+      payload: { schemaVersion: 1, kind: "manuscript_version", title: "T", target: { venue: "generic", mode: "internal_draft" }, sections: [], citationSet: null, figureTables: [], evidencePacks: [], latex: "", revisionNote: "", complianceChecks: [], renderRef: null },
+      now: new Date(Date.now() - 60_000),
+    });
+    const finding = createResearchArtifact({
+      kind: "finding",
+      artifactId: "review-f-1",
+      producer: { kind: "agent" },
+      payload: {
+        schemaVersion: 1, kind: "finding", reviewRoundId: "r1", findingId: "f-1", dedupeKey: "d1",
+        source: "reviewer", lanes: ["method"], reviewerIds: ["rv1"], assessment: "concern",
+        category: "method", severity: "blocker", confidence: "high",
+        summary: "The method section lacks a baseline comparison",
+        rationale: "A baseline is required for a fair comparison.",
+        location: { sectionId: "method", anchorText: "baseline" },
+        actions: [{ kind: "add_evidence", instruction: "Add a baseline run.", targetArtifactRefs: [] }],
+        evidenceRefs: [], runRefs: [], affectedArtifactRefs: [], mergedFromFindingIds: [],
+      },
+      parents: [{ relation: "derived_from", artifact: toResearchArtifactRef(manuscript) }],
+      now: new Date(Date.now() - 50_000),
+    });
+    await appendProjectResearchArtifacts({ projectRoot, artifacts: [manuscript, finding] });
+
+    const orchestrator = new ResearchOrchestrator({ projectRoot });
+    const plan = await orchestrator.planNextActions();
+
+    assert.ok(plan.openFindings, "an unreferenced blocker must be listed as open");
+    assert.equal(plan.openFindings!.length, 1);
+    assert.equal(plan.openFindings![0]!.findingId, "review-f-1");
+    assert.equal(plan.openFindings![0]!.severity, "blocker");
+    assert.match(plan.summaryMarkdown, /Open review findings/);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("orchestrator: findings referenced by later artifacts are closed", async () => {
+  const projectRoot = createTempProject();
+  try {
+    const graph = new ClaimGraph({ projectRoot, loadArtifacts: async () => [] });
+    await graph.upsertClaim({ claimId: "c1", statement: "A claim needing review" });
+
+    const { createResearchArtifact, toResearchArtifactRef } = await import("../../src/research/artifacts/index.js");
+    const { appendProjectResearchArtifacts } = await import("../../src/research/artifacts/repository.js");
+    const manuscript = createResearchArtifact({
+      kind: "manuscript_version",
+      artifactId: "m1",
+      producer: { kind: "user" },
+      payload: { schemaVersion: 1, kind: "manuscript_version", title: "T", target: { venue: "generic", mode: "internal_draft" }, sections: [], citationSet: null, figureTables: [], evidencePacks: [], latex: "", revisionNote: "", complianceChecks: [], renderRef: null },
+      now: new Date(Date.now() - 60_000),
+    });
+    const finding = createResearchArtifact({
+      kind: "finding",
+      artifactId: "review-f-2",
+      producer: { kind: "agent" },
+      payload: {
+        schemaVersion: 1, kind: "finding", reviewRoundId: "r1", findingId: "f-2", dedupeKey: "d2",
+        source: "reviewer", lanes: ["evidence"], reviewerIds: ["rv2"], assessment: "concern",
+        category: "evidence", severity: "major", confidence: "high",
+        summary: "Missing supporting run",
+        rationale: "The claim needs a supporting run.",
+        location: { sectionId: "results", anchorText: "run" },
+        actions: [{ kind: "rerun_experiment", instruction: "Run the experiment.", targetArtifactRefs: [] }],
+        evidenceRefs: [], runRefs: [], affectedArtifactRefs: [], mergedFromFindingIds: [],
+      },
+      parents: [{ relation: "derived_from", artifact: toResearchArtifactRef(manuscript) }],
+      now: new Date(Date.now() - 50_000),
+    });
+    // A later run_attempt artifact REFERENCES the finding — closure.
+    const run = createResearchArtifact({
+      kind: "run_attempt",
+      artifactId: "run-1",
+      producer: { kind: "agent" },
+      payload: {
+        schemaVersion: 1, kind: "run_attempt", attemptId: "run-1", experimentId: "e1",
+        specRevision: 1, specDigest: "d", adapterId: "local", jobId: "j1", status: "succeeded",
+        grantMode: "granted", preparedAt: "2026-08-05T00:00:00.000Z", artifactIds: [], metricObservationIds: [],
+      },
+      parents: [
+        { relation: "derived_from", artifact: toResearchArtifactRef(manuscript) },
+        { relation: "uses", artifact: toResearchArtifactRef(finding) },
+      ],
+      now: new Date(Date.now() - 40_000),
+    });
+    await appendProjectResearchArtifacts({ projectRoot, artifacts: [manuscript, finding, run] });
+
+    const orchestrator = new ResearchOrchestrator({ projectRoot });
+    const plan = await orchestrator.planNextActions();
+
+    assert.equal(plan.openFindings, undefined, "a referenced finding is closed");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});

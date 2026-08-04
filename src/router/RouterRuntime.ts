@@ -51,6 +51,7 @@ import {
 } from "./execution/attemptPlanning.js";
 import { SERVER_RETRY_AFTER_CAP_MS, exponentialBackoffDelay } from "../model/streaming/backoff.js";
 import {
+  bufferedHasToolCall,
   calculateLiteLLMRetryDelay,
   classifyRetryReason,
   createUnsupportedMediaError,
@@ -867,8 +868,13 @@ export function createRouterRuntime(
           }
           if (
             hasYieldedContent &&
-            isMidStreamRateLimitError(outcome.error) &&
-            transientRetryCount < transientRetryMax
+            transientRetryCount < transientRetryMax &&
+            // Continuation is only safe for text: a mid-stream tool-call
+            // block's arguments are unreliable and must not be resumed, and
+            // non-retryable errors (auth, billing, invalid request) would
+            // fail identically on the retry.
+            outcome.error.retryable !== false &&
+            !bufferedHasToolCall(outcome.buffered)
           ) {
             const partialText = extractPartialText(outcome.buffered);
             if (partialText.length > 0) {

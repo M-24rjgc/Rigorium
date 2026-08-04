@@ -63,6 +63,10 @@ export type OrchestrationPlan = Readonly<{
   anomalyScore: number;
   /** Venue/style context for the agent (undefined when not yet chosen). */
   venue?: { id: string; displayName: string; styleProfileReady: boolean };
+  /** Experiment execution history (read-only context, never a planner input). */
+  runContext?: { failedRuns: number; totalRuns: number; failureRate: number };
+  /** Blocker/major review findings no later artifact has referenced yet. */
+  openFindings?: readonly { findingId: string; severity: string; summary: string }[];
   /** Human/agent-readable markdown summary (memory-friendly). */
   summaryMarkdown: string;
   beliefs: readonly ClaimBelief[];
@@ -104,6 +108,12 @@ export class ResearchOrchestrator {
     // EIG math, only context on the plan.
     const runContext = await this.computeRunContext();
 
+    // Finding-closure ledger (AI-Scientist feedback-loop observability):
+    // blocker/major findings from review rounds that no later artifact has
+    // referenced are still open — the summary lists them so the loop
+    // visibly closes (or visibly does not).
+    const openFindings = await this.computeOpenFindings();
+
     let plan: EigPlan = planByInformationGain(beliefs, {
       ...(this.stopScoreThreshold !== undefined ? { stopScoreThreshold: this.stopScoreThreshold } : {}),
     });
@@ -138,6 +148,7 @@ export class ResearchOrchestrator {
       anomalyDetected: anomaly.detected,
       anomalyScore: anomaly.anomalyScore,
       runContext,
+      openFindings,
       venue,
       claimsDir,
     });
@@ -159,10 +170,57 @@ export class ResearchOrchestrator {
       anomalyDetected: anomaly.detected,
       anomalyScore: anomaly.anomalyScore,
       ...(runContext ? { runContext } : {}),
+      ...(openFindings ? { openFindings } : {}),
       ...(venue ? { venue } : {}),
       summaryMarkdown,
       beliefs: Object.freeze(beliefs),
     });
+  }
+
+  /**
+   * Blocker/major review findings that no later non-review artifact has
+   * referenced (via a parent edge) — i.e. the correction loop has not
+   * visibly acted on them yet. Review rounds reference their own findings,
+   * which does not count as closure.
+   */
+  private async computeOpenFindings(): Promise<
+    readonly { findingId: string; severity: string; summary: string }[] | undefined
+  > {
+    try {
+      const { listLatestProjectResearchArtifacts } = await import("../artifacts/repository.js");
+      const artifacts = await listLatestProjectResearchArtifacts({ projectRoot: this.projectRoot });
+      const findings = artifacts.filter((artifact) => artifact.kind === "finding");
+      if (findings.length === 0) {
+        return undefined;
+      }
+      const referencedFindingIds = new Set<string>();
+      for (const artifact of artifacts) {
+        if (artifact.kind === "finding" || artifact.kind === "review_round") {
+          continue;
+        }
+        for (const parent of artifact.parents ?? []) {
+          if (parent.artifact.kind === "finding") {
+            referencedFindingIds.add(parent.artifact.artifactId);
+          }
+        }
+      }
+      const open = findings
+        .filter((finding) => {
+          const severity = (finding.payload as { severity?: string } | undefined)?.severity;
+          return (severity === "blocker" || severity === "major") && !referencedFindingIds.has(finding.artifactId);
+        })
+        .map((finding) => {
+          const payload = finding.payload as { severity?: string; summary?: string };
+          return Object.freeze({
+            findingId: finding.artifactId,
+            severity: payload.severity ?? "major",
+            summary: (payload.summary ?? "").slice(0, 200),
+          });
+        });
+      return open.length > 0 ? Object.freeze(open) : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -279,6 +337,7 @@ function renderSummaryMarkdown(input: {
   anomalyDetected: boolean;
   anomalyScore: number;
   runContext?: { failedRuns: number; totalRuns: number; failureRate: number };
+  openFindings?: readonly { findingId: string; severity: string; summary: string }[];
   venue?: { id: string; displayName: string; styleProfileReady: boolean };
   claimsDir: string;
 }): string {
@@ -313,6 +372,15 @@ function renderSummaryMarkdown(input: {
   }
   if (input.runContext) {
     lines.push("", `## Execution context\n- ${input.runContext.totalRuns} experiment run(s), ${input.runContext.failedRuns} failed (${(input.runContext.failureRate * 100).toFixed(0)}% failure rate) — weigh this when interpreting evidence from run_attempt artifacts.`);
+  }
+  if (input.openFindings && input.openFindings.length > 0) {
+    lines.push(
+      "",
+      "## Open review findings (not yet closed by evidence)",
+      ...input.openFindings.map(
+        (finding) => `- \`${finding.findingId}\` [${finding.severity}] ${finding.summary}`,
+      ),
+    );
   }
   if (input.venue) {
     lines.push("", `## Venue context\n- Target venue: ${input.venue.id} (${input.venue.displayName}) — style profile ${input.venue.styleProfileReady ? "ready" : "not yet learned"}.`);
