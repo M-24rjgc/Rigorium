@@ -767,6 +767,11 @@ export function createRouterRuntime(
           lastError = outcome.error;
           const health = getHealthTracker(ctx.sessionId);
           health.recordFailure(attempt.provider, outcome.error.code);
+          // Provider-side backpressure feedback (429/overloaded): shrink the
+          // per-provider concurrency window so concurrent sessions do not
+          // re-hit a saturated endpoint (LiteLLM cooldown / OpenRouter
+          // x-ratelimit-remaining guidance).
+          concurrencyGate?.recordProviderFeedback(attempt.provider, outcome.error);
           if (health.getState(attempt.provider) === "degraded") {
             events.emit({
               type: "rigorium_router_provider_degraded",

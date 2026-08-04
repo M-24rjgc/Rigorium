@@ -311,3 +311,39 @@ test("RouterRuntime: disabled concurrency keeps unlimited concurrency", async ()
   ]);
   assert.ok(tracker.maxConcurrent >= 2, "no gate must allow concurrent streams");
 });
+
+test("gate: 429 feedback halves the effective cap until the window expires", async () => {
+  const nowMs = { value: 1_000_000 };
+  const gate = new ProviderConcurrencyGate({ enabled: true, maxPerProvider: 4, waitTimeoutMs: 5_000 });
+  assert.equal(gate.effectiveCap("p1", nowMs.value), 4);
+
+  gate.recordProviderFeedback("p1", { code: "rate_limit_error", retryAfterMs: 10_000 }, { nowMs: nowMs.value });
+  assert.equal(gate.effectiveCap("p1", nowMs.value), 2, "cap halves during the suppression window");
+  assert.equal(gate.effectiveCap("p2", nowMs.value), 4, "suppression is per-provider");
+
+  nowMs.value += 5_000;
+  assert.equal(gate.effectiveCap("p1", nowMs.value), 2, "still suppressed mid-window");
+  nowMs.value += 5_000;
+  assert.equal(gate.effectiveCap("p1", nowMs.value), 4, "cap recovers after the window");
+});
+
+test("gate: suppression window respects retry-after and caps it", async () => {
+  const nowMs = { value: 1_000_000 };
+  const gate = new ProviderConcurrencyGate({ enabled: true, maxPerProvider: 2 });
+  gate.recordProviderFeedback(
+    "p1",
+    { code: "overloaded_error", retryAfterMs: 3600_000 },
+    { nowMs: nowMs.value, maxSuppressionMs: 60_000 },
+  );
+  nowMs.value += 60_000;
+  assert.equal(gate.effectiveCap("p1", nowMs.value), 2, "suppression is capped at maxSuppressionMs");
+
+  gate.recordProviderFeedback("p1", { code: "server_error", retryAfterMs: 1_000 }, { nowMs: nowMs.value });
+  assert.equal(gate.effectiveCap("p1", nowMs.value), 2, "non-429/overloaded codes do not suppress");
+});
+
+test("gate: 429 feedback is ignored when the gate is disabled", async () => {
+  const gate = new ProviderConcurrencyGate({ enabled: false, maxPerProvider: 4 });
+  gate.recordProviderFeedback("p1", { code: "rate_limit_error" });
+  assert.equal(gate.effectiveCap("p1", 0), 4);
+});

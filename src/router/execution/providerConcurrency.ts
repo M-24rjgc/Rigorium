@@ -79,6 +79,14 @@ export function providerConcurrencyLimitError(
 export class ProviderConcurrencyGate {
   private readonly options: Required<ProviderConcurrencyConfig>;
   private readonly slots = new Map<string, ProviderSlot>();
+  /**
+   * Providers that recently answered 429/overloaded: their effective in-flight
+   * cap is halved (floor 1) until the window expires. 429 is a backpressure
+   * signal — mirroring LiteLLM's cooldown+failover and OpenRouter's
+   * x-ratelimit-remaining guidance, the gate shrinks instead of letting the
+   * next wave of concurrent sessions re-hit the saturated endpoint.
+   */
+  private readonly suppressedUntil = new Map<string, number>();
 
   constructor(options?: ProviderConcurrencyConfig) {
     this.options = {
@@ -94,6 +102,35 @@ export class ProviderConcurrencyGate {
 
   get maxPerProvider(): number {
     return this.options.maxPerProvider;
+  }
+
+  /** Effective in-flight cap for a provider right now (halved while suppressed). */
+  effectiveCap(provider: string, nowMs = Date.now()): number {
+    const suppressedUntil = this.suppressedUntil.get(provider);
+    if (suppressedUntil === undefined || suppressedUntil <= nowMs) {
+      return this.options.maxPerProvider;
+    }
+    return Math.max(1, Math.ceil(this.options.maxPerProvider / 2));
+  }
+
+  /**
+   * Provider-side backpressure feedback (429 / overloaded). During the
+   * window the provider's effective cap is halved; the window follows the
+   * server's retry-after when available (bounded by `maxSuppressionMs`),
+   * else a conservative default.
+   */
+  recordProviderFeedback(
+    provider: string,
+    feedback: { code: string; retryAfterMs?: number },
+    opts: { nowMs?: number; maxSuppressionMs?: number } = {},
+  ): void {
+    if (!this.options.enabled) return;
+    if (feedback.code !== "rate_limit_error" && feedback.code !== "overloaded_error") return;
+    const nowMs = opts.nowMs ?? Date.now();
+    const maxSuppressionMs = opts.maxSuppressionMs ?? 60_000;
+    const rawWindow = feedback.retryAfterMs ?? 5_000;
+    const windowMs = Math.min(Math.max(1, rawWindow), maxSuppressionMs);
+    this.suppressedUntil.set(provider, nowMs + windowMs);
   }
 
   /** Observability: in-flight requests for a provider (0 for unknown). */
@@ -120,7 +157,7 @@ export class ProviderConcurrencyGate {
     }
 
     const slot = this.getOrCreateSlot(provider);
-    if (slot.active < this.options.maxPerProvider) {
+    if (slot.active < this.effectiveCap(provider)) {
       slot.active += 1;
       return () => this.release(provider);
     }
