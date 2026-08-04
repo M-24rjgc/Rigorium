@@ -13,6 +13,7 @@ import {
   protocolForProvider,
 } from "./errors.js";
 import { throwAbortError } from "./abortable.js";
+import type { ProviderConcurrencyGate } from "./providerConcurrency.js";
 import {
   createZeroUsageState,
   observeEventForZeroUsage,
@@ -43,6 +44,7 @@ export async function* streamAttempt(
   modelRuntime: ModelRuntime,
   ctx: RouterExecuteContext,
   events: RouterEventBus,
+  concurrencyGate?: ProviderConcurrencyGate,
 ): AsyncGenerator<
   | { kind: "event"; event: CanonicalModelEvent }
   | { kind: "outcome"; outcome: AttemptOutcome }
@@ -52,23 +54,55 @@ export async function* streamAttempt(
   let providerError: import("../../model/index.js").CanonicalModelError | undefined;
   const abortSignal = ctx.abortSignal;
 
+  // Per-provider concurrency gate (see providerConcurrency.ts): one slot per
+  // in-flight provider request across the whole gateway process. On queue
+  // timeout the gate throws a retryable error that the caller's transient
+  // retry / fallback machinery handles like any provider error. When the
+  // slot cannot be acquired the stream is skipped entirely.
+  let releaseSlot: (() => void) | undefined;
+  let slotAcquired = true;
+  if (concurrencyGate) {
+    try {
+      releaseSlot = await concurrencyGate.acquire(request.provider, { abortSignal });
+    } catch (error) {
+      slotAcquired = false;
+      if (abortSignal?.aborted) {
+        throw error;
+      }
+      const fromError = (error as { error?: import("../../model/index.js").CanonicalModelError })?.error;
+      const protocol = protocolForProvider(modelRuntime, request.provider);
+      // The gate-raised concurrency error carries no protocol; fill it in so
+      // downstream (retry classification, telemetry) sees a complete error.
+      providerError = fromError
+        ? { ...fromError, protocol }
+        : canonicalizeModelRequestError(error, request, protocol) ?? {
+          provider: request.provider,
+          protocol,
+          code: classifyNetworkErrorCode(error),
+          message: error instanceof Error ? error.message : String(error),
+          retryable: isNetworkTransient(error),
+        };
+    }
+  }
+
   try {
-    for await (const event of modelRuntime.stream(request, {
-      signal: abortSignal,
-      onRetryProgress(progress) {
-        events.emit({
-          type: "rigorium_router_retry_progress",
-          sessionId: ctx.sessionId,
-          turnId: ctx.turnId,
-          attempt: progress.attempt,
-          maxAttempts: progress.maxAttempts,
-          delayMs: progress.delayMs,
-          reason: progress.reason,
-          provider: progress.provider,
-          model: progress.model,
-        });
-      },
-    })) {
+    if (slotAcquired) {
+      for await (const event of modelRuntime.stream(request, {
+        signal: abortSignal,
+        onRetryProgress(progress) {
+          events.emit({
+            type: "rigorium_router_retry_progress",
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            attempt: progress.attempt,
+            maxAttempts: progress.maxAttempts,
+            delayMs: progress.delayMs,
+            reason: progress.reason,
+            provider: progress.provider,
+            model: progress.model,
+          });
+        },
+      })) {
       if (abortSignal?.aborted) {
         throwAbortError(abortSignal.reason);
       }
@@ -78,6 +112,7 @@ export async function* streamAttempt(
         providerError = event.error;
       }
       yield { kind: "event", event };
+      }
     }
   } catch (error) {
     if (abortSignal?.aborted) {
@@ -92,6 +127,8 @@ export async function* streamAttempt(
       message: error instanceof Error ? error.message : String(error),
       retryable: isNetworkTransient(error),
     };
+  } finally {
+    releaseSlot?.();
   }
 
   yield {

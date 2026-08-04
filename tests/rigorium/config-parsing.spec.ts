@@ -145,6 +145,59 @@ router:
   assert.ok(codes.includes("ROUTER_STICKY_TTL_INVALID"));
 });
 
+test("router.concurrency + transientRetry sections parse (previously dead config)", () => {
+  const snap = load(`
+router:
+  concurrency:
+    enabled: true
+    maxPerProvider: 2
+    waitTimeoutMs: 15000
+  transientRetry:
+    enabled: true
+    maxAttempts: 3
+    baseDelayMs: 200
+    maxDelayMs: 4000
+`);
+  assert.deepEqual(
+    {
+      enabled: snap.config.router!.concurrency?.enabled,
+      maxPerProvider: snap.config.router!.concurrency?.maxPerProvider,
+      waitTimeoutMs: snap.config.router!.concurrency?.waitTimeoutMs,
+    },
+    { enabled: true, maxPerProvider: 2, waitTimeoutMs: 15000 },
+  );
+  assert.deepEqual(
+    {
+      enabled: snap.config.router!.transientRetry?.enabled,
+      maxAttempts: snap.config.router!.transientRetry?.maxAttempts,
+      baseDelayMs: snap.config.router!.transientRetry?.baseDelayMs,
+      maxDelayMs: snap.config.router!.transientRetry?.maxDelayMs,
+    },
+    { enabled: true, maxAttempts: 3, baseDelayMs: 200, maxDelayMs: 4000 },
+  );
+});
+
+test("router concurrency invalid values produce fatal diagnostics", () => {
+  let error: unknown;
+  try {
+    load(`
+router:
+  concurrency:
+    maxPerProvider: 0
+    waitTimeoutMs: "soon"
+  transientRetry:
+    maxAttempts: 1.5
+`);
+  } catch (caught) {
+    error = caught;
+  }
+  assert.ok(error, "fatal router diagnostics must abort the load");
+  const codes = (error as { diagnostics?: { code: string }[] }).diagnostics?.map((d) => d.code) ?? [];
+  assert.ok(codes.includes("ROUTER_CONCURRENCY_MAX_PER_PROVIDER_INVALID"));
+  assert.ok(codes.includes("ROUTER_CONCURRENCY_WAIT_TIMEOUT_INVALID"));
+  assert.ok(codes.includes("ROUTER_TRANSIENT_RETRY_MAX_ATTEMPTS_INVALID"));
+});
+
 test("vision/figureGen keys are accepted top-level keys (no unknown-field warning)", () => {
   const snap = load(`
 vision:

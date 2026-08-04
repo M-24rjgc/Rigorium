@@ -63,6 +63,7 @@ import {
   streamAttempt,
   type AttemptOutcome,
 } from "./execution/streamAttempt.js";
+import { ProviderConcurrencyGate } from "./execution/providerConcurrency.js";
 import {
   createMediaCapabilityChecks,
   rerouteDecisionForMedia,
@@ -151,6 +152,13 @@ export function createRouterRuntime(
   deps: RouterRuntimeDeps,
 ): RouterRuntime {
   const enabled = config.enabled !== false;
+  // Per-provider concurrency gate (LiteLLM-style in-flight cap). One gate per
+  // runtime instance — the gateway creates a single shared RouterRuntime for
+  // all sessions, so the cap is process-wide, not per-session. Router
+  // disabled (passthrough) → no gate.
+  const concurrencyGate = enabled && config.concurrency?.enabled !== false
+    ? new ProviderConcurrencyGate(config.concurrency)
+    : undefined;
   const stats = new TokenStatsCollector({
     ...config.stats,
     enabled: enabled && (config.stats?.enabled ?? false),
@@ -721,7 +729,7 @@ export function createRouterRuntime(
         const pending: CanonicalModelEvent[] = [];
         let outcome: AttemptOutcome | undefined;
 
-        for await (const item of streamAttempt(attemptRequest, deps.modelRuntime, ctx, events)) {
+        for await (const item of streamAttempt(attemptRequest, deps.modelRuntime, ctx, events, concurrencyGate)) {
           if (item.kind === "outcome") {
             outcome = item.outcome;
             break;

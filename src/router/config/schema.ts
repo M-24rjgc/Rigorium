@@ -125,6 +125,21 @@ export type RouterStickyConfig = {
   maxQualityFailures?: number;
 };
 
+/**
+ * Per-provider concurrency gate (see execution/providerConcurrency.ts).
+ * Limits how many provider requests are in flight per provider across the
+ * whole gateway process — protects degraded/self-hosted endpoints from
+ * concurrent-session storms. Opt-in (LiteLLM-style); queue waiters are FIFO
+ * and a waiter that exceeds `waitTimeoutMs` surfaces a retryable
+ * `provider_concurrency_limit` error that flows through the normal
+ * transient-retry / fallback machinery.
+ */
+export type RouterConcurrencyConfig = {
+  enabled?: boolean;
+  maxPerProvider?: number;
+  waitTimeoutMs?: number;
+};
+
 export type RouterConfig = {
   /**
    * Master switch for all router behavior. When false, router-specific
@@ -144,6 +159,8 @@ export type RouterConfig = {
   fallback?: RouterFallbackConfig;
   zeroUsageRetry?: { enabled: boolean; maxAttempts: number };
   transientRetry?: { enabled: boolean; maxAttempts: number; baseDelayMs: number; maxDelayMs: number };
+  /** Per-provider in-flight request cap (LiteLLM-style concurrency gate). */
+  concurrency?: RouterConcurrencyConfig;
   tokenSaver?: RouterTokenSaverConfig;
   /** Sticky selection guardrails: TTL and quality-failure release. */
   sticky?: RouterStickyConfig;

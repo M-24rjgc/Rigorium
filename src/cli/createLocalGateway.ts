@@ -61,6 +61,12 @@ import {
   parsePluginMcpServers,
 } from "../mcp/index.js";
 import { createModelRuntime, type ModelRuntime } from "../model/index.js";
+import {
+  LITELLM_DEFAULT_MAX_RETRIES,
+  LITELLM_INITIAL_RETRY_DELAY_MS,
+  LITELLM_MAX_RETRY_DELAY_MS,
+} from "../model/streaming/streamModel.js";
+import { DEFAULT_PROVIDER_CONCURRENCY } from "../router/execution/providerConcurrency.js";
 import { createDefaultPermissionContext, type PermissionRule } from "../permission/index.js";
 import {
   loadRigoriumConfig,
@@ -1492,6 +1498,8 @@ function ensureRouterConfig(
       ...router,
       scenarios: router.scenarios ?? { default: defaultRef },
       fallback: router.fallback ?? { default: [defaultRef] },
+      transientRetry: router.transientRetry ?? defaultTransientRetry(),
+      concurrency: router.concurrency ?? defaultConcurrency(),
       tokenSaver: router.tokenSaver ?? buildDefaultTokenSaver(defaultRef),
       sticky: router.sticky ?? buildDefaultSticky(),
       researchAware: router.researchAware ?? { enabled: false, tierUpgrade: true },
@@ -1505,6 +1513,8 @@ function ensureRouterConfig(
     scenarios: { default: defaultRef },
     fallback: { default: [defaultRef] },
     zeroUsageRetry: { enabled: true, maxAttempts: 2 },
+    transientRetry: defaultTransientRetry(),
+    concurrency: defaultConcurrency(),
     tokenSaver: buildDefaultTokenSaver(defaultRef),
     sticky: buildDefaultSticky(),
     researchAware: { enabled: false, tierUpgrade: true },
@@ -1519,6 +1529,23 @@ function buildDefaultSticky() {
     enabled: true,
     ttlMs: DEFAULT_STICKY_TTL_MS,
     maxQualityFailures: DEFAULT_STICKY_MAX_QUALITY_FAILURES,
+  };
+}
+
+function defaultTransientRetry() {
+  return {
+    enabled: true,
+    maxAttempts: LITELLM_DEFAULT_MAX_RETRIES,
+    baseDelayMs: LITELLM_INITIAL_RETRY_DELAY_MS,
+    maxDelayMs: LITELLM_MAX_RETRY_DELAY_MS,
+  };
+}
+
+function defaultConcurrency() {
+  return {
+    enabled: DEFAULT_PROVIDER_CONCURRENCY.enabled,
+    maxPerProvider: DEFAULT_PROVIDER_CONCURRENCY.maxPerProvider,
+    waitTimeoutMs: DEFAULT_PROVIDER_CONCURRENCY.waitTimeoutMs,
   };
 }
 

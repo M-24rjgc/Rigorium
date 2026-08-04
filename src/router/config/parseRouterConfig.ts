@@ -1,5 +1,11 @@
 import type { ModelConfig } from "../../model/index.js";
 import {
+  LITELLM_DEFAULT_MAX_RETRIES,
+  LITELLM_INITIAL_RETRY_DELAY_MS,
+  LITELLM_MAX_RETRY_DELAY_MS,
+} from "../../model/streaming/streamModel.js";
+import { DEFAULT_PROVIDER_CONCURRENCY } from "../execution/providerConcurrency.js";
+import {
   DEFAULT_ALLOWED_TOOLS,
   DEFAULT_BLOCKED_TOOLS,
   DEFAULT_JUDGE_TIMEOUT_MS,
@@ -93,6 +99,8 @@ export function parseRouterConfig(
 
   const fallback = parseFallback(raw.fallback, modelConfig, diagnostics);
   const zeroUsageRetry = parseZeroUsageRetry(raw.zeroUsageRetry, diagnostics);
+  const transientRetry = parseTransientRetry(raw.transientRetry, diagnostics);
+  const concurrency = parseConcurrency(raw.concurrency, diagnostics);
   const tokenSaver = parseTokenSaver(raw.tokenSaver, modelConfig, diagnostics);
   const autoOrchestrate = parseAutoOrchestrate(raw.autoOrchestrate, modelConfig, tokenSaver, diagnostics);
   const stats = parseStats(raw.stats, modelConfig, diagnostics);
@@ -107,6 +115,8 @@ export function parseRouterConfig(
       ...(scenarios ? { scenarios } : {}),
       fallback,
       zeroUsageRetry,
+      transientRetry,
+      concurrency,
       tokenSaver,
       autoOrchestrate,
       stats,
@@ -376,6 +386,124 @@ function parseZeroUsageRetry(
     }
   }
   return { enabled, maxAttempts };
+}
+
+function parseTransientRetry(
+  raw: unknown,
+  diagnostics: RouterConfigDiagnostic[],
+): RouterConfig["transientRetry"] {
+  if (raw === undefined) {
+    return {
+      enabled: true,
+      maxAttempts: LITELLM_DEFAULT_MAX_RETRIES,
+      baseDelayMs: LITELLM_INITIAL_RETRY_DELAY_MS,
+      maxDelayMs: LITELLM_MAX_RETRY_DELAY_MS,
+    };
+  }
+  if (!isRecord(raw)) {
+    diagnostics.push({
+      code: "ROUTER_TRANSIENT_RETRY_INVALID",
+      severity: "fatal",
+      path: "router.transientRetry",
+      message: "router.transientRetry must be an object.",
+    });
+    return undefined;
+  }
+  const enabled = typeof raw.enabled === "boolean" ? raw.enabled : true;
+  let maxAttempts = LITELLM_DEFAULT_MAX_RETRIES;
+  if (raw.maxAttempts !== undefined) {
+    if (typeof raw.maxAttempts === "number" && Number.isInteger(raw.maxAttempts) && raw.maxAttempts >= 1) {
+      maxAttempts = raw.maxAttempts;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_TRANSIENT_RETRY_MAX_ATTEMPTS_INVALID",
+        severity: "fatal",
+        path: "router.transientRetry.maxAttempts",
+        message: "maxAttempts must be a positive integer.",
+      });
+    }
+  }
+  let baseDelayMs = LITELLM_INITIAL_RETRY_DELAY_MS;
+  if (raw.baseDelayMs !== undefined) {
+    if (typeof raw.baseDelayMs === "number" && Number.isFinite(raw.baseDelayMs) && raw.baseDelayMs > 0) {
+      baseDelayMs = raw.baseDelayMs;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_TRANSIENT_RETRY_BASE_DELAY_INVALID",
+        severity: "fatal",
+        path: "router.transientRetry.baseDelayMs",
+        message: "baseDelayMs must be a positive number.",
+      });
+    }
+  }
+  let maxDelayMs = LITELLM_MAX_RETRY_DELAY_MS;
+  if (raw.maxDelayMs !== undefined) {
+    if (typeof raw.maxDelayMs === "number" && Number.isFinite(raw.maxDelayMs) && raw.maxDelayMs > 0) {
+      maxDelayMs = raw.maxDelayMs;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_TRANSIENT_RETRY_MAX_DELAY_INVALID",
+        severity: "fatal",
+        path: "router.transientRetry.maxDelayMs",
+        message: "maxDelayMs must be a positive number.",
+      });
+    }
+  }
+  return { enabled, maxAttempts, baseDelayMs, maxDelayMs };
+}
+
+function parseConcurrency(
+  raw: unknown,
+  diagnostics: RouterConfigDiagnostic[],
+): RouterConfig["concurrency"] {
+  if (raw === undefined) {
+    return {
+      enabled: DEFAULT_PROVIDER_CONCURRENCY.enabled,
+      maxPerProvider: DEFAULT_PROVIDER_CONCURRENCY.maxPerProvider,
+      waitTimeoutMs: DEFAULT_PROVIDER_CONCURRENCY.waitTimeoutMs,
+    };
+  }
+  if (!isRecord(raw)) {
+    diagnostics.push({
+      code: "ROUTER_CONCURRENCY_INVALID",
+      severity: "fatal",
+      path: "router.concurrency",
+      message: "router.concurrency must be an object.",
+    });
+    return undefined;
+  }
+  const enabled = typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_PROVIDER_CONCURRENCY.enabled;
+  let maxPerProvider = DEFAULT_PROVIDER_CONCURRENCY.maxPerProvider;
+  if (raw.maxPerProvider !== undefined) {
+    if (
+      typeof raw.maxPerProvider === "number" &&
+      Number.isInteger(raw.maxPerProvider) &&
+      raw.maxPerProvider >= 1
+    ) {
+      maxPerProvider = raw.maxPerProvider;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_CONCURRENCY_MAX_PER_PROVIDER_INVALID",
+        severity: "fatal",
+        path: "router.concurrency.maxPerProvider",
+        message: "maxPerProvider must be a positive integer.",
+      });
+    }
+  }
+  let waitTimeoutMs = DEFAULT_PROVIDER_CONCURRENCY.waitTimeoutMs;
+  if (raw.waitTimeoutMs !== undefined) {
+    if (typeof raw.waitTimeoutMs === "number" && Number.isInteger(raw.waitTimeoutMs) && raw.waitTimeoutMs >= 1) {
+      waitTimeoutMs = raw.waitTimeoutMs;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_CONCURRENCY_WAIT_TIMEOUT_INVALID",
+        severity: "fatal",
+        path: "router.concurrency.waitTimeoutMs",
+        message: "waitTimeoutMs must be a positive integer (milliseconds).",
+      });
+    }
+  }
+  return { enabled, maxPerProvider, waitTimeoutMs };
 }
 
 function parseTokenSaver(
