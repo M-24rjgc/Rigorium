@@ -75,7 +75,7 @@
     "edgeclaw-memory-core": "file:src/context/memory/edgeclaw-memory-core",
     "express": "^4.18.2",
     "gray-matter": "^4.0.3",
-    "ink": "^7.0.2",
+    "ink": "^7.1.1",
     "ink-text-input": "^6.0.0",
     "js-tiktoken": "^1.0.21",
     "jsonrepair": "^3.14.0",
