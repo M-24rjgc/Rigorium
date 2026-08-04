@@ -374,6 +374,12 @@ export class AgentLoop {
       if (ctx?.tryAutoCompact) {
         try {
           const reservedOutputTokens = this.getReservedOutputTokens();
+          const messagesBeforeCompact = messages.length;
+          this.dispatchCompactHooks(input, "PreCompact", {
+            reason: "auto_compact",
+            trigger: "budget_threshold",
+            messageCountBefore: messagesBeforeCompact,
+          });
           const compact = await ctx.tryAutoCompact({
             messages,
             abortSignal: input.abortSignal,
@@ -386,6 +392,12 @@ export class AgentLoop {
           });
           if (compact.type === "compacted") {
             messages = compact.messages;
+            this.dispatchCompactHooks(input, "PostCompact", {
+              reason: "auto_compact",
+              tier: compact.tier,
+              messageCountBefore: messagesBeforeCompact,
+              messageCountAfter: messages.length,
+            });
             yield {
               type: "turn_continued",
               sessionId: input.sessionId,
@@ -460,6 +472,13 @@ export class AgentLoop {
         if (routedMaxCtx !== undefined && routedMaxCtx !== currentBudgetMaxCtx) {
           try {
             const reservedOutputTokens = this.getReservedOutputTokens(decision.provider, decision.model);
+            const messagesBeforeCompact = messages.length;
+            this.dispatchCompactHooks(input, "PreCompact", {
+              reason: "post_routing",
+              trigger: "routed_context_window",
+              messageCountBefore: messagesBeforeCompact,
+              routedMaxContextTokens: routedMaxCtx,
+            });
             const recompact = await ctx.tryAutoCompact({
               messages,
               abortSignal: input.abortSignal,
@@ -475,6 +494,12 @@ export class AgentLoop {
             });
             if (recompact.type === "compacted") {
               messages = recompact.messages;
+              this.dispatchCompactHooks(input, "PostCompact", {
+                reason: "post_routing",
+                tier: recompact.tier,
+                messageCountBefore: messagesBeforeCompact,
+                messageCountAfter: messages.length,
+              });
               request = await this.createModelRequest(messages, input);
               request = this.applyTokenCapsToRequest(request, decision.provider, decision.model);
               yield {
@@ -1045,6 +1070,12 @@ export class AgentLoop {
           messages = stripTrailingErrorPair(messages);
           if (ctx?.tryAutoCompact) {
             try {
+              const messagesBeforeCompact = messages.length;
+              this.dispatchCompactHooks(input, "PreCompact", {
+                reason: "reactive",
+                trigger: "model_error_recovery",
+                messageCountBefore: messagesBeforeCompact,
+              });
               const compact = await ctx.tryAutoCompact({
                 messages,
                 abortSignal: input.abortSignal,
@@ -1054,8 +1085,20 @@ export class AgentLoop {
               });
               if (compact.type === "compacted") {
                 messages = compact.messages;
+                this.dispatchCompactHooks(input, "PostCompact", {
+                  reason: "reactive",
+                  tier: compact.tier,
+                  messageCountBefore: messagesBeforeCompact,
+                  messageCountAfter: messages.length,
+                });
               } else {
                 messages = truncateHeadKeepRatio(messages, 0.5);
+                this.dispatchCompactHooks(input, "PostCompact", {
+                  reason: "reactive",
+                  tier: "truncate",
+                  messageCountBefore: messagesBeforeCompact,
+                  messageCountAfter: messages.length,
+                });
               }
             } catch {
               messages = truncateHeadKeepRatio(messages, 0.5);
@@ -2246,6 +2289,21 @@ export class AgentLoop {
       blockingErrors: [],
       nonBlockingErrors: [],
     };
+  }
+
+  /**
+   * PreCompact/PostCompact lifecycle dispatch (fire-and-forget — compaction
+   * must never block the model call). PreCompact fires before a compaction
+   * attempt so plugins can snapshot state (memory, transcripts) ahead of a
+   * destructive rewrite; PostCompact fires when a tier actually rewrote the
+   * conversation, carrying the tier and before/after message counts.
+   */
+  private dispatchCompactHooks(
+    input: AgentLoopInput,
+    phase: "PreCompact" | "PostCompact",
+    payload: Record<string, unknown>,
+  ): void {
+    this.dispatchLifecycle(input, phase, payload).catch(() => {});
   }
 
   private *drainEventBuffer(): Generator<AgentEvent> {
