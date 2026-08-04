@@ -234,7 +234,7 @@ test("UncertaintyGatedTierClassifier: confident ranker skips the judge", async (
       },
     },
     ranker,
-    { minObservations: 4, minMargin: 0.1 },
+    { minObservations: 4, minMargin: 0.1, explorationRate: 0.05, random: () => 0.999 },
   );
   const decision = await classifier.classify({
     config: CONFIG as never,
@@ -292,7 +292,7 @@ test("UncertaintyGatedTierClassifier: mixed outcomes keep the judge in charge", 
       },
     },
     ranker,
-    { minObservations: 4, minMargin: 0.1 },
+    { minObservations: 4, minMargin: 0.1, random: () => 0.999 },
   );
   await classifier.classify({
     config: CONFIG as never,
@@ -301,4 +301,88 @@ test("UncertaintyGatedTierClassifier: mixed outcomes keep the judge in charge", 
     requirements: requirements({ search: true }),
   });
   assert.equal(judgeCalls, 1, "low margin → judge decides");
+});
+
+test("UncertaintyGatedTierClassifier: exploration re-consults the judge despite a confident learned path", async () => {
+  const ranker = new AmortizedRanker();
+  const bucket = ranker.bucketKey(requirements({ search: true }));
+  for (let i = 0; i < 6; i += 1) {
+    ranker.observe(bucket, "reasoning", "success");
+  }
+  for (let i = 0; i < 3; i += 1) {
+    ranker.observe(bucket, "medium", "failure");
+  }
+  let judgeCalls = 0;
+  const classifier = new UncertaintyGatedTierClassifier(
+    {
+      classify: async () => {
+        judgeCalls += 1;
+        return JUDGE_DECISION;
+      },
+    },
+    ranker,
+    // random()=0 < explorationRate → always explore.
+    { minObservations: 4, minMargin: 0.1, explorationRate: 0.05, random: () => 0 },
+  );
+  const decision = await classifier.classify({
+    config: CONFIG as never,
+    messages: [],
+    judgeRuntime: undefined as never,
+    requirements: requirements({ search: true }),
+  });
+  assert.equal(judgeCalls, 1, "exploration must re-consult the judge");
+  assert.equal(decision?.resolvedFrom, "judge", "the judge's answer wins during exploration");
+});
+
+test("UncertaintyGatedTierClassifier: judge failure degrades to the confident learned path", async () => {
+  const ranker = new AmortizedRanker();
+  const bucket = ranker.bucketKey(requirements({ search: true }));
+  for (let i = 0; i < 6; i += 1) {
+    ranker.observe(bucket, "reasoning", "success");
+  }
+  for (let i = 0; i < 3; i += 1) {
+    ranker.observe(bucket, "medium", "failure");
+  }
+  const classifier = new UncertaintyGatedTierClassifier(
+    {
+      classify: async () => ({
+        tier: "medium",
+        selection: { id: "p/m2", provider: "p", model: "m2" },
+        resolvedFrom: "fallback" as const,
+        failureReason: "timeout" as const,
+      }),
+    },
+    ranker,
+    { minObservations: 4, minMargin: 0.1, random: () => 0.999 },
+  );
+  const decision = await classifier.classify({
+    config: CONFIG as never,
+    messages: [],
+    judgeRuntime: undefined as never,
+    requirements: requirements({ search: true }),
+  });
+  assert.equal(decision?.resolvedFrom, "learned", "a confident learned answer beats the fixed default on judge failure");
+  assert.equal(decision?.tier, "reasoning");
+});
+
+test("UncertaintyGatedTierClassifier: judge failure without learned confidence keeps the fallback", async () => {
+  const ranker = new AmortizedRanker();
+  const classifier = new UncertaintyGatedTierClassifier(
+    {
+      classify: async () => ({
+        tier: "medium",
+        selection: { id: "p/m2", provider: "p", model: "m2" },
+        resolvedFrom: "fallback" as const,
+        failureReason: "model_error" as const,
+      }),
+    },
+    ranker,
+  );
+  const decision = await classifier.classify({
+    config: CONFIG as never,
+    messages: [],
+    judgeRuntime: undefined as never,
+    requirements: requirements({ search: true }),
+  });
+  assert.equal(decision?.resolvedFrom, "fallback", "no learned confidence → judge fallback unchanged");
 });

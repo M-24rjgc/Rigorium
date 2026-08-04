@@ -103,6 +103,11 @@ export type RouterLearningConfig = {
   enabled?: boolean;
   minObservations?: number;
   minMargin?: number;
+  /**
+   * Probability (0..<1) of re-consulting the judge even when the learned
+   * path is confident — periodic re-calibration against drift. Default 0.05.
+   */
+  explorationRate?: number;
 };
 
 /**

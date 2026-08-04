@@ -110,6 +110,7 @@ router:
     enabled: true
     minObservations: 3
     minMargin: 0.1
+    explorationRate: 0.2
   sticky:
     enabled: true
     ttlMs: 60000
@@ -118,6 +119,7 @@ router:
   assert.equal(snap.config.router!.researchAware?.enabled, true);
   assert.equal(snap.config.router!.learning?.minObservations, 3);
   assert.equal(snap.config.router!.learning?.minMargin, 0.1);
+  assert.equal(snap.config.router!.learning?.explorationRate, 0.2);
   assert.equal(snap.config.router!.sticky?.ttlMs, 60000);
   assert.equal(snap.config.router!.sticky?.maxQualityFailures, 4);
 });
@@ -132,6 +134,7 @@ router:
     enabled: true
     minObservations: -1
     minMargin: 5
+    explorationRate: 1.5
   sticky:
     ttlMs: "not-a-number"
 `);
@@ -142,6 +145,7 @@ router:
   const codes = (error as { diagnostics?: { code: string }[] }).diagnostics?.map((d) => d.code) ?? [];
   assert.ok(codes.includes("ROUTER_LEARNING_MIN_OBSERVATIONS_INVALID"));
   assert.ok(codes.includes("ROUTER_LEARNING_MIN_MARGIN_INVALID"));
+  assert.ok(codes.includes("ROUTER_LEARNING_EXPLORATION_RATE_INVALID"));
   assert.ok(codes.includes("ROUTER_STICKY_TTL_INVALID"));
 });
 

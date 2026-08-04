@@ -244,10 +244,29 @@ function parseLearning(
       });
     }
   }
+  let explorationRate: number | undefined;
+  if (raw.explorationRate !== undefined) {
+    if (
+      typeof raw.explorationRate === "number" &&
+      Number.isFinite(raw.explorationRate) &&
+      raw.explorationRate >= 0 &&
+      raw.explorationRate < 1
+    ) {
+      explorationRate = raw.explorationRate;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_LEARNING_EXPLORATION_RATE_INVALID",
+        severity: "fatal",
+        path: "router.learning.explorationRate",
+        message: "router.learning.explorationRate must be a number in [0, 1).",
+      });
+    }
+  }
   return {
     enabled,
     ...(minObservations !== undefined ? { minObservations } : {}),
     ...(minMargin !== undefined ? { minMargin } : {}),
+    ...(explorationRate !== undefined ? { explorationRate } : {}),
   };
 }
 

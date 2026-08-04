@@ -768,6 +768,7 @@ class ProjectRuntimeRegistry {
       tierClassifier = new UncertaintyGatedTierClassifier(createDefaultTierClassifier(), ranker, {
         minObservations: routerConfig.learning.minObservations,
         minMargin: routerConfig.learning.minMargin,
+        explorationRate: routerConfig.learning.explorationRate,
       });
     }
     const router = createRouterRuntime(routerConfig, {
