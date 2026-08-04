@@ -471,6 +471,12 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     return;
   }
 
+  if (command === "research-audit") {
+    const { runResearchAuditCli } = await import("./commands/researchAudit.js");
+    await runResearchAuditCli(argv.slice(1));
+    return;
+  }
+
   if (command === "tui") {
     if (!process.stdin.isTTY) {
       console.error("rigorium tui requires an interactive terminal.");

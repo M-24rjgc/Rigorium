@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { computeOpenReviewFindings } from "../audit/openFindings.js";
 import { ClaimGraph } from "../claims/ClaimGraph.js";
 import type { ClaimEvidenceArtifact } from "../claims/ClaimGraph.js";
 import { planByInformationGain } from "./eig/planner.js";
@@ -178,10 +179,9 @@ export class ResearchOrchestrator {
   }
 
   /**
-   * Blocker/major review findings that no later non-review artifact has
-   * referenced (via a parent edge) — i.e. the correction loop has not
-   * visibly acted on them yet. Review rounds reference their own findings,
-   * which does not count as closure.
+   * Blocker/major review findings no later artifact has referenced yet —
+   * delegated to the shared audit module so the planner and the replay tool
+   * always agree on the closure ledger.
    */
   private async computeOpenFindings(): Promise<
     readonly { findingId: string; severity: string; summary: string }[] | undefined
@@ -189,35 +189,8 @@ export class ResearchOrchestrator {
     try {
       const { listLatestProjectResearchArtifacts } = await import("../artifacts/repository.js");
       const artifacts = await listLatestProjectResearchArtifacts({ projectRoot: this.projectRoot });
-      const findings = artifacts.filter((artifact) => artifact.kind === "finding");
-      if (findings.length === 0) {
-        return undefined;
-      }
-      const referencedFindingIds = new Set<string>();
-      for (const artifact of artifacts) {
-        if (artifact.kind === "finding" || artifact.kind === "review_round") {
-          continue;
-        }
-        for (const parent of artifact.parents ?? []) {
-          if (parent.artifact.kind === "finding") {
-            referencedFindingIds.add(parent.artifact.artifactId);
-          }
-        }
-      }
-      const open = findings
-        .filter((finding) => {
-          const severity = (finding.payload as { severity?: string } | undefined)?.severity;
-          return (severity === "blocker" || severity === "major") && !referencedFindingIds.has(finding.artifactId);
-        })
-        .map((finding) => {
-          const payload = finding.payload as { severity?: string; summary?: string };
-          return Object.freeze({
-            findingId: finding.artifactId,
-            severity: payload.severity ?? "major",
-            summary: (payload.summary ?? "").slice(0, 200),
-          });
-        });
-      return open.length > 0 ? Object.freeze(open) : undefined;
+      const open = computeOpenReviewFindings(artifacts);
+      return open.length > 0 ? open : undefined;
     } catch {
       return undefined;
     }
