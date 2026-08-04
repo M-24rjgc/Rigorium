@@ -165,3 +165,35 @@ test("history token usage prefers persisted context budget snapshot", async () =
     await rm(rigoriumHome, { recursive: true, force: true });
   }
 });
+
+test("interrupted turns surface as kind=interrupted notices (turn_started marker, zero durable messages)", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "rigorium-interrupted-project-"));
+  const rigoriumHome = await mkdtemp(join(tmpdir(), "rigorium-interrupted-home-"));
+  try {
+    const sessionKey = "web:s_interrupted_crash";
+    const storage = createAgentProjectSessionStorage({
+      projectRoot,
+      rigoriumHome,
+      sessionId: sessionKey,
+      now: () => new Date("2026-08-05T00:00:00.000Z"),
+    });
+    // The process crashed right after the turn started — no durable message,
+    // no turn_result. Only the turn_started marker exists.
+    await storage.transcript.recordTurnStarted(sessionKey, "turn-crash");
+
+    const replay = await readWebSessionMessages(
+      { sessionKey },
+      { projectRoot, rigoriumHome, maxContextTokens: 1000 },
+    );
+
+    const notices = replay.messages.filter((message) => message.kind === "interrupted");
+    assert.equal(notices.length, 1, "the crashed turn must surface as an interrupted notice");
+    assert.deepEqual(
+      (notices[0]!.payload as { incompleteTurnIds?: string[] } | undefined)?.incompleteTurnIds,
+      ["turn-crash"],
+    );
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+    await rm(rigoriumHome, { recursive: true, force: true });
+  }
+});

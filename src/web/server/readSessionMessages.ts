@@ -391,7 +391,7 @@ function createIncompleteTurnStatusMessage(
     createdAt: stamp,
     provider: "rigorium",
     role: "system",
-    kind: "status",
+    kind: "interrupted",
     text: "上次运行未正常结束或已中断，已恢复当时产生的工具调用和输出。",
     payload: { incompleteTurnIds: turnIds },
     source: "history",
@@ -402,18 +402,22 @@ function extractIncompleteTurnIds(entries: AgentTranscriptEntry[]): string[] {
   const completedTurnIds = new Set(
     entries.filter((entry) => entry.type === "turn_result").map((entry) => entry.turnId),
   );
-  const incompleteTurnIds = new Set<string>();
+  const startedTurnIds = new Set<string>();
   for (const entry of entries) {
+    // `turn_started` covers crashes before the first durable message; the
+    // message kinds cover legacy transcripts written before the marker
+    // existed.
     if (
-      (entry.type === "assistant_message" ||
-        entry.type === "tool_result_message" ||
-        entry.type === "durable_message") &&
-      !completedTurnIds.has(entry.turnId)
+      entry.type === "turn_started" ||
+      entry.type === "accepted_input" ||
+      entry.type === "assistant_message" ||
+      entry.type === "tool_result_message" ||
+      entry.type === "durable_message"
     ) {
-      incompleteTurnIds.add(entry.turnId);
+      startedTurnIds.add(entry.turnId);
     }
   }
-  return [...incompleteTurnIds];
+  return [...startedTurnIds].filter((turnId) => !completedTurnIds.has(turnId));
 }
 
 async function locateSession(
@@ -667,7 +671,7 @@ function flushBlock(
         createdAt: stamp,
         provider: "rigorium",
         role,
-        kind: "status",
+        kind: "interrupted",
         text: `[${block.type} attachment]`,
         payload: { mimeType: block.mimeType, bytes: "bytes" in block ? block.bytes : undefined },
         source: "history",

@@ -51,6 +51,32 @@ export function replayTranscriptEntries(entries: AgentTranscriptEntry[]): AgentT
   const completedTurnIds = new Set(
     entries.filter((entry) => entry.type === "turn_result").map((entry) => entry.turnId),
   );
+  // Turns that demonstrably started but never completed (process crash /
+  // hard interruption). `turn_started` covers crashes before the first
+  // durable message; accepted_input covers legacy transcripts written
+  // before the marker existed.
+  const startedTurnIds = new Set<string>();
+  const lastMessageAtByTurn = new Map<string, string>();
+  for (const entry of entries) {
+    if (
+      entry.type === "turn_started" ||
+      entry.type === "accepted_input" ||
+      entry.type === "assistant_message" ||
+      entry.type === "tool_result_message" ||
+      entry.type === "durable_message"
+    ) {
+      startedTurnIds.add(entry.turnId);
+    }
+    if (
+      (entry.type === "assistant_message" ||
+        entry.type === "tool_result_message" ||
+        entry.type === "durable_message") &&
+      !completedTurnIds.has(entry.turnId)
+    ) {
+      lastMessageAtByTurn.set(entry.turnId, entry.createdAt);
+    }
+  }
+  const interruptedTurnIds = [...startedTurnIds].filter((turnId) => !completedTurnIds.has(turnId));
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
@@ -120,6 +146,17 @@ export function replayTranscriptEntries(entries: AgentTranscriptEntry[]): AgentT
         // `replaySubagentTranscript(...)` explicitly.
         break;
     }
+  }
+
+  // Emit one interruption notice per unfinished turn (sorted for stability).
+  for (const turnId of interruptedTurnIds.sort()) {
+    const lastMessageAt = lastMessageAtByTurn.get(turnId);
+    events.push({
+      type: "turn_interrupted",
+      sessionId: entries.find((entry) => entry.turnId === turnId)?.sessionId ?? "",
+      turnId,
+      ...(lastMessageAt !== undefined ? { lastMessageAt } : {}),
+    });
   }
 
   return {

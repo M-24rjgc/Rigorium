@@ -26,6 +26,8 @@ export type AgentTranscriptWriter = {
   ): void | Promise<void>;
   recordDurableMessage(sessionId: string, turnId: string, message: CanonicalMessage): void | Promise<void>;
   recordAgentStatusMessage?(sessionId: string, turnId: string, status: AgentStatusMessageInput): void | Promise<void>;
+  /** Optional turn-started marker (crash-safe interruption detection). */
+  recordTurnStarted?(sessionId: string, turnId: string): void | Promise<void>;
   recordTurnResult(sessionId: string, turnId: string, result: AgentTurnResult): void | Promise<void>;
   recordSessionMetadata?(sessionId: string, turnId: string, metadata: SessionMetadataValue): void | Promise<void>;
   recordControlBoundary?(

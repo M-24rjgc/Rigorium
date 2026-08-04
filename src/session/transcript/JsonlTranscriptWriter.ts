@@ -80,6 +80,14 @@ export class JsonlTranscriptWriter implements AgentTranscriptWriter {
     });
   }
 
+  /** Persist the turn-started marker (crash-safe interruption detection). */
+  recordTurnStarted(sessionId: string, turnId: string): Promise<void> {
+    return this.recordEntry({
+      type: "turn_started",
+      ...this.baseEntry(sessionId, turnId),
+    });
+  }
+
   recordDurableMessage(sessionId: string, turnId: string, message: CanonicalMessage): Promise<void> {
     const type: AgentMessageTranscriptEntry["type"] = classifyDurableMessageEntry(message);
     return this.recordEntry({

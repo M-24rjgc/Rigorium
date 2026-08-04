@@ -13,6 +13,7 @@ export type InMemoryTranscriptEntry =
       metadata?: Record<string, unknown>;
     }
   | { type: "durable_message"; sessionId: string; turnId: string; message: CanonicalMessage }
+  | { type: "turn_started"; sessionId: string; turnId: string }
   | { type: "agent_status_message"; sessionId: string; turnId: string } & AgentStatusMessageInput
   | { type: "turn_result"; sessionId: string; turnId: string; result: AgentTurnResult }
   | { type: "session_metadata"; sessionId: string; turnId: string; metadata: SessionMetadataValue }
@@ -43,6 +44,10 @@ export class InMemoryTranscriptWriter implements AgentTranscriptWriter {
 
   recordDurableMessage(sessionId: string, turnId: string, message: CanonicalMessage): void {
     this.entries.push({ type: "durable_message", sessionId, turnId, message });
+  }
+
+  recordTurnStarted(sessionId: string, turnId: string): void {
+    this.entries.push({ type: "turn_started", sessionId, turnId });
   }
 
   recordAgentStatusMessage(sessionId: string, turnId: string, status: AgentStatusMessageInput): void {

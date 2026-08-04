@@ -10,6 +10,17 @@ export type AgentEvent =
   | { type: "session_started"; sessionId: string }
   | { type: "session_ended"; sessionId: string; reason: string }
   | { type: "turn_started"; sessionId: string; turnId: string }
+  | {
+      type: "turn_interrupted";
+      sessionId: string;
+      turnId: string;
+      /**
+       * ISO timestamp of the last durable message of the interrupted turn
+       * (when any was written) — the UI shows when the interruption
+       * happened.
+       */
+      lastMessageAt?: string;
+    }
   | { type: "input_accepted"; sessionId: string; turnId: string; messages: CanonicalMessage[] }
   | { type: "user_prompt_submitted"; sessionId: string; turnId: string; prompt: string }
   | { type: "setup_completed"; sessionId: string }

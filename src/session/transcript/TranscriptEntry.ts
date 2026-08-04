@@ -7,6 +7,7 @@ export type AgentTranscriptEntryType =
   | "tool_result_message"
   | "durable_message"
   | "agent_status_message"
+  | "turn_started"
   | "turn_result"
   | "control_boundary"
   | "session_metadata"
@@ -45,6 +46,17 @@ export type AgentStatusMessageTranscriptEntry = AgentTranscriptEntryBase & {
 export type AgentTurnResultTranscriptEntry = AgentTranscriptEntryBase & {
   type: "turn_result";
   result: AgentTurnResult;
+};
+
+/**
+ * Written at the very start of a turn (before any model call). Lets replay
+ * and the web reader distinguish "turn was started but never completed"
+ * (process crash / hard interruption) even when the turn produced zero
+ * durable messages — previously a crash before the first assistant message
+ * was indistinguishable from the turn never having run.
+ */
+export type AgentTurnStartedTranscriptEntry = AgentTranscriptEntryBase & {
+  type: "turn_started";
 };
 
 export type CompactBoundaryMetadata = {
@@ -174,6 +186,7 @@ export type AgentTranscriptEntry =
   | AgentAcceptedInputTranscriptEntry
   | AgentMessageTranscriptEntry
   | AgentStatusMessageTranscriptEntry
+  | AgentTurnStartedTranscriptEntry
   | AgentTurnResultTranscriptEntry
   | AgentControlBoundaryTranscriptEntry
   | AgentSessionMetadataTranscriptEntry

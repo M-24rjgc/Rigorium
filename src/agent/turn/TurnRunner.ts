@@ -84,6 +84,13 @@ export class TurnRunner {
 
   async *run(options: TurnRunnerOptions): AsyncGenerator<AgentEvent, TurnRunnerResult, unknown> {
     yield { type: "turn_started", sessionId: options.sessionId, turnId: options.turnId };
+    // Crash-safe interruption marker: persisted before any model work so a
+    // process crash mid-turn is detectable even when zero durable messages
+    // were written (the transcript reader renders an interruption notice).
+    // Best-effort — a marker failure must never abort the turn itself.
+    await Promise.resolve(
+      this.transcript.recordTurnStarted?.(options.sessionId, options.turnId),
+    ).catch(() => {});
     const accepted = this.inputProcessor.accept(options.input);
     const allAcceptedMessages = [...accepted.messages, ...(options.syntheticMessages ?? [])];
     const messages = [...options.messages, ...allAcceptedMessages];
