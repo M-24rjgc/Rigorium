@@ -204,6 +204,15 @@ try {
   const page = await app.firstWindow({ timeout: 90_000 });
   await page.waitForLoadState('domcontentloaded');
   await page.waitForFunction(() => typeof window.openSettings === 'function', undefined, { timeout: 60_000 });
+  // The first-run feature tour overlays the whole UI with a modal backdrop and
+  // would intercept every click in this verification. Mark it seen before any
+  // interaction and reload so the overlay never mounts.
+  await page.evaluate(() => {
+    try { localStorage.setItem('rigorium.feature-tour-seen', '1'); } catch { /* ignore */ }
+  });
+  await page.reload();
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForFunction(() => typeof window.openSettings === 'function', undefined, { timeout: 60_000 });
   await page.route('**/api/research/zotero/status**', (route) => fulfillJson(route, {
     provider: 'zotero',
     available: false,
