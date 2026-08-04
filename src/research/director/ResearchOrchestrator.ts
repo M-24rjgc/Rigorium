@@ -40,6 +40,14 @@ export type OrchestratedAction = Readonly<{
   expectedInformationGain: number;
   costUnits: number;
   rationale: string;
+  /**
+   * Independent-execution hint: actions in the same group target the same
+   * claim (mutually redundant — never parallel), actions in different
+   * groups target different claims (safe to run concurrently). The planner
+   * already de-duplicates to one action per claim, so the group id is the
+   * target claim; principle revision acts on the whole space.
+   */
+  parallelGroup: string;
 }>;
 
 export type OrchestrationPlan = Readonly<{
@@ -108,6 +116,7 @@ export class ResearchOrchestrator {
         expectedInformationGain: estimate.expectedInformationGain,
         costUnits: estimate.costUnits,
         rationale: estimate.rationale,
+        parallelGroup: estimate.action.claimId ?? "principle",
       }),
     );
 

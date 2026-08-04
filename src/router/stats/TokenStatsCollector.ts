@@ -21,6 +21,14 @@ export type RouterStatsRecord = {
   baselineCost?: number;
   startedAt: string;
   endedAt: string;
+  /** Round-trip latency of the routed turn, milliseconds. */
+  latencyMs?: number;
+  /** Canonical error code when the turn failed (absent on success). */
+  errorCode?: string;
+  /** Number of fallback hops taken (0 = the pinned attempt served). */
+  fallbacks?: number;
+  /** True when usage was estimated from message counts, not provider-reported. */
+  estimatedUsage?: boolean;
 };
 
 export type RouterStatsAggregate = {

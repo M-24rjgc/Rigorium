@@ -82,6 +82,25 @@ export function emptyPermissionRuleSet(): PermissionRuleSet {
   };
 }
 
+/**
+ * Built-in protected paths (Claude Code protected-paths pattern): write
+ * tools never target git internals or the platform's own state directory
+ * unless a rule explicitly allows them — those are how the project and the
+ * platform keep their state, and a stray `Write` must not corrupt them.
+ * `source: "policy"` marks them as platform defaults, not user rules.
+ */
+export const BUILTIN_PROTECTED_PATH_RULES: ReadonlyArray<{
+  toolName: string;
+  pattern: string;
+  behavior: "deny";
+  source: "policy";
+}> = [
+  { toolName: "write_file", pattern: "**/.git/**", behavior: "deny", source: "policy" },
+  { toolName: "edit_file", pattern: "**/.git/**", behavior: "deny", source: "policy" },
+  { toolName: "write_file", pattern: "**/.rigorium/**", behavior: "deny", source: "policy" },
+  { toolName: "edit_file", pattern: "**/.rigorium/**", behavior: "deny", source: "policy" },
+];
+
 export function createDefaultPermissionContext(options: {
   cwd: string;
   mode?: PermissionMode;
@@ -101,6 +120,10 @@ export function createDefaultPermissionContext(options: {
     rules: {
       ...emptyPermissionRuleSet(),
       ...options.rules,
+      // Protected paths apply on top of everything (deny-wins): platform
+      // state must not be clobbered even when an allow rule matches. They
+      // only gate default mode — bypass mode is explicitly exempt.
+      deny: [...(options.rules?.deny ?? []), ...BUILTIN_PROTECTED_PATH_RULES],
     },
   };
 }

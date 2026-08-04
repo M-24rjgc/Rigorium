@@ -508,6 +508,7 @@ export class AgentLoop {
       }
 
       const assembler = createModelMessageAssemblerState();
+      const modelCallStartedAt = Date.now();
       try {
         for await (const event of this.dependencies.router.execute(decision, request, {
           sessionId: input.sessionId,
@@ -524,6 +525,29 @@ export class AgentLoop {
             break;
           }
         }
+        // Per-call telemetry (OTel GenAI generation-level): every model call
+        // reports its usage, latency, finish reason and error code — the
+        // turn-level aggregation alone cannot answer per-provider questions.
+        const assembledAfterCall = assembleAssistantMessage(assembler);
+        yield {
+          type: "model_call_completed",
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          provider: decision.provider,
+          model: decision.model,
+          attemptIndex: 0,
+          ...(assembledAfterCall.usage?.totalTokens !== undefined
+            ? {
+              usage: {
+                inputTokens: assembledAfterCall.usage.inputTokens,
+                outputTokens: assembledAfterCall.usage.outputTokens,
+                totalTokens: assembledAfterCall.usage.totalTokens,
+              },
+            }
+            : {}),
+          ...(assembledAfterCall.finishReason !== undefined ? { finishReason: assembledAfterCall.finishReason } : {}),
+          latencyMs: Date.now() - modelCallStartedAt,
+        };
         if (!stickyInfo?.orchestrating) previousTier = undefined;
       } catch (error) {
         if (input.abortSignal?.aborted) {
@@ -923,8 +947,18 @@ export class AgentLoop {
           jsonSelfCorrectCount < MAX_JSON_SELF_CORRECT_RETRIES
         ) {
           jsonSelfCorrectCount++;
+          // Specific-failure feedback (Cline/Roo lessons): a generic "your
+          // JSON was invalid" wastes a full model call on the same mistake.
+          // Include the parser's actual error and a bounded failing snippet
+          // so the retry targets the real problem.
+          const parserDetail = typeof assembled.error.message === "string"
+            ? assembled.error.message.slice(0, 300)
+            : "";
+          const snippet = textFromMessage(assistantMessage).slice(-500);
           pushTransientSyntheticPrompt(
             "Your previous tool call contained invalid JSON in the arguments and could not be parsed. "
+              + `Parser error: ${parserDetail || "unspecified parse failure"}. `
+              + (snippet.length > 0 ? `Failing output ends with: ${JSON.stringify(snippet.slice(-200))}\n` : "")
               + "Please retry with valid JSON. Common issues: missing quotes around keys/values, "
               + "trailing commas, unescaped special characters in strings.",
             "json_self_correct",

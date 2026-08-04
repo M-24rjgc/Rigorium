@@ -370,6 +370,11 @@ function buildMarkdownSummaryPrompt(userInstruction: string | undefined): string
     `${headings}\n\n` +
     "If a section has no content, write `None` under that heading. Preserve exact file paths, URLs, " +
     "commands, data values, user decisions, failed attempts and recovery steps, and unfinished TODOs. " +
+    // Claude Code's compaction guidance: the summary must carry the agent's
+    // working surface forward — the files it was touching and the step it
+    // was on — or the next agent resumes blind.
+    "End the summary with a `## Working Surface` section listing the paths of the most recently " +
+    "read or written files and the exact step that was in progress when the conversation was cut off.\n\n" +
     "Do not replay unrelated chat, and do not expand large raw tool outputs that are easy to re-read or rerun." +
     additional;
 }

@@ -607,6 +607,7 @@ export function createRouterRuntime(
     }
 
     const startedAt = (deps.now?.() ?? new Date()).toISOString();
+    const startedAtMs = (deps.now?.() ?? new Date()).getTime();
     const fallbackPlan = planFallback(config.fallback, decision.scenarioType);
     const baseRequest = applyDecisionToRequest(decision, request);
     const requiredModalities = collectRequiredInputModalities(baseRequest.messages);
@@ -978,6 +979,9 @@ export function createRouterRuntime(
           usage: finalUsage,
           startedAt,
           endedAt,
+          latencyMs: (deps.now?.() ?? new Date()).getTime() - startedAtMs,
+          fallbacks: attemptIndex,
+          estimatedUsage: !outcome.usage || (!outcome.usage.inputTokens && !outcome.usage.outputTokens),
         });
         // A completed turn on the PINNED attempt (index 0) proves that model
         // still works — clear its consecutive-failure count. A fallback-
@@ -1032,6 +1036,10 @@ export function createRouterRuntime(
         usage: failUsage,
         startedAt,
         endedAt,
+        latencyMs: (deps.now?.() ?? new Date()).getTime() - startedAtMs,
+        errorCode: lastError?.code,
+        fallbacks: attemptPlans.length - 1,
+        estimatedUsage: !lastUsage || (!lastUsage.inputTokens && !lastUsage.outputTokens),
       });
       if (!lastHasYieldedContent) {
         for (const event of lastBuffered) {

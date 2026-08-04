@@ -283,7 +283,7 @@ function createPermissionRequest(
   return {
     toolCallId,
     toolName: tool.name,
-    inputSummary: summarizeInput(input),
+    inputSummary: summarizeInput(input, tool.name),
     reason,
     options: [
       { id: "allow_once", label: "Allow once" },
@@ -323,7 +323,24 @@ function finalizeAsk(decision: PermissionDecision, context: PermissionContext): 
   return decision;
 }
 
-function summarizeInput(input: unknown): string {
+function summarizeInput(input: unknown, toolName: string): string {
+  // Structured summaries (MCP "show tool inputs" guidance): the user needs
+  // the decision-relevant part, not a JSON dump — a truncated 500-char JSON
+  // slice of write_file hides the target path; a bash command is short and
+  // must never be truncated.
+  if (toolName === "bash") {
+    const command = readInputString(input, "command");
+    if (command) return `command: ${command}`;
+  }
+  if (toolName === "write_file" || toolName === "edit_file") {
+    const filePath = readInputString(input, "file_path") ?? readInputString(input, "filePath");
+    if (filePath) {
+      const sizeHint = toolName === "write_file"
+        ? ` (${countInputChars(input, "content")} chars)`
+        : "";
+      return `${toolName === "write_file" ? "write" : "edit"} ${filePath}${sizeHint}`;
+    }
+  }
   try {
     const json = JSON.stringify(input);
     if (!json) {
@@ -333,6 +350,22 @@ function summarizeInput(input: unknown): string {
   } catch {
     return "[unserializable input]";
   }
+}
+
+function readInputString(input: unknown, key: string): string | undefined {
+  if (typeof input === "object" && input !== null && key in input) {
+    const value = (input as Record<string, unknown>)[key];
+    return typeof value === "string" ? value : undefined;
+  }
+  return undefined;
+}
+
+function countInputChars(input: unknown, key: string): number {
+  if (typeof input === "object" && input !== null && key in input) {
+    const value = (input as Record<string, unknown>)[key];
+    return typeof value === "string" ? value.length : 0;
+  }
+  return 0;
 }
 
 /**

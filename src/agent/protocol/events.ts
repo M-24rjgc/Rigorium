@@ -14,6 +14,21 @@ export type AgentEvent =
   | { type: "user_prompt_submitted"; sessionId: string; turnId: string; prompt: string }
   | { type: "setup_completed"; sessionId: string }
   | { type: "model_request_started"; sessionId: string; turnId: string; model: string; provider: string }
+  | {
+      type: "model_call_completed";
+      sessionId: string;
+      turnId: string;
+      provider: string;
+      model: string;
+      /** Index of the router attempt this call ran on (0 = pinned decision). */
+      attemptIndex: number;
+      finishReason?: string;
+      usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+      /** Round-trip latency of the model call (stream drain), milliseconds. */
+      latencyMs?: number;
+      /** Canonical error code when the call failed (e.g. "timeout"). */
+      errorCode?: string;
+    }
   | { type: "model_event"; sessionId: string; turnId: string; event: CanonicalModelEvent }
   | { type: "instructions_loaded"; sessionId: string; turnId: string; hasSystemPrompt: boolean }
   | { type: "assistant_message"; sessionId: string; turnId: string; message: CanonicalMessage }

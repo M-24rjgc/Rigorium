@@ -46,6 +46,13 @@ export type MonitoredClaim = Readonly<{
   evidenceCount: number;
   /** Derived literature-search query (title/abstract keywords). */
   query: string;
+  /**
+   * What kind of evidence this claim is missing (OpenScholar gap-driven
+   * retrieval): no evidence at all, only weak support, actively contested,
+   * or substantiated. Gives the literature watch a direction, not just a
+   * count.
+   */
+  evidenceGap: "no_evidence" | "thin" | "contested" | "substantiated";
 }>;
 
 export type ClaimMonitorToolResult =
@@ -199,6 +206,7 @@ Use action=check to list active claims with their evidence counts and a ready-ma
             confidence: belief.confidence,
             evidenceCount: belief.evidenceCount,
             query: deriveQuery(statement, belief.claimId),
+            evidenceGap: classifyEvidenceGap(belief),
           });
         });
       const result: ClaimMonitorToolResult = Object.freeze({
@@ -224,6 +232,26 @@ Use action=check to list active claims with their evidence counts and a ready-ma
       };
     },
   };
+}
+
+/** What kind of evidence a claim is missing (gap-driven literature watch). */
+export function classifyEvidenceGap(belief: {
+  evidenceCount: number;
+  supportsWeight: number;
+  challengesWeight: number;
+}): MonitoredClaim["evidenceGap"] {
+  if (belief.evidenceCount === 0) {
+    return "no_evidence";
+  }
+  if (belief.challengesWeight > belief.supportsWeight) {
+    return "contested";
+  }
+  // ~3 replicated experiments (0.4 each) make a claim substantiated; below
+  // that the watch should look for stronger, direct evidence.
+  if (belief.supportsWeight >= 1.0) {
+    return "substantiated";
+  }
+  return "thin";
 }
 
 /** Derive a literature query from the claim statement (stop-word aware). */
