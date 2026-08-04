@@ -70,7 +70,10 @@ test("computeBelief: strong challenges flip status to challenged", () => {
   );
   assert.equal(belief.status, "challenged");
   assert.ok(belief.confidence <= 0.5);
-  assert.equal(belief.challengesWeight, 0.4 + 0.1);
+  assert.equal(
+    belief.challengesWeight,
+    EVIDENCE_STRENGTH_WEIGHTS.replicated_result + EVIDENCE_STRENGTH_WEIGHTS.citation,
+  );
 });
 
 test("computeBelief: overwhelming challenges falsify a weak claim", () => {
@@ -276,6 +279,41 @@ test("ClaimGraph: mostUncertainClaims ranks active claims by uncertainty", async
     const ranked = await withEvidence.mostUncertainClaims(5);
     assert.equal(ranked.length, 2);
     assert.equal(ranked[0]!.claimId, "c-uncertain", "no-evidence claim ranks first");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("ClaimGraph: supersedeClaim rejects a self-referential successor", async () => {
+  const projectRoot = createTempProject();
+  try {
+    const graph = new ClaimGraph({ projectRoot, loadArtifacts: async () => [] });
+    await graph.upsertClaim({ claimId: "c1", statement: "root claim" });
+    await assert.rejects(
+      graph.supersedeClaim({ claimId: "c1", supersededByClaimId: "c1" }),
+      /with itself/,
+    );
+    // The claim must remain active — a self-supersede must not pin it.
+    const snapshot = await graph.recomputeBeliefs();
+    assert.equal(snapshot.beliefs.find((b) => b.claimId === "c1")?.status, "active");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("ClaimGraph: supersedeClaim rejects a second supersede (chain must not fork)", async () => {
+  const projectRoot = createTempProject();
+  try {
+    const graph = new ClaimGraph({ projectRoot, loadArtifacts: async () => [] });
+    await graph.upsertClaim({ claimId: "c1", statement: "root claim" });
+    await graph.upsertClaim({ claimId: "c1-v2", statement: "replacement" });
+    await graph.upsertClaim({ claimId: "c1-v3", statement: "another replacement" });
+
+    await graph.supersedeClaim({ claimId: "c1", supersededByClaimId: "c1-v2" });
+    await assert.rejects(
+      graph.supersedeClaim({ claimId: "c1", supersededByClaimId: "c1-v3" }),
+      /already superseded by "c1-v2"/,
+    );
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });
   }

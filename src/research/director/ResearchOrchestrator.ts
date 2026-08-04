@@ -50,6 +50,9 @@ export type OrchestrationPlan = Readonly<{
   /** Belief revisions since the previous plan (backtracking ledger). */
   revisions: readonly BeliefRevisionEvent[];
   backtracking: boolean;
+  /** Anomaly detection on the belief state (paradigm-shift signal). */
+  anomalyDetected: boolean;
+  anomalyScore: number;
   /** Venue/style context for the agent (undefined when not yet chosen). */
   venue?: { id: string; displayName: string; styleProfileReady: boolean };
   /** Human/agent-readable markdown summary (memory-friendly). */
@@ -130,6 +133,8 @@ export class ResearchOrchestrator {
       stopReason: reconciled.plan.stopReason,
       revisions: reconciled.revisions,
       backtracking: reconciled.backtracking,
+      anomalyDetected: anomaly.detected,
+      anomalyScore: anomaly.anomalyScore,
       ...(venue ? { venue } : {}),
       summaryMarkdown,
       beliefs: Object.freeze(beliefs),

@@ -121,38 +121,10 @@ async function executeAction(
     year: input.year,
     verified: true,
   });
-  const custom = await registry.customVenues();
-  const updated: VenueDefinition[] = custom.some((entry) => entry.id === venue.id)
-    ? custom.map((entry) =>
-        entry.id === venue.id
-          ? Object.freeze({
-              ...entry,
-              sources: Object.freeze([
-                pinned,
-                ...entry.sources.filter((source) => !(source.year === input.year && source.verified)),
-              ]),
-            })
-          : entry,
-      )
-    : [
-        ...custom,
-        Object.freeze({
-          id: venue.id,
-          kind: venue.kind,
-          displayName: venue.displayName,
-          publisher: venue.publisher,
-          anonymousSubmission: venue.anonymousSubmission,
-          defaultPageLimit: venue.defaultPageLimit,
-          // Merge, never replace: the built-in sources (other years,
-          // evergreen fallbacks) stay available for year-adjusted
-          // resolution. The pin leads for its own year.
-          sources: Object.freeze([
-            pinned,
-            ...venue.sources.filter((source) => !(source.year === input.year && source.verified)),
-          ]),
-        }),
-      ];
-  await registry.save(updated);
+  // pinSource runs the read-merge-write under a module-level lock with a
+  // fresh disk read inside, so concurrent pins merge instead of silently
+  // dropping each other.
+  await registry.pinSource({ venueId: input.venue, source: pinned });
   return Object.freeze({ action: "pin", pinned, venue: input.venue, year: input.year });
 }
 

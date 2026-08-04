@@ -367,6 +367,14 @@ export default function AppShellV2() {
 
   const onShowSettings = useCallback(() => setShowSettings(true), [setShowSettings]);
   const onCloseSettings = useCallback(() => setShowSettings(false), [setShowSettings]);
+
+  // The feature tour closes the settings modal when it starts (its spotlight
+  // must point at shell elements, not at content hidden under the modal).
+  useEffect(() => {
+    const closeForTour = () => setShowSettings(false);
+    window.addEventListener('rigorium:close-settings', closeForTour);
+    return () => window.removeEventListener('rigorium:close-settings', closeForTour);
+  }, [setShowSettings]);
   const onMenuClick = useCallback(() => setSidebarOpen(true), [setSidebarOpen]);
   const onCollapseSidebar = useCallback(() => {
     if (isMobile) {

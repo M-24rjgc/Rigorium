@@ -15,9 +15,11 @@ export default function FeatureTourHost() {
       setShow(true);
     }
     const onRequest = () => {
-      if (!hasSeenFeatureTour()) {
-        setShow(true);
-      }
+      // The tour's spotlight is drawn above the shell — if it was requested
+      // from inside the settings modal (replay button), close the modal
+      // first, or the spotlight would point at elements hidden under it.
+      window.dispatchEvent(new Event('rigorium:close-settings'));
+      setShow(true);
     };
     window.addEventListener('rigorium:feature-tour-request', onRequest);
     return () => window.removeEventListener('rigorium:feature-tour-request', onRequest);

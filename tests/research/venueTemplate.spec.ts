@@ -255,3 +255,70 @@ test("tool: pin merges with built-in sources — year fallback survives", async 
     rmSync(projectRoot, { recursive: true, force: true });
   }
 });
+
+test("registry: concurrent pins merge instead of last-writer-wins", async () => {
+  const projectRoot = createTempProject();
+  try {
+    // Two registries (as the tool creates per call) pin different venues
+    // concurrently. Without serialization, both read the same snapshot and
+    // the second save would silently drop the first pin.
+    const first = new VenueTemplateRegistry({ projectRoot });
+    const second = new VenueTemplateRegistry({ projectRoot });
+    const [a, b] = await Promise.all([
+      first.pinSource({
+        venueId: "icml",
+        source: Object.freeze({
+          officialPageUrl: "https://icml.cc",
+          archiveUrl: "https://example.com/icml2027.zip",
+          year: 2027,
+          verified: true,
+          archiveSha256: "sha256:aaa",
+        }),
+      }),
+      second.pinSource({
+        venueId: "iclr",
+        source: Object.freeze({
+          officialPageUrl: "https://iclr.cc",
+          archiveUrl: "https://example.com/iclr2028.zip",
+          year: 2028,
+          verified: true,
+          archiveSha256: "sha256:bbb",
+        }),
+      }),
+    ]);
+    assert.equal(a.id, "icml");
+    assert.equal(b.id, "iclr");
+
+    const reloaded = new VenueTemplateRegistry({ projectRoot });
+    const icml = await reloaded.resolve("icml", 2027);
+    const iclr = await reloaded.resolve("iclr", 2028);
+    assert.equal(icml?.candidates[0]?.source.archiveSha256, "sha256:aaa", "icml pin must survive");
+    assert.equal(iclr?.candidates[0]?.source.archiveSha256, "sha256:bbb", "iclr pin must survive");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("registry: corrupt override file is never silently overwritten", async () => {
+  const projectRoot = createTempProject();
+  try {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const overridePath = join(projectRoot, ".rigorium", "research", "venues", "venues.json");
+    mkdirSync(join(projectRoot, ".rigorium", "research", "venues"), { recursive: true });
+    writeFileSync(overridePath, "{ not-json", "utf8");
+
+    const registry = new VenueTemplateRegistry({ projectRoot });
+    await assert.rejects(
+      registry.pinSource({
+        venueId: "iclr",
+        source: Object.freeze({ officialPageUrl: "https://iclr.cc", year: 2027, verified: true }),
+      }),
+      /Refusing to overwrite corrupt venue override/,
+    );
+    // The corrupt evidence must be intact on disk.
+    const { readFileSync } = await import("node:fs");
+    assert.equal(readFileSync(overridePath, "utf8"), "{ not-json");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});

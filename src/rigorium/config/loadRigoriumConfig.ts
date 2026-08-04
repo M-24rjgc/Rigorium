@@ -11,6 +11,7 @@ import { mergeConfigSources } from "./merge.js";
 import { parseMemoryConfig } from "./parseMemoryConfig.js";
 import { parseAdaptersConfig, parseGatewayConfig } from "./parseGatewayConfig.js";
 import { parseToolsConfig } from "./parseToolsConfig.js";
+import { expandEnvReference, isEnvReference } from "./envRef.js";
 import { parseRouterConfig } from "../../router/config/parseRouterConfig.js";
 import { redactConfig } from "./redact.js";
 import {
@@ -124,11 +125,11 @@ export function loadRigoriumConfig(options: RigoriumConfigLoadOptions = {}): Rig
 
   const alwaysOn = parseAlwaysOnConfig(rawConfig.alwaysOn, diagnostics);
   const cron = parseCronConfig(rawConfig.cron, diagnostics);
-  const tools = parseToolsConfig(rawConfig.tools, diagnostics);
+  const tools = parseToolsConfig(rawConfig.tools, diagnostics, env);
   const telemetry = parseTelemetryConfig(rawConfig.telemetry);
   const proxy = parseProxyConfig(rawConfig, diagnostics);
-  const vision = parseVisionConfig(rawConfig.vision, diagnostics);
-  const figureGen = parseFigureGenConfig(rawConfig.figureGen, diagnostics);
+  const vision = parseVisionConfig(rawConfig.vision, diagnostics, env);
+  const figureGen = parseFigureGenConfig(rawConfig.figureGen, diagnostics, env);
   throwConfigErrorIfFatal(diagnostics);
 
   const redactedSnapshotConfig = redactConfig({
@@ -181,6 +182,7 @@ export function loadRigoriumConfig(options: RigoriumConfigLoadOptions = {}): Rig
 function parseVisionConfig(
   raw: unknown,
   diagnostics: RigoriumConfigDiagnostic[],
+  env: Record<string, string | undefined>,
 ): RigoriumConfig["vision"] {
   if (raw === undefined) {
     return undefined;
@@ -196,7 +198,11 @@ function parseVisionConfig(
     return undefined;
   }
   const baseUrl = typeof raw.baseUrl === "string" && raw.baseUrl.length > 0 ? raw.baseUrl : undefined;
-  const apiKey = typeof raw.apiKey === "string" && raw.apiKey.length > 0 ? raw.apiKey : undefined;
+  // `${VAR}` references expand from the environment; an *unresolved*
+  // reference is treated as missing (never a literal fake key).
+  const expandedApiKey =
+    typeof raw.apiKey === "string" && raw.apiKey.length > 0 ? expandEnvReference(raw.apiKey, env) : undefined;
+  const apiKey = expandedApiKey !== undefined && !isEnvReference(expandedApiKey) ? expandedApiKey : undefined;
   const model = typeof raw.model === "string" && raw.model.length > 0 ? raw.model : undefined;
   if (!baseUrl || !apiKey || !model) {
     diagnostics.push({
@@ -227,6 +233,7 @@ function parseVisionConfig(
 function parseFigureGenConfig(
   raw: unknown,
   diagnostics: RigoriumConfigDiagnostic[],
+  env: Record<string, string | undefined>,
 ): RigoriumConfig["figureGen"] {
   if (raw === undefined) {
     return undefined;
@@ -242,7 +249,11 @@ function parseFigureGenConfig(
     return undefined;
   }
   const baseUrl = typeof raw.baseUrl === "string" && raw.baseUrl.length > 0 ? raw.baseUrl : undefined;
-  const apiKey = typeof raw.apiKey === "string" && raw.apiKey.length > 0 ? raw.apiKey : undefined;
+  // `${VAR}` references expand from the environment; an *unresolved*
+  // reference is treated as missing (never a literal fake key).
+  const expandedApiKey =
+    typeof raw.apiKey === "string" && raw.apiKey.length > 0 ? expandEnvReference(raw.apiKey, env) : undefined;
+  const apiKey = expandedApiKey !== undefined && !isEnvReference(expandedApiKey) ? expandedApiKey : undefined;
   const model = typeof raw.model === "string" && raw.model.length > 0 ? raw.model : undefined;
   if (!baseUrl || !apiKey || !model) {
     diagnostics.push({

@@ -1,4 +1,5 @@
 import { isRecord } from "../../model/config/schema.js";
+import { expandEnvReference, isEnvReference } from "./envRef.js";
 import type {
   RigoriumConfigDiagnostic,
   RigoriumDeepSeekNativeSearchConfig,
@@ -29,6 +30,7 @@ import type {
 export function parseToolsConfig(
   rawTools: unknown,
   diagnostics: RigoriumConfigDiagnostic[],
+  env: Record<string, string | undefined> = process.env,
 ): RigoriumToolsConfig | undefined {
   if (rawTools === undefined) {
     return undefined;
@@ -44,7 +46,7 @@ export function parseToolsConfig(
     return undefined;
   }
 
-  const webSearch = parseWebSearch(rawTools.webSearch, diagnostics);
+  const webSearch = parseWebSearch(rawTools.webSearch, diagnostics, env);
   const deepseekNativeSearch = parseDeepSeekNativeSearch(rawTools.deepseekNativeSearch, diagnostics);
 
   for (const key of Object.keys(rawTools)) {
@@ -113,6 +115,7 @@ function parseDeepSeekNativeSearch(
 function parseWebSearch(
   raw: unknown,
   diagnostics: RigoriumConfigDiagnostic[],
+  env: Record<string, string | undefined>,
 ): RigoriumWebSearchConfig | undefined {
   if (raw === undefined) {
     return undefined;
@@ -154,7 +157,21 @@ function parseWebSearch(
         recoverable: false,
       });
     } else {
-      result.apiKey = raw.apiKey.trim();
+      const expanded = expandEnvReference(raw.apiKey, env);
+      if (isEnvReference(expanded)) {
+        // `${VAR}` reference to an unset variable: never fabricate a
+        // literal key — drop it (the tool falls back to its own env
+        // lookup) and say why.
+        diagnostics.push({
+          code: "TOOLS_WEB_SEARCH_API_KEY_ENV_UNSET",
+          severity: "warning",
+          message: `tools.webSearch.apiKey references unset environment variable "${expanded.slice(2, -1)}"; the tool falls back to its env lookup.`,
+          path: "tools.webSearch.apiKey",
+          recoverable: true,
+        });
+      } else {
+        result.apiKey = expanded;
+      }
     }
   }
 

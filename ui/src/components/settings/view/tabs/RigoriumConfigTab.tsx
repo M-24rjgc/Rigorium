@@ -63,7 +63,7 @@ import {
 } from '../../../../shared/catalogProviders';
 import { fetchProviderModels, fetchRemoteDefaultModels, type ApiModelListItem } from '../../../../shared/modelListApi';
 import type { SettingsProject } from '../../types/types';
-import { isCronConfigEnabled, patch } from './rigoriumConfigForm';
+import { GLM_DEFAULT_ENDPOINT, isCronConfigEnabled, patch, switchWebSearchProvider } from './rigoriumConfigForm';
 
 // ── V2 schema types ────────────────────────────────────────────────────
 // Schema mirrors ~/.rigorium/rigorium.yaml exactly. No more
@@ -2700,18 +2700,17 @@ function MemorySection({
 
 function ToolsSection({ config, onChange }: { config: RigoriumConfig; onChange: (next: RigoriumConfig) => void }) {
   const { t } = useTranslation('settings');
-  const glmDefaultEndpoint = 'https://api.z.ai/api/paas/v4/web_search';
   const ws = config.tools?.webSearch ?? {};
   const provider = ws.provider === 'tavily' || ws.provider === 'custom' ? ws.provider : 'glm';
   const apiKey = typeof ws.apiKey === 'string' ? ws.apiKey : '';
   const endpoint = typeof ws.endpoint === 'string' ? ws.endpoint : '';
   const custom = ws.customProvider ?? {};
-  const endpointValue = endpoint || (provider === 'glm' ? glmDefaultEndpoint : '');
+  const endpointValue = endpoint || (provider === 'glm' ? GLM_DEFAULT_ENDPOINT : '');
   const endpointPlaceholder = provider === 'custom'
     ? 'https://example.com/search'
     : provider === 'tavily'
       ? 'https://api.tavily.com/search'
-      : glmDefaultEndpoint;
+      : GLM_DEFAULT_ENDPOINT;
 
   // Test-connection state — modeled after onboarding's LlmConfigurationStep
   // so behaviour and accessibility match across the app. Reset whenever the
@@ -2725,13 +2724,11 @@ function ToolsSection({ config, onChange }: { config: RigoriumConfig; onChange: 
   };
 
   const setProvider = (nextProvider: 'glm' | 'tavily' | 'custom') => {
-    const nextTools = {
-      ...(config.tools ?? {}),
-      webSearch: {
-        provider: nextProvider,
-        ...(nextProvider === 'glm' ? { endpoint: glmDefaultEndpoint } : {}),
-      },
-    };
+    // Merge, never replace: switching providers must not silently drop the
+    // saved apiKey / customProvider mapping / user-set endpoint (that would
+    // erase credentials from rigorium.yaml with no confirmation).
+    const nextWs = switchWebSearchProvider(ws, nextProvider);
+    const nextTools = { ...(config.tools ?? {}), webSearch: nextWs };
     onChange(patch(config, ['tools'], nextTools));
     resetTest();
   };

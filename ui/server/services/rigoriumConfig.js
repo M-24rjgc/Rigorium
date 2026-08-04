@@ -28,8 +28,8 @@ const RIGORIUM_HOME_DIR = process.env.RIGORIUM_HOME || path.join(os.homedir(), '
 const DEFAULT_CONFIG_PATH = path.join(RIGORIUM_HOME_DIR, 'rigorium.yaml');
 const MASK = '********';
 
-const SECRET_KEY_RE = /(api[_-]?key|token|secret|password|auth[_-]?token|access[_-]?token|bot[_-]?token|app[_-]?token|encoding[_-]?aes[_-]?key)$/i;
-const SECRET_EXACT_KEYS = new Set(['key', 'apiKey', 'api_key', 'authToken', 'accessToken']);
+const SECRET_KEY_RE = /(api[_-]?key|token|secret|password|auth[_-]?token|access[_-]?token|bot[_-]?token|app[_-]?token|encoding[_-]?aes[_-]?key|encryptKey|key)$/i;
+const SECRET_EXACT_KEYS = new Set(['key', 'apiKey', 'api_key', 'authToken', 'accessToken', 'encryptKey']);
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));

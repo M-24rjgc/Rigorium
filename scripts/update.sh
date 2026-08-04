@@ -58,15 +58,32 @@ fi
 
 log "Updating from ${LOCAL_HEAD:0:8} to ${REMOTE_HEAD:0:8}..."
 
+STASHED=0
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
   warn "Working directory has uncommitted changes. Stashing..."
   git stash push -m "rigorium-auto-update-$(date +%Y%m%d-%H%M%S)" 2>&1
+  STASHED=1
 fi
 
-git pull --ff-only origin "$CURRENT_BRANCH" 2>&1 || {
-  warn "Fast-forward pull failed, attempting reset..."
-  git reset --hard "origin/$CURRENT_BRANCH" 2>&1
-}
+# Strictly fast-forward: an auto-update must never force-reset the working
+# tree (that would silently destroy uncommitted work). If the local branch
+# diverged, fail loudly and hand the situation back to the operator.
+if ! git pull --ff-only origin "$CURRENT_BRANCH" 2>&1; then
+  if [[ "$STASHED" -eq 1 ]]; then
+    warn "Update failed; restoring your stashed changes."
+    git stash pop 2>&1 || true
+  fi
+  fail "Fast-forward pull failed: the local branch has diverged from origin/$CURRENT_BRANCH. Refusing to force-reset (uncommitted work would be destroyed). Resolve manually, then re-run the update."
+fi
+
+if [[ "$STASHED" -eq 1 ]]; then
+  warn "Restoring stashed changes..."
+  if ! git stash pop 2>&1; then
+    warn "Stash pop reported conflicts (upstream changed the same files). Your changes are preserved in the stash:"
+    git stash list 2>&1
+    warn "Resolve the conflicts manually and run 'git stash drop' when done."
+  fi
+fi
 
 log "Installing dependencies..."
 if command -v pnpm >/dev/null 2>&1; then

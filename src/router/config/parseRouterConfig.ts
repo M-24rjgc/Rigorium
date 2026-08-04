@@ -673,6 +673,24 @@ function parseAutoOrchestrate(
     }
   }
 
+  let maxContinuationTurns: number | undefined;
+  if (raw.maxContinuationTurns !== undefined) {
+    if (
+      typeof raw.maxContinuationTurns === "number" &&
+      Number.isInteger(raw.maxContinuationTurns) &&
+      raw.maxContinuationTurns > 0
+    ) {
+      maxContinuationTurns = raw.maxContinuationTurns;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_AUTO_ORCHESTRATE_MAX_CONTINUATION_TURNS_INVALID",
+        severity: "fatal",
+        path: "router.autoOrchestrate.maxContinuationTurns",
+        message: "maxContinuationTurns must be a positive integer.",
+      });
+    }
+  }
+
   return {
     enabled,
     triggerTiers,
@@ -682,6 +700,7 @@ function parseAutoOrchestrate(
     skillExtensionId,
     orchestrationPrompt,
     subagentMaxTokens,
+    maxContinuationTurns,
   };
 }
 

@@ -4,7 +4,10 @@
 >
 > 本增量完成 Phase 4（平台整合 + 自举闭环）的最后三块：技能生态导入、
 > 自举论文的离线材料、以及 **三个并行审查代理的严格验收**。审查发现的
-> 全部 CRITICAL / MAJOR 问题均已修复并有测试护航；全量回归 639/639 绿。
+> 全部 CRITICAL / MAJOR 问题均已修复并有测试护航；多路并行审查
+> 复核后再次修复（sticky 槽位键、编排退出路径、supersede 自指校验、
+> venue pin 并发、更新链路安全默认值、tokenizer 长段病态等），
+> 全量回归 659/659 绿。
 
 ---
 
@@ -109,8 +112,9 @@
   enable-gating、tests/tool/researchPlan、claimMonitor 生产 loader、
   VenueCorpus per-venue 逐出、venue pin 合并、ClaimGraph 形状损坏 +
   supersede 校验、research 元数据端到端 ×2）；
-- 全量回归：**639/639 通过**（`--test-concurrency=4`；EPERM 属 Windows
-  原子 rename 并发抖动，单跑复跑确认 0 失败）。
+- 全量回归：**659/659 通过**（`--test-concurrency=4`，0 cancelled；
+  read-file-large 的 33s 病态用例经 tokenizer 分段修复降至秒级，
+  不再触发全量超时）。
 
 ---
 

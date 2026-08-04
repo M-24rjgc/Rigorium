@@ -65,6 +65,12 @@ export type SessionRoutingState = {
   stickyProvider?: string;
   stickyModel?: string;
   orchestrating: boolean;
+  /**
+   * Number of turns in the current orchestration run (1 = the triggering
+   * turn). Bumped while orchestrating, cleared on exit — lets the router
+   * bound a run (maxContinuationTurns) and observe when it ends.
+   */
+  orchestrationContinuations?: number;
   lastUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
   /**
    * Consecutive routed-turn failures observed on this sticky selection

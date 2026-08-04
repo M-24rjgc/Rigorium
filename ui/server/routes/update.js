@@ -24,6 +24,37 @@ const router = express.Router();
 let updateInProgress = false;
 let lastUpdateResult = null;
 
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
+
+/**
+ * Origin guard for state-changing update endpoints. Browser cross-origin
+ * POSTs are sent without CORS preflight (the response is just unreadable),
+ * so CORS alone cannot stop a malicious web page from triggering downloads
+ * or restarts against a loopback server. Only allow requests that carry no
+ * Origin/Referer (non-browser clients) or that originate from loopback.
+ */
+function assertLoopbackOrigin(req, res, next) {
+  const origin = req.headers.origin || req.headers.referer || req.headers.referrer;
+  if (!origin) {
+    next();
+    return;
+  }
+  try {
+    const hostname = new URL(String(origin)).hostname;
+    if (LOOPBACK_HOSTNAMES.has(hostname)) {
+      next();
+      return;
+    }
+  } catch {
+    // unparseable origin — deny below
+  }
+  res.status(403).json({ error: 'Cross-origin requests to update endpoints are not allowed.' });
+}
+
+// State-changing update endpoints (installer download/launch, code apply,
+// restart) are loopback-only, regardless of auth mode.
+router.use(assertLoopbackOrigin);
+
 function execInProject(cmd) {
   return execAsync(cmd, { cwd: PROJECT_ROOT, maxBuffer: 10 * 1024 * 1024 });
 }
@@ -356,6 +387,16 @@ router.post('/apply', async (req, res) => {
  * Works in both Docker (process manager respawns) and local dev (self-respawn).
  */
 router.post('/restart', async (req, res) => {
+  if (process.env.RIGORIUM_DESKTOP === '1') {
+    // In desktop mode the Electron main process owns the server lifecycle;
+    // spawning `npm run dev` from the packaged resources dir cannot work and
+    // process.exit would strand the app with a dead UI. Refuse instead of
+    // killing the server.
+    return res.status(409).json({
+      error: 'Restart is managed by the desktop app',
+      message: 'In desktop mode the application window owns the server lifecycle; use the app restart instead.',
+    });
+  }
   res.json({
     message: 'Restart initiated.',
     status: 'restarting',

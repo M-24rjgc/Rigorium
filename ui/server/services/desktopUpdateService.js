@@ -866,7 +866,13 @@ export function parseInstallerSha256(value, installerName, options = {}) {
   if (bare && options.allowBare !== false) return bare[1].toLowerCase();
   for (const line of text.split(/\r?\n/u)) {
     const match = line.trim().match(/^([a-fA-F0-9]{64})\s+\*?(.+)$/u);
-    if (match && match[2].trim() === installerName) return match[1].toLowerCase();
+    if (!match) continue;
+    // Accept `hex  <basename>` (sha256sum format) as well as `hex  *release/<basename>`
+    // (git-bash `sha256sum` relative-path output) — the file name is compared by
+    // basename so directory prefixes in the checksum file can't fake a match for a
+    // different installer, but also can't break a legitimate relative path.
+    const referencedName = match[2].trim().split(/[\\/]/u).pop();
+    if (referencedName === installerName) return match[1].toLowerCase();
   }
   return null;
 }

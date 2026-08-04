@@ -110,3 +110,25 @@ test("research_plan: registered by default in the builtin registry", async () =>
   assert.ok(tool, "research_plan must be registered by default");
   assert.equal(tool.name, "research_plan");
 });
+
+test("research_plan: anomalyDetected is a structured field, not a markdown string match", async () => {
+  const projectRoot = createTempProject();
+  try {
+    const graph = new ClaimGraph({ projectRoot, loadArtifacts: async () => [] });
+    // One claim, no evidence — no anomaly signal.
+    await graph.upsertClaim({ claimId: "c-plain", statement: "A plain hypothesis about representation learning" });
+
+    const tool = createResearchPlanTool();
+    const result = (await tool.execute(
+      { action: "plan" },
+      toolContext(projectRoot),
+    )) as unknown as { data: ResearchPlanToolResult };
+
+    assert.equal(typeof result.data.anomalyDetected, "boolean", "must be a structured boolean");
+    assert.equal(typeof result.data.anomalyScore, "number", "must carry a numeric score");
+    assert.equal(result.data.anomalyDetected, false);
+    assert.ok(result.data.anomalyScore >= 0 && result.data.anomalyScore <= 1);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});

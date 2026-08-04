@@ -44,10 +44,11 @@ test("claim_monitor: active claims get queries; falsified claims are excluded", 
       { action: "check" },
       { cwd: projectRoot, sessionId: "s", turnId: "t", abortSignal: undefined, now: () => new Date() } as never,
     )) as unknown as { data: ClaimMonitorToolResult };
-    assert.equal(result.data.totalClaims, 2);
-    assert.equal(result.data.monitored.length, 1, "only the active claim is monitored");
-    assert.equal(result.data.monitored[0]!.claimId, "c-live");
-    assert.match(result.data.monitored[0]!.query, /neural/i);
+    const data = result.data as Extract<ClaimMonitorToolResult, { action: "check" }>;
+    assert.equal(data.totalClaims, 2);
+    assert.equal(data.monitored.length, 1, "only the active claim is monitored");
+    assert.equal(data.monitored[0]!.claimId, "c-live");
+    assert.match(data.monitored[0]!.query, /neural/i);
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });
   }
@@ -84,7 +85,8 @@ test("claim_monitor: default loader sees on-disk evidence (not evidence-blind)",
       { action: "check" },
       { cwd: projectRoot, sessionId: "s", turnId: "t", abortSignal: undefined, now: () => new Date() } as never,
     )) as unknown as { data: ClaimMonitorToolResult };
-    const monitored = result.data.monitored.find((claim) => claim.claimId === "c-evidence");
+    const data = result.data as Extract<ClaimMonitorToolResult, { action: "check" }>;
+    const monitored = data.monitored.find((claim) => claim.claimId === "c-evidence");
     assert.ok(monitored, "claim with on-disk evidence must be monitored");
     assert.equal(monitored!.evidenceCount, 1, "parents must survive the default loader");
   } finally {
@@ -104,7 +106,79 @@ test("claim_monitor: limit caps the monitored list", async () => {
       { action: "check", limit: 2 },
       { cwd: projectRoot, sessionId: "s", turnId: "t", abortSignal: undefined, now: () => new Date() } as never,
     )) as unknown as { data: ClaimMonitorToolResult };
-    assert.equal(result.data.monitored.length, 2);
+    const data = result.data as Extract<ClaimMonitorToolResult, { action: "check" }>;
+    assert.equal(data.monitored.length, 2);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("claim_monitor: claim_create registers a claim in the production write path", async () => {
+  const projectRoot = createTempProject();
+  try {
+    const tool = createClaimMonitorTool();
+    const result = (await tool.execute(
+      { action: "claim_create", claimId: "c-new", statement: "A freshly registered research question", falsificationCondition: "The null result holds" },
+      { cwd: projectRoot, sessionId: "s", turnId: "t", abortSignal: undefined, now: () => new Date() } as never,
+    )) as unknown as { data: Extract<ClaimMonitorToolResult, { action: "claim_create" }> };
+
+    assert.equal(result.data.action, "claim_create");
+    assert.equal(result.data.claim.claimId, "c-new");
+    assert.equal(result.data.claim.falsificationCondition, "The null result holds");
+
+    // A fresh graph instance must see the registered claim on disk.
+    const graph = new ClaimGraph({ projectRoot, loadArtifacts: async () => [] });
+    const claims = await graph.listClaims();
+    assert.equal(claims.some((claim) => claim.claimId === "c-new"), true);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("claim_monitor: claim_supersede ends the claim and its descendants", async () => {
+  const projectRoot = createTempProject();
+  try {
+    const graph = new ClaimGraph({ projectRoot, loadArtifacts: async () => [] });
+    await graph.upsertClaim({ claimId: "c-root", statement: "Root claim about retrieval" });
+    await graph.upsertClaim({ claimId: "c-child", statement: "Derived claim", parentClaimIds: ["c-root"] });
+    await graph.upsertClaim({ claimId: "c-replacement", statement: "The revised hypothesis" });
+
+    const tool = createClaimMonitorTool();
+    const result = (await tool.execute(
+      { action: "claim_supersede", claimId: "c-root", supersededByClaimId: "c-replacement", reason: "Evidence contradicted the root" },
+      { cwd: projectRoot, sessionId: "s", turnId: "t", abortSignal: undefined, now: () => new Date() } as never,
+    )) as unknown as { data: Extract<ClaimMonitorToolResult, { action: "claim_supersede" }> };
+
+    assert.equal(result.data.action, "claim_supersede");
+    assert.deepEqual([...result.data.affected].sort(), ["c-child", "c-root"]);
+    assert.equal(result.data.supersededByClaimId, "c-replacement");
+
+    // A fresh graph instance (the tool writes through its own instance) —
+    // reading the persisted state proves the write, not an in-memory cache.
+    const reloaded = new ClaimGraph({ projectRoot, loadArtifacts: async () => [] });
+    const snapshot = await reloaded.recomputeBeliefs();
+    const statuses = new Map(snapshot.beliefs.map((b) => [b.claimId, b.status]));
+    assert.equal(statuses.get("c-root"), "superseded");
+    assert.equal(statuses.get("c-child"), "superseded");
+    assert.equal(statuses.get("c-replacement"), "active");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("claim_monitor: claim_supersede rejects self-supersession with a tool error", async () => {
+  const projectRoot = createTempProject();
+  try {
+    const graph = new ClaimGraph({ projectRoot, loadArtifacts: async () => [] });
+    await graph.upsertClaim({ claimId: "c-x", statement: "A claim" });
+    const tool = createClaimMonitorTool();
+    await assert.rejects(
+      tool.execute(
+        { action: "claim_supersede", claimId: "c-x", supersededByClaimId: "c-x" },
+        { cwd: projectRoot, sessionId: "s", turnId: "t", abortSignal: undefined, now: () => new Date() } as never,
+      ),
+      /with itself/,
+    );
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });
   }

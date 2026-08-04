@@ -73,7 +73,9 @@ P3 把「论文写作」从单一 LaTeX 工具升级为**开放的论文工坊**
 
 ## 遗留（Phase 4 接线项）
 
-- 多模态边界自动视觉注入（无视觉模型 + 图片 → 自动 describe_image）；
+- ~~多模态边界自动视觉注入~~：已随 Phase 4 接线（`AgentLoop` 在
+  `downgradeUnsupportedContent` 边界自动调用 vision assistant，见
+  `src/agent/loop/AgentLoop.ts` 与 `increment-5` 验收）；
 - figure_generate 真实端点验证（等用户 Key）；
 - venue 选择 → director 计划集成（EIG 的 write_section 动作消费 style
   profile）；自举论文端到端。

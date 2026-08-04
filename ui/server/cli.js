@@ -188,7 +188,9 @@ function ensureFrontendBuild() {
 }
 
 async function startServer() {
-  const host = process.env.HOST || '0.0.0.0';
+  // Loopback by default (local auth is also ON by default outside desktop
+  // mode); set HOST explicitly to expose the server on a LAN.
+  const host = process.env.HOST || '127.0.0.1';
   const port = process.env.SERVER_PORT || '3001';
   await assertPortAvailable(port, host);
   ensureFrontendBuild();

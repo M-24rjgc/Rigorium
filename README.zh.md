@@ -249,7 +249,7 @@ Rigorium 支持 20+ 外部渠道接入，所有渠道复用同一套 Agent 运�
 
 ### Windows 桌面应用
 
-从 [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) 下载最新安装包（当前 v0.2.1，约 142 MB）。桌面应用内置自动更新。
+从 [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) 下载最新安装包（当前 v0.2.2，约 149 MB）。桌面应用内置自动更新。
 
 ### macOS 桌面应用
 
@@ -290,7 +290,7 @@ rigorium
 
 ## 当前状态
 
-v0.2.1 · 早期开发阶段
+v0.2.2 · 早期开发阶段
 
 **已落地：**
 - 完整 Agent 执行循环（多阶段恢复、熔断器、透明合成提示）

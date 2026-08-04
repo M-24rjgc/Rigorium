@@ -514,6 +514,9 @@ export class AgentLoop {
           turnId: input.turnId,
           projectPath: this.config.cwd,
           abortSignal: input.abortSignal,
+          // Declared role — keeps the quality-failure counter in the same
+          // sticky slot decide() reads (matches decide's isMainAgent).
+          isMainAgent: !this.config.isSubagent,
         })) {
           yield { type: "model_event", sessionId: input.sessionId, turnId: input.turnId, event };
           applyModelEventToAssembler(assembler, event);

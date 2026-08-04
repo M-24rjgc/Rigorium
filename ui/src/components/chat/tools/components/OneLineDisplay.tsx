@@ -1,6 +1,22 @@
 import React, { useState } from 'react';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 
+/**
+ * Icon-name → SVG path map (24×24 stroke-based, matches the inline SVGs
+ * used elsewhere in this component). Tool configs reference icons by name
+ * (map/eye/file-text/book/image/search/terminal); anything not in the map
+ * falls back to rendering the raw string so unknown configs stay readable.
+ */
+const ICON_PATHS: Record<string, string> = {
+  terminal: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+  map: 'M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7',
+  eye: 'M15 12a3 3 0 11-6 0 3 3 0 016 0zM2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z',
+  'file-text': 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+  book: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253',
+  image: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z',
+  search: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z',
+};
+
 type ActionType = 'copy' | 'open-file' | 'jump-to-results' | 'none';
 
 interface OneLineDisplayProps {
@@ -163,8 +179,16 @@ export const OneLineDisplay: React.FC<OneLineDisplayProps> = ({
   // Default one-line style
   return (
     <div className={`group flex items-center gap-1.5 ${colorScheme.background || ''} border-l-2 ${colorScheme.border} my-0.5 py-0.5 pl-3`}>
-      {icon && icon !== 'terminal' && (
-        <span className={`${colorScheme.icon} flex-shrink-0 text-xs`}>{icon}</span>
+      {icon && (
+        <span className={`${colorScheme.icon} flex-shrink-0`}>
+          {ICON_PATHS[icon] ? (
+            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={ICON_PATHS[icon]} />
+            </svg>
+          ) : (
+            <span className="text-xs">{icon}</span>
+          )}
+        </span>
       )}
       {!icon && (label || toolName) && (
         <span className="flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">{label || toolName}</span>

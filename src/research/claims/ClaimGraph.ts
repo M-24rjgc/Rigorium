@@ -54,6 +54,30 @@ type PersistedState = Readonly<{
 }>;
 
 /**
+ * Module-level serialization of the claims file's read-modify-write.
+ * Tool executions construct a fresh ClaimGraph per call, so an in-instance
+ * mutex would not serialize concurrent writers (parallel subagents): two
+ * concurrent upserts would both merge onto the same disk snapshot and the
+ * last save would silently drop one. Keyed by file path so different
+ * projects don't block each other.
+ */
+const CLAIM_WRITE_LOCKS = new Map<string, Promise<void>>();
+
+function withClaimWriteLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+  const previous = CLAIM_WRITE_LOCKS.get(filePath) ?? Promise.resolve();
+  const run = previous.then(fn);
+  // Store a non-throwing tail so a failed op doesn't poison the chain.
+  CLAIM_WRITE_LOCKS.set(
+    filePath,
+    run.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return run;
+}
+
+/**
  * Project-local claim graph with belief computation and atomic persistence.
  *
  * Claims are first-class research entities stored under
@@ -195,26 +219,28 @@ export class ClaimGraph {
     parentClaimIds?: string[];
     sourceArtifactId?: string;
   }): Promise<Claim> {
-    await this.load();
-    const existing = this.claims.get(input.claimId);
-    const claim: Claim = Object.freeze({
-      claimId: input.claimId,
-      statement: input.statement,
-      falsificationCondition: input.falsificationCondition,
-      parentClaimIds: input.parentClaimIds ? [...input.parentClaimIds] : undefined,
-      sourceArtifactId: input.sourceArtifactId,
-      createdAt: existing?.claim.createdAt ?? this.now().toISOString(),
+    return withClaimWriteLock(this.filePath, async () => {
+      await this.load();
+      const existing = this.claims.get(input.claimId);
+      const claim: Claim = Object.freeze({
+        claimId: input.claimId,
+        statement: input.statement,
+        falsificationCondition: input.falsificationCondition,
+        parentClaimIds: input.parentClaimIds ? [...input.parentClaimIds] : undefined,
+        sourceArtifactId: input.sourceArtifactId,
+        createdAt: existing?.claim.createdAt ?? this.now().toISOString(),
+      });
+      const next = new Map(this.claims);
+      next.set(input.claimId, {
+        claim,
+        statusOverride: existing?.statusOverride,
+        supersededByClaimId: existing?.supersededByClaimId,
+        supersededAt: existing?.supersededAt,
+      });
+      await this.save(next);
+      this.claims = next;
+      return claim;
     });
-    const next = new Map(this.claims);
-    next.set(input.claimId, {
-      claim,
-      statusOverride: existing?.statusOverride,
-      supersededByClaimId: existing?.supersededByClaimId,
-      supersededAt: existing?.supersededAt,
-    });
-    await this.save(next);
-    this.claims = next;
-    return claim;
   }
 
   async listClaims(): Promise<Claim[]> {
@@ -234,34 +260,48 @@ export class ClaimGraph {
    * claim id propagates to all descendants so the revision trail is complete.
    */
   async supersedeClaim(input: { claimId: string; supersededByClaimId: string; reason?: string }): Promise<string[]> {
-    await this.load();
-    const existing = this.claims.get(input.claimId);
-    if (!existing) {
-      throw new Error(`Cannot supersede unknown claim "${input.claimId}".`);
-    }
-    if (!this.claims.has(input.supersededByClaimId)) {
-      // A supersession chain must point at a real claim — otherwise the
-      // revision trail dangles and downstream replanning reads garbage.
-      throw new Error(
-        `Cannot supersede "${input.claimId}" with unknown claim "${input.supersededByClaimId}".`,
-      );
-    }
-    const affected = this.collectDescendants(input.claimId);
-    const nowIso = this.now().toISOString();
-    const next = new Map(this.claims);
-    for (const claimId of affected) {
-      const record = next.get(claimId);
-      if (!record) continue;
-      next.set(claimId, {
-        ...record,
-        statusOverride: "superseded",
-        supersededByClaimId: input.supersededByClaimId,
-        supersededAt: nowIso,
-      });
-    }
-    await this.save(next);
-    this.claims = next;
-    return affected;
+    return withClaimWriteLock(this.filePath, async () => {
+      await this.load();
+      const existing = this.claims.get(input.claimId);
+      if (!existing) {
+        throw new Error(`Cannot supersede unknown claim "${input.claimId}".`);
+      }
+      if (input.claimId === input.supersededByClaimId) {
+        // A claim cannot be its own successor — that would pin it superseded
+        // with a self-referential chain and no revision to point at.
+        throw new Error(`Cannot supersede claim "${input.claimId}" with itself.`);
+      }
+      if (!this.claims.has(input.supersededByClaimId)) {
+        // A supersession chain must point at a real claim — otherwise the
+        // revision trail dangles and downstream replanning reads garbage.
+        throw new Error(
+          `Cannot supersede "${input.claimId}" with unknown claim "${input.supersededByClaimId}".`,
+        );
+      }
+      if (existing.supersededByClaimId) {
+        // Already superseded: a second supersede would fork the revision
+        // chain, silently dropping the first successor from the trail.
+        throw new Error(
+          `Cannot supersede "${input.claimId}": already superseded by "${existing.supersededByClaimId}".`,
+        );
+      }
+      const affected = this.collectDescendants(input.claimId);
+      const nowIso = this.now().toISOString();
+      const next = new Map(this.claims);
+      for (const claimId of affected) {
+        const record = next.get(claimId);
+        if (!record) continue;
+        next.set(claimId, {
+          ...record,
+          statusOverride: "superseded",
+          supersededByClaimId: input.supersededByClaimId,
+          supersededAt: nowIso,
+        });
+      }
+      await this.save(next);
+      this.claims = next;
+      return affected;
+    });
   }
 
   private collectDescendants(claimId: string): string[] {

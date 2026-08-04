@@ -44,6 +44,8 @@ export type ResearchPlanToolResult = Readonly<{
   revisions: readonly { claimId: string; from: string; to: string; reason: string }[];
   backtracking: boolean;
   anomalyDetected: boolean;
+  /** Anomaly strength (0..1) — a paradigm-shift signal. */
+  anomalyScore: number;
   venue?: { id: string; displayName: string; styleProfileReady: boolean };
   beliefCount: number;
   /** Human/agent-readable plan summary (memory-friendly). */
@@ -93,7 +95,8 @@ Use it at the start of a research turn and after each executed action: execute t
         ...(plan.stopReason ? { stopReason: plan.stopReason } : {}),
         revisions: plan.revisions,
         backtracking: plan.backtracking,
-        anomalyDetected: plan.summaryMarkdown.includes("Anomaly mode active"),
+        anomalyDetected: plan.anomalyDetected,
+        anomalyScore: plan.anomalyScore,
         ...(plan.venue ? { venue: plan.venue } : {}),
         beliefCount: plan.beliefs.length,
         summaryMarkdown: plan.summaryMarkdown,
@@ -126,7 +129,6 @@ function researchPlanInputSchema(): RigoriumToolInputSchema {
     properties: {
       action: { type: "string", enum: ["plan"] },
       persistSummary: { type: "boolean" },
-      loadArtifacts: { type: "object" },
     },
   };
 }

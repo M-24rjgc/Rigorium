@@ -192,6 +192,29 @@ export default function FeatureTour({ onFinish }: FeatureTourProps) {
     setStepIndex((index) => Math.min(index + 1, FEATURE_TOUR_STEPS.length - 1));
   };
 
+  // Focus management for the modal dialog: move focus into the card on open
+  // (aria-modal semantics — the backdrop blocks the pointer, so keyboard
+  // users must land inside the tour), Escape finishes, and focus is restored
+  // to the previously-focused element on close.
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    cardRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        finish();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      if (previousFocus && previousFocus.isConnected && document.contains(previousFocus)) {
+        previousFocus.focus();
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const progress = ((stepIndex + 1) / FEATURE_TOUR_STEPS.length) * 100;
 
   const cardStyle: React.CSSProperties = useMemo(() => {
@@ -248,7 +271,8 @@ export default function FeatureTour({ onFinish }: FeatureTourProps) {
       {/* Explanation card. */}
       <div
         ref={cardRef}
-        className="absolute z-10 rounded-2xl border border-white/15 bg-neutral-900 p-5 text-neutral-50 shadow-2xl dark:bg-neutral-950 dark:text-neutral-100"
+        tabIndex={-1}
+        className="absolute z-10 rounded-2xl border border-white/15 bg-neutral-900 p-5 text-neutral-50 shadow-2xl outline-none dark:bg-neutral-950 dark:text-neutral-100"
         style={{ ...cardStyle, animation: 'rigorium-tour-card-in 0.35s ease-out' }}
       >
         <div className="flex items-start gap-3">

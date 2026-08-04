@@ -63,6 +63,8 @@ export class VenueCorpus {
   private readonly maxPapers: number;
   private papers: CorpusPaper[] = [];
   private loaded = false;
+  /** Set when the corpus file exists but failed to parse (see save). */
+  private corrupt = false;
 
   constructor(options: VenueCorpusOptions) {
     this.filePath = join(options.projectRoot, ".rigorium", "research", "venues", "corpus", "corpus.json");
@@ -78,8 +80,16 @@ export class VenueCorpus {
       if (parsed && Array.isArray(parsed.papers)) {
         this.papers = parsed.papers.filter(isCorpusPaper);
       }
-    } catch {
-      // missing/corrupt → empty corpus
+      this.corrupt = false;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        // Missing → empty corpus; first write creates the file.
+        this.corrupt = false;
+      } else {
+        // Corrupt state must not be silently overwritten: refuse to save so
+        // the evidence survives for inspection (same stance as ClaimGraph).
+        this.corrupt = true;
+      }
     }
     this.loaded = true;
   }
@@ -136,6 +146,11 @@ export class VenueCorpus {
   }
 
   private async save(papers: CorpusPaper[]): Promise<void> {
+    if (this.corrupt) {
+      throw new Error(
+        `Refusing to overwrite corrupt corpus state at ${this.filePath}. Inspect or remove the file first.`,
+      );
+    }
     await mkdir(dirname(this.filePath), { recursive: true });
     const state: VenueCorpusState = { schemaVersion: 1, venue: "corpus", papers };
     const temporaryPath = join(dirname(this.filePath), `.corpus.json.${process.pid}.${randomUUID()}.tmp`);

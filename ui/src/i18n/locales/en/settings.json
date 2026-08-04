@@ -1343,48 +1343,6 @@
       }
     }
   },
-  "pluginSettings": {
-    "title": "Plugins",
-    "description": "Extend the interface with custom plugins. Install from git or drop a folder in ~/.rigorium/plugins/",
-    "installPlaceholder": "https://github.com/user/my-plugin",
-    "installButton": "Install",
-    "installing": "Installing…",
-    "securityWarning": "Only install plugins whose source code you have reviewed or from authors you trust.",
-    "scanningPlugins": "Scanning plugins…",
-    "noPluginsInstalled": "No plugins installed",
-    "pullLatest": "Pull latest from git",
-    "noGitRemote": "No git remote — update not available",
-    "uninstallPlugin": "Uninstall plugin",
-    "confirmUninstall": "Click again to confirm",
-    "confirmUninstallMessage": "Remove {{name}}? This cannot be undone.",
-    "cancel": "Cancel",
-    "remove": "Remove",
-    "updateFailed": "Update failed",
-    "installFailed": "Installation failed",
-    "uninstallFailed": "Uninstall failed",
-    "toggleFailed": "Toggle failed",
-    "starterPluginLabel": "Starter Plugin",
-    "starter": "Starter",
-    "docs": "Docs",
-    "starterPlugin": {
-      "name": "Project Stats",
-      "badge": "starter",
-      "description": "File counts, lines of code, file-type breakdown, and recent activity for your project.",
-      "install": "Install"
-    },
-    "terminalPlugin": {
-      "name": "Terminal",
-      "badge": "official",
-      "description": "Integrated terminal with full shell access directly within the interface.",
-      "install": "Install"
-    },
-    "morePlugins": "More",
-    "enable": "Enable",
-    "disable": "Disable",
-    "installAriaLabel": "Plugin git repository URL",
-    "tab": "tab",
-    "runningStatus": "running"
-  },
   "about": {
     "title": "About",
     "version": "Version",

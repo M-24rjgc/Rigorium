@@ -265,7 +265,7 @@ A file-based, multi-tier memory architecture:
 
 ### Windows Desktop App
 
-Download from [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) (current v0.2.1, ~142 MB). Built-in auto-update with SHA-256 verification.
+Download from [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) (current v0.2.2, ~149 MB). Built-in auto-update with SHA-256 verification.
 
 ### macOS Desktop App
 
@@ -306,7 +306,7 @@ See [Source Install Guide](./README_SOURCE_INSTALL.md) for details.
 
 ## Current Status
 
-v0.2.1 · Early development
+v0.2.2 · Early development
 
 **Shipped:**
 - Full Agent execution loop (multi-phase recovery, circuit breaker, transparent synthetic prompts)

@@ -442,7 +442,31 @@ const wss = new WebSocketServer({
 // Make WebSocket server available to routes
 app.locals.wss = wss;
 
-app.use(cors({ exposedHeaders: ['X-Refreshed-Token'] }));
+// CORS is restricted to loopback origins (dev server, Electron window) and
+// same-origin requests (no Origin header). LAN-exposed deployments serve the
+// UI same-origin, so cross-origin browser calls from non-loopback origins
+// get no CORS headers and the browser blocks the response.
+app.use(
+    cors({
+        exposedHeaders: ['X-Refreshed-Token'],
+        origin(origin, callback) {
+            if (!origin) {
+                callback(null, true);
+                return;
+            }
+            try {
+                const hostname = new URL(String(origin)).hostname;
+                if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+                    callback(null, true);
+                    return;
+                }
+            } catch {
+                // unparseable origin — deny below
+            }
+            callback(null, false);
+        },
+    }),
+);
 const generalJsonParser = express.json({
     limit: '50mb',
     type: (req) => {
@@ -3307,7 +3331,10 @@ async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden =
 }
 
 const SERVER_PORT = process.env.SERVER_PORT || 3001;
-const HOST = process.env.HOST || '0.0.0.0';
+// Loopback by default: the self-hosted server must not silently listen on
+// every interface without authentication (local auth is also ON by default
+// outside desktop mode). Set HOST explicitly to expose it on a LAN.
+const HOST = process.env.HOST || '127.0.0.1';
 const DISPLAY_HOST = getConnectableHost(HOST);
 const VITE_PORT = process.env.VITE_PORT || 5173;
 
@@ -3363,7 +3390,7 @@ async function ensureLocalUserWhenAuthDisabled() {
     }
     const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
     userDb.createUser('local', passwordHash);
-    console.log(`${c.info('[INFO]')} Web UI login is disabled (default). Using built-in user. Set RIGORIUM_DISABLE_LOCAL_AUTH=0 to require username/password.`);
+    console.log(`${c.info('[INFO]')} Web UI local auth is disabled (desktop mode or RIGORIUM_DISABLE_LOCAL_AUTH=1). Using built-in user.`);
 }
 
 // Initialize database and start server

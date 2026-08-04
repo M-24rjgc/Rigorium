@@ -125,7 +125,7 @@ export type RouterRuntime = {
   execute(
     decision: RouterDecision,
     request: CanonicalModelRequest,
-    ctx: RouterExecuteContext,
+    ctx: RouterExecuteContext & { isMainAgent?: boolean },
   ): AsyncIterable<CanonicalModelEvent>;
   /** Convenience helper used by agent loop: decide + execute in one call. */
   stream(
@@ -490,7 +490,12 @@ export function createRouterRuntime(
         isMainAgent: input.isMainAgent,
         tier: tokenSaverTier,
         alreadyOrchestrating,
+        continuationCount: sticky?.orchestrationContinuations ?? 0,
       });
+      // On explicit run exit (reclassification below trigger tiers, or the
+      // run cap) decision.orchestrating stays false, so the sticky write
+      // below persists orchestrating:false and the next turn re-judges
+      // instead of staying pinned to the orchestration mode.
       if (orchestrated.applied) {
         mutations = { ...mutations, ...orchestrated.mutations };
         decision.orchestrating = true;
@@ -517,13 +522,20 @@ export function createRouterRuntime(
       sticky?.stickyProvider === decision.provider && sticky?.stickyModel === decision.model;
     sessionStore.set({
       sessionId: input.sessionId,
-      // Slot key must match the execute() quality-failure calls, which use
-      // decision.isSubagent (subagent-tagged main turns included).
-      isSubagent: decision.isSubagent,
+      // Slot key must match every read side (decide, tokenSaver sticky
+      // lookup, invalidateSticky), which keys by the turn's declared role
+      // (input.isMainAgent). decision.isSubagent may differ for subagent-
+      // tagged main turns — those are execution semantics (cap, stats role),
+      // not storage semantics; writing them to the `:sub` slot would strand
+      // the sticky/quality-failure state where no reader looks.
+      isSubagent: !input.isMainAgent,
       tokenSaverTier,
       stickyProvider: decision.provider,
       stickyModel: decision.model,
       orchestrating: decision.orchestrating,
+      orchestrationContinuations: decision.orchestrating
+        ? (sticky?.orchestrationContinuations ?? 0) + 1
+        : undefined,
       qualityFailures: stickyStaysOnSameModel ? sticky?.qualityFailures : undefined,
       lastUsage: sticky?.lastUsage,
       updatedAt: (deps.now?.() ?? new Date()).getTime(),
@@ -558,8 +570,13 @@ export function createRouterRuntime(
   async function* execute(
     decision: RouterDecision,
     request: CanonicalModelRequest,
-    ctx: RouterExecuteContext,
+    ctx: RouterExecuteContext & { isMainAgent?: boolean },
   ): AsyncIterable<CanonicalModelEvent> {
+    // Sticky storage is keyed by the turn's declared role (matches every
+    // sessionStore read); decision.isSubagent is execution semantics that
+    // may differ for subagent-tagged main turns. Fall back to the decision
+    // only when the caller didn't declare a role (direct execute() users).
+    const storageIsSubagent = ctx.isMainAgent === undefined ? decision.isSubagent : !ctx.isMainAgent;
     if (!enabled) {
       const passthroughRequest: CanonicalModelRequest = {
         ...request,
@@ -952,7 +969,7 @@ export function createRouterRuntime(
         // preserved (a permanently broken pinned model must be released, not
         // kept alive by fallback successes). Same attribution for the ranker.
         if (attemptIndex === 0) {
-          sessionStore.resetQualityFailures(ctx.sessionId, decision.isSubagent);
+          sessionStore.resetQualityFailures(ctx.sessionId, storageIsSubagent);
           observeRoutingOutcome(
             decision,
             "success",
@@ -968,7 +985,7 @@ export function createRouterRuntime(
       // did not deliver. Count it once against the sticky selection so the
       // next decide() re-classifies instead of retrying the same broken
       // model, and record the failure for the amortized ranker.
-      sessionStore.recordQualityFailure(ctx.sessionId, decision.isSubagent);
+      sessionStore.recordQualityFailure(ctx.sessionId, storageIsSubagent);
       observeRoutingOutcome(decision, "failure");
       events.emit({
         type: "rigorium_router_execute_failed",
@@ -1036,11 +1053,13 @@ export function createRouterRuntime(
     const orchestrating = current?.orchestrating ?? false;
     if (orchestrating && previousTier) {
       // While orchestrating, preserve the tier sticky so continuation turns
-      // don't get re-judged and accidentally downgraded.
+      // don't get re-judged and accidentally downgraded. The continuation
+      // counter rides along so the run cap accumulates across turns.
       sessionStore.set({
         sessionId,
         isSubagent: false,
         orchestrating,
+        orchestrationContinuations: current?.orchestrationContinuations,
         tokenSaverTier: previousTier,
         stickyProvider: current?.stickyProvider,
         stickyModel: current?.stickyModel,

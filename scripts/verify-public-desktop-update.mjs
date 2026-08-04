@@ -36,7 +36,16 @@ try {
   const status = await requestJson('/api/update/desktop/check', { method: 'POST' });
   assert.equal(status.status, 200, `status check failed: ${status.body?.message || status.status}`);
   assert.equal(status.body?.repository, repository);
-  assert.equal(status.body?.latest?.tagName, requestedTag, `expected public ${requestedTag} release`);
+  // The check resolves the *latest* public release. A newer release published
+  // after the requested one supersedes it — that is a healthy chain, not a
+  // failure. Fail only when the public latest is OLDER than the requested
+  // tag (the requested release is no longer the newest — broken chain).
+  const verifiedTag = status.body?.latest?.tagName;
+  assert.match(verifiedTag || '', /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u, 'the latest release must be a semantic version');
+  assert.ok(
+    semverGte(verifiedTag, requestedTag),
+    `expected the public latest (${verifiedTag}) to be >= the requested tag (${requestedTag})`,
+  );
   assert.equal(status.body?.hasUpdate, true, `expected ${requestedTag} to be newer than ${currentVersion}`);
   assert.equal(status.body?.checkUnavailable, false, status.body?.message || 'no compatible installer is available');
   assert.ok(status.body?.latest?.selectedAsset, 'no compatible installer asset was selected');
@@ -63,6 +72,7 @@ try {
   console.log(JSON.stringify({
     result: 'verified-public-update-download',
     repository,
+    requestedTag,
     tag: status.body.latest.tagName,
     asset: status.body.latest.selectedAsset.name,
     bytes: installerStats.size,
@@ -74,6 +84,25 @@ try {
   assertSafeProbeDirectory(cacheRoot);
   await rm(cacheRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   assert.equal(existsSync(cacheRoot), false, 'probe cache cleanup failed');
+}
+
+/** True when `tagA` is >= `tagB` in semantic-version order (prerelease-aware). */
+function semverGte(tagA, tagB) {
+  const parse = (tag) => {
+    const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/u.exec(String(tag ?? '').trim());
+    if (!match) return null;
+    return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), pre: match[4] ?? '' };
+  };
+  const a = parse(tagA);
+  const b = parse(tagB);
+  if (!a || !b) return false;
+  if (a.major !== b.major) return a.major > b.major;
+  if (a.minor !== b.minor) return a.minor > b.minor;
+  if (a.patch !== b.patch) return a.patch > b.patch;
+  if (a.pre === b.pre) return true;
+  if (a.pre === '') return true; // release > prerelease
+  if (b.pre === '') return false;
+  return a.pre >= b.pre;
 }
 
 async function requestJson(pathname, options = {}) {

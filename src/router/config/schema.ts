@@ -45,6 +45,12 @@ export type RouterAutoOrchestrateConfig = {
   /** Inline orchestration prompt injected when skillExtensionId is absent. */
   orchestrationPrompt?: string;
   triggerTiers: string[];
+  /**
+   * Hard cap on continuation turns in one orchestration run. When a run
+   * exceeds it, orchestration exits and the next turn re-judges from
+   * scratch (the run restarts only if the tier still triggers).
+   */
+  maxContinuationTurns?: number;
   /** Whitelist — only these tools are kept for the orchestrator. Takes precedence over blockedTools. */
   allowedTools?: string[];
   /** Blacklist — these tools are removed. Ignored when allowedTools is set. */
