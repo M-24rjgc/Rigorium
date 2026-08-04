@@ -136,6 +136,31 @@ export function bufferedHasToolCall(buffered: readonly { type: string }[]): bool
   return buffered.some((event) => event.type === "tool_call");
 }
 
+/**
+ * Error codes that indicate the *provider itself* is at fault (connectivity,
+ * server-side failure, overload). These are the only codes that count toward
+ * sticky quality-failure release — switching providers can fix them. Account-
+ * level codes (rate limit, auth, billing) or request-shape codes (context
+ * overflow, invalid request) would fail identically on any provider, so
+ * counting them would evict a sticky for no benefit (Claude Code's
+ * fallbackModel whitelist/blacklist semantics).
+ */
+const PROVIDER_FAULT_CODES = new Set([
+  "timeout",
+  "server_error",
+  "overloaded_error",
+  "connection_reset",
+  "connection_refused",
+  "dns_error",
+  "tls_error",
+  "proxy_error",
+  "unknown",
+]);
+
+export function isProviderFaultCode(code: string): boolean {
+  return PROVIDER_FAULT_CODES.has(code);
+}
+
 export function extractPartialText(buffered: readonly { type: string }[]): string {
   let text = "";
   for (const ev of buffered) {

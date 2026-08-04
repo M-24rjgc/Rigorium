@@ -57,6 +57,7 @@ import {
   createUnsupportedMediaError,
   extractPartialText,
   isMidStreamRateLimitError,
+  isProviderFaultCode,
   protocolForProvider,
 } from "./execution/errors.js";
 import {
@@ -188,6 +189,16 @@ export function createRouterRuntime(
       healthTrackers.set(sessionId, tracker);
     }
     return tracker;
+  }
+
+  /**
+   * Health wins over affinity (Envoy excluded-endpoints / OpenRouter
+   * fallback semantics): a sticky pin whose provider is degraded, open, or
+   * half-open is bypassed for this decision — the pin stays on disk so it
+   * can be reused once the provider recovers.
+   */
+  function isProviderUnhealthy(provider: string, sessionId: string): boolean {
+    return getHealthTracker(sessionId).getState(provider) !== "healthy";
   }
 
   /**
@@ -346,7 +357,13 @@ export function createRouterRuntime(
 
       if (input.isMainAgent && input.request.messages.length > 1) {
         const mainSticky = sessionStore.get(input.sessionId, false);
-        if (isStickyUsable(mainSticky)) {
+        if (isStickyUsable(mainSticky) && !isProviderUnhealthy(mainSticky.stickyProvider, input.sessionId)) {
+          // Sticky hit: refresh the pin's liveness (sliding TTL — an active
+          // session must not lose its pin mid-conversation) and reuse it.
+          // A degraded/open provider bypasses the pin (health wins over
+          // affinity, Envoy/OpenRouter semantics) without deleting it, so
+          // the pin can be reused once the provider recovers.
+          sessionStore.touch(input.sessionId, false);
           selection = {
             id: `${mainSticky.stickyProvider}/${mainSticky.stickyModel}`,
             provider: mainSticky.stickyProvider,
@@ -360,7 +377,8 @@ export function createRouterRuntime(
 
       if (!input.isMainAgent && subagentPolicy === "judge" && input.request.messages.length > 1) {
         const subSticky = sessionStore.get(input.sessionId, true);
-        if (isStickyUsable(subSticky)) {
+        if (isStickyUsable(subSticky) && !isProviderUnhealthy(subSticky.stickyProvider, input.sessionId)) {
+          sessionStore.touch(input.sessionId, true);
           selection = {
             id: `${subSticky.stickyProvider}/${subSticky.stickyModel}`,
             provider: subSticky.stickyProvider,
@@ -1024,8 +1042,13 @@ export function createRouterRuntime(
       // The whole attempt plan failed — the pinned model (and its fallbacks)
       // did not deliver. Count it once against the sticky selection so the
       // next decide() re-classifies instead of retrying the same broken
-      // model, and record the failure for the amortized ranker.
-      sessionStore.recordQualityFailure(ctx.sessionId, storageIsSubagent);
+      // model, and record the failure for the amortized ranker. Only
+      // provider-fault codes count toward release: account-level errors
+      // (rate limit, auth, billing) would fail identically on any provider,
+      // so evicting the sticky would only re-judge into the same wall.
+      if (isProviderFaultCode(lastError.code)) {
+        sessionStore.recordQualityFailure(ctx.sessionId, storageIsSubagent);
+      }
       observeRoutingOutcome(decision, "failure");
       events.emit({
         type: "rigorium_router_execute_failed",

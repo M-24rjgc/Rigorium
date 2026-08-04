@@ -317,3 +317,103 @@ test("health: shared tracker propagates provider outage across router instances"
   );
   assert.deepEqual(streamedProviders, ["p1", "p2"]);
 });
+
+test("sticky: sliding TTL — active sessions never expire mid-conversation", async () => {
+  const now = { value: 1_000 };
+  const store = new SessionRouterStore({ now: () => now.value });
+  const { classifier, getCalls } = createScriptedClassifier(["simple"]);
+  const router = createRouterRuntime(createConfig({ stickyTtlMs: 30_000 }), {
+    modelRuntime: createScriptedModelRuntime(),
+    tierClassifier: classifier,
+    sessionStore: store,
+    now: () => new Date(now.value),
+  });
+  const sessionId = "s-slide";
+
+  // Turn 1 at t=0: judge pins m1.
+  const d1 = await router.decide({ request: makeRequest(), sessionId, isMainAgent: true });
+  assert.equal(d1.model, "m1");
+  await drainExecute(router, sessionId, "t1");
+
+  // Turn 2 at t=20s: sticky hit refreshes the pin (sliding window).
+  now.value += 20_000;
+  const d2 = await router.decide({ request: makeRequest(), sessionId, isMainAgent: true });
+  assert.equal(d2.model, "m1");
+  assert.equal(getCalls(), 1);
+
+  // Turn 3 at t=40s: 40s > 30s TTL, but the pin was refreshed at t=20s —
+  // an active session must not be re-classified mid-conversation.
+  now.value += 20_000;
+  const d3 = await router.decide({ request: makeRequest(), sessionId, isMainAgent: true });
+  assert.equal(d3.model, "m1", "sliding TTL keeps the pin while turns keep coming");
+  assert.equal(getCalls(), 1, "no re-judge while the session is active");
+
+  // Idle for 35s: the pin now expires and the next turn re-judges.
+  now.value += 35_000;
+  const d4 = await router.decide({ request: makeRequest(), sessionId, isMainAgent: true });
+  assert.equal(getCalls(), 2, "an idle session's pin expires");
+});
+
+test("sticky: request-shape errors (invalid_request) do not count toward release", async () => {
+  const now = { value: 1_000 };
+  const store = new SessionRouterStore({ now: () => now.value });
+  // invalid_request would fail identically on any provider — evicting the
+  // pin would only re-judge into the same wall (Claude Code semantics).
+  // (Not auth_error/rate_limit_error: auth is fallback-eligible and 429 is a
+  // health STRESS_CODE — both degrade the provider, and the degraded pin is
+  // bypassed by the health check, which is tested separately.)
+  const failProviders = new Map<string, CanonicalModelError>([
+    ["p1", hardError("p1", "invalid_request")],
+  ]);
+  const { classifier, getCalls } = createScriptedClassifier(["simple"]);
+  const router = createRouterRuntime(createConfig({ maxQualityFailures: 2 }), {
+    modelRuntime: createScriptedModelRuntime({ failProviders }),
+    tierClassifier: classifier,
+    sessionStore: store,
+    now: () => new Date(now.value),
+  });
+  const sessionId = "s-rl";
+
+  for (let i = 0; i < 3; i += 1) {
+    await router.decide({ request: makeRequest(), sessionId, isMainAgent: true });
+    await drainExecute(router, sessionId, `t${i}`);
+  }
+  assert.equal(store.get(sessionId, false)?.qualityFailures ?? 0, 0, "request-shape failures must not accumulate");
+  assert.equal(getCalls(), 1, "the pin survives request-shape failures without re-judging");
+});
+
+test("sticky: degraded provider bypasses the pin without deleting it", async () => {
+  const now = { value: 1_000 };
+  const store = new SessionRouterStore({ now: () => now.value });
+  // Seed a pin to p1, then degrade p1 in the shared tracker.
+  store.set({
+    sessionId: "s-deg",
+    isSubagent: false,
+    stickyProvider: "p1",
+    stickyModel: "m1",
+    tokenSaverTier: "simple",
+    orchestrating: false,
+    qualityFailures: 0,
+    updatedAt: now.value,
+  });
+  const shared = new ProviderHealthTracker();
+  for (let i = 0; i < 3; i += 1) {
+    shared.recordFailure("p1", "server_error");
+  }
+  assert.equal(shared.getState("p1"), "degraded");
+
+  const { classifier, getCalls } = createScriptedClassifier(["simple"]);
+  const router = createRouterRuntime(createConfig(), {
+    modelRuntime: createScriptedModelRuntime(),
+    tierClassifier: classifier,
+    sessionStore: store,
+    healthTracker: shared,
+    now: () => new Date(now.value),
+  });
+
+  const decision = await router.decide({ request: makeRequest(), sessionId: "s-deg", isMainAgent: true });
+  assert.equal(getCalls(), 1, "a degraded provider's pin must not bypass the judge");
+  assert.equal(decision.resolvedFrom, "judge");
+  const pin = store.get("s-deg", false);
+  assert.equal(pin?.stickyProvider, "p1", "the pin is preserved for reuse after recovery");
+});

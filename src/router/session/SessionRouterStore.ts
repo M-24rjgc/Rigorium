@@ -68,6 +68,23 @@ export class SessionRouterStore {
   }
 
   /**
+   * Refresh a slot's liveness on a sticky hit (sliding TTL — LiteLLM /
+   * HAProxy semantics: an active session never expires mid-conversation,
+   * only idle ones do). Refreshes both the guard-visible `updatedAt` and the
+   * store entry's own `expiresAt`; does not touch the quality-failure count.
+   */
+  touch(sessionId: string, isSubagent: boolean): void {
+    const key = makeKey(sessionId, isSubagent);
+    const slot = this.map.get(key);
+    if (!slot) {
+      return;
+    }
+    const now = this.now();
+    slot.state = { ...slot.state, updatedAt: now };
+    this.map.set(key, { ...slot, expiresAt: now + this.ttlMs });
+  }
+
+  /**
    * Increment the consecutive quality-failure counter for a session slot.
    * Returns the updated count (0 when no slot exists).
    */
