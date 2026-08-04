@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { prepareCliSpawn } from './processSpawn.js';
 
 const PLUGINS_DIR = path.join(os.homedir(), '.rigorium', 'plugins');
@@ -237,6 +237,8 @@ export function scanPlugins() {
         enabled: config[manifest.name]?.enabled !== false, // enabled by default
         dirName: entry.name,
         repoUrl,
+        commitSha: readPluginSource(entry.name)?.commitSha ?? null,
+        installedAt: readPluginSource(entry.name)?.installedAt ?? null,
       });
     } catch (err) {
       console.warn(`[Plugins] Failed to read manifest for ${entry.name}:`, err.message);
@@ -338,6 +340,9 @@ export function installPluginFromGit(url) {
         cleanupTemp();
         return reject(new Error(`Failed to move plugin into place: ${err.message}`));
       }
+      // Supply-chain provenance: record exactly which commit was installed so
+      // the user can audit what they are running (and what an update changed).
+      recordPluginSource(targetDir, url);
       resolve(manifest);
     };
 
@@ -457,6 +462,8 @@ export function updatePluginFromGit(name) {
         return reject(new Error(`Invalid manifest after update: ${validation.error}`));
       }
 
+      recordPluginSource(pluginDir, null);
+
       // Re-run npm install if package.json exists
       const packageJsonPath = path.join(pluginDir, 'package.json');
       if (fs.existsSync(packageJsonPath)) {
@@ -511,4 +518,58 @@ export async function uninstallPlugin(name) {
   const config = getPluginsConfig();
   delete config[name];
   savePluginsConfig(config);
+}
+
+
+const PLUGIN_SOURCE_FILE = '.rigorium-source.json';
+
+/**
+ * Record which commit of a plugin is installed (supply-chain provenance).
+ * Best-effort: a non-git plugin directory or a failed `git rev-parse` simply
+ * leaves no record. When `url` is null the existing record's URL is kept
+ * (update path).
+ */
+function recordPluginSource(pluginDir, url) {
+  try {
+    const existing = readPluginSourceFromDir(pluginDir);
+    let commitSha = null;
+    try {
+      commitSha = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: pluginDir,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim() || null;
+    } catch { /* not a git checkout */ }
+    const record = {
+      url: url || existing?.url || null,
+      commitSha,
+      installedAt: existing?.installedAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(pluginDir, PLUGIN_SOURCE_FILE), JSON.stringify(record, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+  } catch { /* provenance must never break install/update */ }
+}
+
+function readPluginSource(dirName) {
+  try {
+    return readPluginSourceFromDir(path.join(getPluginsDir(), dirName));
+  } catch {
+    return null;
+  }
+}
+
+function readPluginSourceFromDir(pluginDir) {
+  try {
+    const raw = fs.readFileSync(path.join(pluginDir, PLUGIN_SOURCE_FILE), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        url: typeof parsed.url === 'string' ? parsed.url : null,
+        commitSha: typeof parsed.commitSha === 'string' ? parsed.commitSha : null,
+        installedAt: typeof parsed.installedAt === 'string' ? parsed.installedAt : null,
+        updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : null,
+      };
+    }
+  } catch { /* missing/corrupt — treat as absent */ }
+  return null;
 }

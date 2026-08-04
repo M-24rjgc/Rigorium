@@ -406,6 +406,7 @@ Adaptive aggregation is evaluated against prior work \\citep{prior2025}.
     manuscript,
     renderRun,
     citationSet,
+    evidencePacks: [evidence],
     figureTableArtifacts: [figureTable],
     runAttempts: latestRuns,
     laneReports: cleanLaneReports(),

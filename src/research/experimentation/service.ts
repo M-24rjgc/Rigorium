@@ -397,6 +397,14 @@ export async function prepareExperimentRun(input: {
   expectedManifestRevision?: number;
   now?: Date;
 }): Promise<ExperimentOperationResult<RunAttempt>> {
+  // Reproducibility capture (W&B tracking-completeness rule): the project
+  // git commit and an environment fingerprint are recorded before
+  // submission so two runs that differ only in code/env are distinguishable
+  // in the manifest. Best-effort — never blocks or fails the submission.
+  const reproducibility = await captureRunReproducibility(input.projectRoot);
+  const runWithRepro: RunAttemptInput | undefined = input.run === undefined
+    ? undefined
+    : { ...input.run, runFacts: { ...(input.run.runFacts ?? {}), ...reproducibility } };
   const experimentId = requireInputIdentifier(input.experimentId, "experimentId");
   const grantId = requireInputIdentifier(input.grantId, "grantId");
   const jobId = requireJobId(input.jobId);
@@ -409,7 +417,7 @@ export async function prepareExperimentRun(input: {
       const spec = requireLatestSpec(manifest, experimentId);
       const grant = requireLatestGrant(manifest, grantId);
       assertGrantUsable(grant, spec, "prepare", jobId, now);
-      const runIntent = normalizeRunAttemptInput(input.run, spec.payload.adapterId);
+      const runIntent = normalizeRunAttemptInput(runWithRepro, spec.payload.adapterId);
       const baselineRerun = assertBaselineRerunIntent(manifest, experimentId, runIntent.baselineRerun, now);
       const duplicate = findLatestRunByJobId(manifest, jobId);
       if (duplicate) {
@@ -1952,4 +1960,49 @@ function isRecord(value: unknown): value is Record<string, any> {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+
+/**
+ * Best-effort reproducibility capture for experiment runs: the project's
+ * git HEAD and a fingerprint of Rigorium-relevant environment variables.
+ * Failures are swallowed — a non-git project or an unreadable env simply
+ * yields no extra fields.
+ */
+async function captureRunReproducibility(projectRoot: string): Promise<{ gitCommit?: string; envFingerprint?: string }> {
+  const [gitCommit, envFingerprint] = await Promise.all([
+    readGitHead(projectRoot),
+    Promise.resolve(computeEnvFingerprint()),
+  ]);
+  return {
+    ...(gitCommit !== undefined ? { gitCommit } : {}),
+    ...(envFingerprint !== undefined ? { envFingerprint } : {}),
+  };
+}
+
+async function readGitHead(projectRoot: string): Promise<string | undefined> {
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const head = (await readFile(resolve(projectRoot, ".git", "HEAD"), "utf8")).trim();
+    const refMatch = /^ref:\s*refs\/heads\/(.+)$/u.exec(head);
+    const refPath = refMatch ? resolve(projectRoot, ".git", "refs", "heads", refMatch[1]!) : resolve(projectRoot, ".git", head);
+    const commit = (await readFile(refPath, "utf8")).trim();
+    return /^[0-9a-f]{40}$/u.test(commit) ? commit : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function computeEnvFingerprint(): string | undefined {
+  try {
+    const relevant = Object.keys(process.env)
+      .filter((key) => /^RIGORIUM_|^LITELLM_/u.test(key))
+      .sort()
+      .map((key) => `${key}=${process.env[key] ?? ""}`)
+      .join("\n");
+    if (!relevant) return undefined;
+    return createHash("sha256").update(relevant).digest("hex").slice(0, 16);
+  } catch {
+    return undefined;
+  }
 }

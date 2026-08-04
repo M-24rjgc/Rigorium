@@ -28,6 +28,7 @@ function reviewWithConcern() {
     manuscript: fixture.manuscript,
     renderRun: fixture.render,
     citationSet: fixture.citations,
+    evidencePacks: [fixture.evidence],
     figureTableArtifacts: [fixture.figure],
     runAttempts: [fixture.run],
     laneReports: reports,

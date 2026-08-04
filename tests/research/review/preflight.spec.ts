@@ -16,6 +16,7 @@ test("review preflight consumes manuscript-module artifacts and passes a complet
     manuscript: fixture.manuscript,
     renderRun: fixture.render,
     citationSet: fixture.citations,
+    evidencePacks: [fixture.evidence],
     figureTableArtifacts: [fixture.figure],
     runAttempts: [fixture.run],
   });
@@ -27,6 +28,7 @@ test("review preflight consumes manuscript-module artifacts and passes a complet
     "page_limit",
     "anonymity",
     "figure_table_provenance",
+    "statement_evidence_provenance",
   ]);
   assert.equal(result.checks.every((check) => check.status === "passed"), true);
 });
@@ -37,6 +39,7 @@ test("review preflight accepts multiple succeeded structured figure/table proven
     manuscript: fixture.manuscript,
     renderRun: fixture.render,
     citationSet: fixture.citations,
+    evidencePacks: [fixture.evidence],
     figureTableArtifacts: [fixture.figure],
     runAttempts: fixture.runs,
   });
@@ -52,6 +55,7 @@ test("review preflight reports a structured FigureTable without a run provenance
     manuscript: fixture.manuscript,
     renderRun: fixture.render,
     citationSet: fixture.citations,
+    evidencePacks: [fixture.evidence],
     figureTableArtifacts: [fixture.figure],
     runAttempts: [fixture.run],
   });
@@ -68,6 +72,7 @@ test("review preflight reports a failed structured FigureTable provenance run", 
     manuscript: fixture.manuscript,
     renderRun: fixture.render,
     citationSet: fixture.citations,
+    evidencePacks: [fixture.evidence],
     figureTableArtifacts: [fixture.figure],
     runAttempts: [fixture.run],
   });
@@ -95,6 +100,7 @@ test("review preflight reports a structured FigureTable run hash mismatch", () =
     manuscript: fixture.manuscript,
     renderRun: fixture.render,
     citationSet: fixture.citations,
+    evidencePacks: [fixture.evidence],
     figureTableArtifacts: [fixture.figure],
     runAttempts: [mismatchedRun],
   });
@@ -120,6 +126,7 @@ test("review preflight reports compile, citation, page, anonymity, and provenanc
     manuscript: fixture.manuscript,
     renderRun: fixture.render,
     citationSet: fixture.citations,
+    evidencePacks: [fixture.evidence],
     figureTableArtifacts: [fixture.figure],
     runAttempts: [],
   });
@@ -130,7 +137,10 @@ test("review preflight reports compile, citation, page, anonymity, and provenanc
   assert.equal(categories.has("page_limit"), true);
   assert.equal(categories.has("anonymity"), true);
   assert.equal(categories.has("figure_provenance"), true);
-  assert.equal(result.checks.every((check) => check.status === "failed"), true);
+  assert.equal(
+    result.checks.filter((check) => check.id !== "statement_evidence_provenance").every((check) => check.status === "failed"),
+    true,
+  );
   assert.equal(result.findings.every((finding) => finding.location.sectionId.length > 0
     && finding.location.anchorText.length > 0), true);
 });
@@ -146,4 +156,47 @@ test("review preflight rejects a CitationSet that is not the manuscript's pinned
     figureTableArtifacts: [fixture.figure],
     runAttempts: [fixture.run],
   }), /does not match the manuscript citationSetRef/iu);
+});
+
+test("review preflight reports statements whose evidence refs do not resolve", () => {
+  const fixture = createSyntheticReviewArtifacts();
+  // Point a statement's evidenceRefs at a run that does not exist in the
+  // provided artifact set — the deterministic check must flag it.
+  const manuscriptWithDanglingRef = {
+    ...fixture.manuscript,
+    payload: {
+      ...fixture.manuscript.payload,
+      sections: fixture.manuscript.payload.sections.map((section) => ({
+        ...section,
+        statements: section.statements.map((statement) =>
+          statement.statementId === section.statements[0]!.statementId
+            ? {
+              ...statement,
+              evidenceRefs: [
+                ...statement.evidenceRefs,
+                { artifactId: "run-does-not-exist", revision: 1, kind: "run_attempt" as const, contentHash: `sha256:${"a".repeat(64)}` },
+              ],
+            }
+            : statement,
+        ),
+      })),
+    },
+  } as typeof fixture.manuscript;
+  const result = runDeterministicReviewPreflight({
+    manuscript: manuscriptWithDanglingRef,
+    renderRun: fixture.render,
+    citationSet: fixture.citations,
+    evidencePacks: [fixture.evidence],
+    figureTableArtifacts: [fixture.figure],
+    runAttempts: [fixture.run],
+  });
+
+  const check = result.checks.find((c) => c.id === "statement_evidence_provenance");
+  assert.ok(check, "statement_evidence_provenance check must be present");
+  assert.equal(check!.status, "failed");
+  const finding = result.findings.find((f) => f.dedupeKey.startsWith("preflight:statement_evidence_provenance"));
+  assert.ok(finding, "a dangling evidence ref must produce a finding");
+  assert.equal(finding!.severity, "note");
+  assert.equal(finding!.actions[0]!.kind, "add_evidence");
+  assert.match(finding!.summary, /run-does-not-exist/);
 });

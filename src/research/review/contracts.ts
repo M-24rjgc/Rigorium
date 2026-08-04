@@ -1,3 +1,4 @@
+import type { EvidencePackArtifact } from "../literature/evidencePack.js";
 import type {
   ResearchArtifactEnvelope,
   ResearchArtifactProducer,
@@ -148,7 +149,8 @@ export type ReviewPreflightCheckId =
   | "citation_completeness"
   | "page_limit"
   | "anonymity"
-  | "figure_table_provenance";
+  | "figure_table_provenance"
+  | "statement_evidence_provenance";
 
 export type ReviewPreflightCheck = Readonly<{
   id: ReviewPreflightCheckId;
@@ -205,6 +207,8 @@ export type ReviewPreflightInput = Readonly<{
   citationSet?: ReviewCitationSetArtifact;
   figureTableArtifacts?: readonly ReviewFigureTableArtifact[];
   runAttempts?: readonly ReviewRunAttemptArtifact[];
+  /** Evidence packs the manuscript statements bind to (provenance resolution). */
+  evidencePacks?: readonly EvidencePackArtifact[];
 }>;
 
 export type ReviewRoundInput = ReviewPreflightInput & Readonly<{

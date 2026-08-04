@@ -98,6 +98,12 @@ export class ResearchOrchestrator {
     const snapshot = await graph.recomputeBeliefs({});
     const beliefs = snapshot.beliefs;
 
+    // Execution context (Data-Interpreter lesson): the plan should see the
+    // experiment success/failure history so the agent knows whether a claim
+    // is backed by runs that keep failing. Read-only — never an input to the
+    // EIG math, only context on the plan.
+    const runContext = await this.computeRunContext();
+
     let plan: EigPlan = planByInformationGain(beliefs, {
       ...(this.stopScoreThreshold !== undefined ? { stopScoreThreshold: this.stopScoreThreshold } : {}),
     });
@@ -131,6 +137,7 @@ export class ResearchOrchestrator {
       backtracking: reconciled.backtracking,
       anomalyDetected: anomaly.detected,
       anomalyScore: anomaly.anomalyScore,
+      runContext,
       venue,
       claimsDir,
     });
@@ -151,10 +158,34 @@ export class ResearchOrchestrator {
       backtracking: reconciled.backtracking,
       anomalyDetected: anomaly.detected,
       anomalyScore: anomaly.anomalyScore,
+      ...(runContext ? { runContext } : {}),
       ...(venue ? { venue } : {}),
       summaryMarkdown,
       beliefs: Object.freeze(beliefs),
     });
+  }
+
+  /**
+   * Count run_attempt artifacts by status (from the same loader the belief
+   * engine uses) so plans can see the experiment failure rate. Returns
+   * undefined when there are no run artifacts at all.
+   */
+  private async computeRunContext(): Promise<{ failedRuns: number; totalRuns: number; failureRate: number } | undefined> {
+    try {
+      const artifacts = await this.loadArtifacts();
+      const runs = artifacts.filter((artifact) => artifact.kind === "run_attempt");
+      if (runs.length === 0) {
+        return undefined;
+      }
+      const failedRuns = runs.filter((artifact) => artifact.status === "failed").length;
+      return Object.freeze({
+        failedRuns,
+        totalRuns: runs.length,
+        failureRate: failedRuns / runs.length,
+      });
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -247,6 +278,7 @@ function renderSummaryMarkdown(input: {
   backtracking: boolean;
   anomalyDetected: boolean;
   anomalyScore: number;
+  runContext?: { failedRuns: number; totalRuns: number; failureRate: number };
   venue?: { id: string; displayName: string; styleProfileReady: boolean };
   claimsDir: string;
 }): string {
@@ -278,6 +310,9 @@ function renderSummaryMarkdown(input: {
   }
   if (input.anomalyDetected) {
     lines.push("", `## Anomaly mode active (challenge density ${input.anomalyScore.toFixed(2)}) — principle revision is boosted.`);
+  }
+  if (input.runContext) {
+    lines.push("", `## Execution context\n- ${input.runContext.totalRuns} experiment run(s), ${input.runContext.failedRuns} failed (${(input.runContext.failureRate * 100).toFixed(0)}% failure rate) — weigh this when interpreting evidence from run_attempt artifacts.`);
   }
   if (input.venue) {
     lines.push("", `## Venue context\n- Target venue: ${input.venue.id} (${input.venue.displayName}) — style profile ${input.venue.styleProfileReady ? "ready" : "not yet learned"}.`);

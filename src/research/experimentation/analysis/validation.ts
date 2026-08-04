@@ -350,6 +350,8 @@ function validateRunFacts(value: unknown): void {
     "budgetReservation",
     "actualWallTimeMs",
     "actualCost",
+    "gitCommit",
+    "envFingerprint",
   ]);
   for (const key of Object.keys(facts)) {
     if (!allowedKeys.has(key)) throw new TypeError(`runFacts does not accept ${key}.`);
@@ -369,6 +371,12 @@ function validateRunFacts(value: unknown): void {
     }
   }
   if (facts.actualCost !== undefined) validateActualCostRecord(facts.actualCost);
+  if (facts.gitCommit !== undefined && (typeof facts.gitCommit !== "string" || facts.gitCommit.length === 0)) {
+    throw new TypeError("runFacts.gitCommit must be a non-empty string.");
+  }
+  if (facts.envFingerprint !== undefined && (typeof facts.envFingerprint !== "string" || facts.envFingerprint.length === 0)) {
+    throw new TypeError("runFacts.envFingerprint must be a non-empty string.");
+  }
 }
 
 function validateRunBudgetReservation(value: unknown): void {

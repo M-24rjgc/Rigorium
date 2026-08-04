@@ -31,6 +31,7 @@ test("research_review wrapper runs a seven-lane round and applies its revision d
     manuscript: fixture.manuscript,
     renderRun: fixture.render,
     citationSet: fixture.citations,
+    evidencePacks: [fixture.evidence],
     figureTableArtifacts: [fixture.figure],
     runAttempts: [fixture.run],
     laneReports: createLaneReports(manuscriptRef, {

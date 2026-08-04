@@ -378,6 +378,16 @@ export type RunFacts = Readonly<{
   budgetReservation?: RunBudgetReservation;
   actualWallTimeMs?: number;
   actualCost?: ActualCostRecord;
+  /**
+   * Reproducibility metadata (W&B/MLflow tracking-completeness rule): two
+   * runs must be distinguishable by their recorded fields. The project git
+   * commit and an environment fingerprint capture the two biggest variance
+   * sources outside the parameters themselves. Best-effort captured at
+   * submission; absent when the project has no git history or the capture
+   * fails.
+   */
+  gitCommit?: string;
+  envFingerprint?: string;
 }>;
 
 export type RunAttemptInput = Readonly<{
@@ -386,6 +396,8 @@ export type RunAttemptInput = Readonly<{
   slices?: Readonly<Record<string, ExperimentRunScalar>>;
   budgetReservation?: RunBudgetReservation;
   baselineRerun?: BaselineRerunInput;
+  /** Submission-time reproducibility metadata (git commit / env fingerprint). */
+  runFacts?: Partial<Pick<RunFacts, "gitCommit" | "envFingerprint">>;
 }>;
 
 export type RunAttemptPayload = Readonly<{

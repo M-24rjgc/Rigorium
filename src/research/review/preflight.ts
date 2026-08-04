@@ -73,6 +73,12 @@ export function runDeterministicReviewPreflight(input: ReviewPreflightInput): Re
     ? "Every manuscript figure and table resolves to matching file and run provenance."
     : "One or more manuscript figures or tables lack matching file or run provenance."));
 
+  const statementFindings = checkStatementEvidenceProvenance(input, manuscriptRef);
+  findings.push(...statementFindings);
+  checks.push(check("statement_evidence_provenance", statementFindings, statementFindings.length === 0
+    ? "Every statement with declared evidence refs resolves to active project artifacts."
+    : "One or more statements declare evidence refs that do not resolve to active project artifacts."));
+
   return Object.freeze({
     checks: Object.freeze(checks),
     findings: Object.freeze(findings.sort((left, right) => left.id.localeCompare(right.id, "en"))),
@@ -470,6 +476,68 @@ function check(id: ReviewPreflightCheckId, findings: readonly PreflightFindingDr
     detail,
     findingIds: Object.freeze(findings.map((finding) => finding.id).sort((left, right) => left.localeCompare(right, "en"))),
   });
+}
+
+/**
+ * Deterministic statement→evidence provenance check (OpenScholar citation-
+ * verification alignment): statements that *declare* evidence refs must
+ * resolve to artifacts the review actually sees — a statement pointing at a
+ * run or figure that does not exist (or is not active) is an evidence hole
+ * the LLM evidence lane should not have to catch by judgment. Refusal is a
+ * `note`-level finding with an `add_evidence` action, so it feeds the same
+ * correction loop as the other preflight checks without blocking review.
+ */
+function checkStatementEvidenceProvenance(
+  input: ReviewPreflightInput,
+  manuscriptRef: ResearchArtifactRef,
+): PreflightFindingDraft[] {
+  const resolvable = new Set<string>();
+  for (const run of input.runAttempts ?? []) {
+    resolvable.add(fullRefKey(toResearchArtifactRef(run)));
+  }
+  for (const figure of input.figureTableArtifacts ?? []) {
+    resolvable.add(fullRefKey(toResearchArtifactRef(figure)));
+  }
+  if (input.citationSet) {
+    resolvable.add(fullRefKey(toResearchArtifactRef(input.citationSet)));
+  }
+  for (const pack of input.evidencePacks ?? []) {
+    resolvable.add(fullRefKey(toResearchArtifactRef(pack)));
+  }
+  // Only ref kinds this review-scoped view can actually validate. A claim
+  // ref or other out-of-scope kind is not evidence the preflight can see —
+  // flagging it would be a false positive.
+  const CHECKABLE_KINDS = new Set(["run_attempt", "figure_table", "evidence_pack", "citation_set"]);
+
+  const findings: PreflightFindingDraft[] = [];
+  for (const section of input.manuscript.payload.sections) {
+    for (const statement of section.statements) {
+      if (statement.evidenceRefs.length === 0) {
+        continue;
+      }
+      const unresolved = statement.evidenceRefs.filter(
+        (ref) => CHECKABLE_KINDS.has(ref.kind) && !resolvable.has(fullRefKey(ref)),
+      );
+      if (unresolved.length === 0) {
+        continue;
+      }
+      const names = unresolved.map((ref) => `${ref.artifactId}@${ref.revision}`).join(", ");
+      findings.push(preflightFinding({
+        checkId: "statement_evidence_provenance",
+        entity: statement.statementId,
+        lane: "evidence",
+        category: "evidence",
+        severity: "note",
+        summary: `Statement "${statement.statementId}" declares evidence refs that do not resolve to active artifacts: ${names}.`,
+        rationale: "Declared evidence must point at artifacts present in the project (OpenScholar citation-verification): an unresolvable ref means the evidence is either missing or stale.",
+        location: statementLocation(section.sectionId, statement.statementId, names),
+        actionKind: "add_evidence",
+        action: "Attach the missing evidence artifact (run/metric/figure/citation) or remove the dangling ref.",
+        affectedArtifactRefs: [manuscriptRef, ...unresolved],
+      }));
+    }
+  }
+  return findings;
 }
 
 function documentLocation(input: ReviewPreflightInput, anchorText: string): ManuscriptLocation {
