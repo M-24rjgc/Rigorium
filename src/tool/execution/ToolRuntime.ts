@@ -1,6 +1,7 @@
 import { isAbsolute, relative, resolve } from "node:path";
 import { PermissionRuntime } from "../../permission/index.js";
 import type { LifecycleRuntime, RigoriumHookEffect } from "../../lifecycle/index.js";
+import { emptyLifecycleDispatchResult } from "../../lifecycle/protocol/payloads.js";
 import { toolError } from "../protocol/errors.js";
 import type { RigoriumToolErrorCode } from "../protocol/errors.js";
 import {
@@ -394,6 +395,13 @@ ${formatValidationError(tool.name, updatedValidation.issues, {
     });
   }
 
+  /**
+   * Tool-level lifecycle dispatch with the same invariant as the agent-loop
+   * boundary: a hook backend failure must never break a tool call or turn.
+   * A thrown hook error degrades to the empty result (hook absent), logged
+   * as a warning — PreToolUse denial/blocking semantics only apply when the
+   * hook actually ran and answered.
+   */
   private async dispatchLifecycle(
     event: "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PermissionRequest" | "PermissionDenied",
     toolName: string,
@@ -402,30 +410,34 @@ ${formatValidationError(tool.name, updatedValidation.issues, {
     context: RigoriumToolRuntimeContext,
     extraPayload: Record<string, unknown> = {},
   ) {
-    return this.lifecycle?.dispatch({
-      event,
-      baseInput: {
-        sessionId: context.sessionId,
-        transcriptPath: "",
-        cwd: context.cwd,
-        permissionMode: context.permissionMode,
-      },
-      matchQuery: toolName,
-      payload: {
-        toolName,
-        toolInput,
-        toolUseId: toolCallId,
-        ...extraPayload,
-      },
-      signal: context.abortSignal,
-      env: context.env,
-    }) ?? {
-      effects: [],
-      messages: [],
-      events: [],
-      blockingErrors: [],
-      nonBlockingErrors: [],
-    };
+    if (!this.lifecycle) {
+      return emptyLifecycleDispatchResult();
+    }
+    try {
+      return await this.lifecycle.dispatch({
+        event,
+        baseInput: {
+          sessionId: context.sessionId,
+          transcriptPath: "",
+          cwd: context.cwd,
+          permissionMode: context.permissionMode,
+        },
+        matchQuery: toolName,
+        payload: {
+          toolName,
+          toolInput,
+          toolUseId: toolCallId,
+          ...extraPayload,
+        },
+        signal: context.abortSignal,
+        env: context.env,
+      });
+    } catch (error) {
+      console.warn(
+        `[Rigorium] tool lifecycle dispatch failed for ${event} (${toolName}): ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return emptyLifecycleDispatchResult();
+    }
   }
 }
 
