@@ -313,6 +313,86 @@ export async function runBenchmark(seed = 42): Promise<BenchmarkPolicyResult[]> 
   return results;
 }
 
+export type BenchmarkAggregate = BenchmarkPolicyResult & {
+  /** Standard deviation across seeds (error-bar width). */
+  judgeCallRateStd: number;
+  successRateStd: number;
+  costUnitsStd: number;
+  seeds: number;
+};
+
+function mean(values: number[]): number {
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function std(values: number[]): number {
+  if (values.length < 2) return 0;
+  const m = mean(values);
+  return Math.sqrt(values.reduce((acc, v) => acc + (v - m) ** 2, 0) / (values.length - 1));
+}
+
+/**
+ * Run the benchmark across several seeds and aggregate per-policy
+ * mean ± std — the error bars for the formal comparison report.
+ */
+export async function runBenchmarkSeeds(seeds: number[]): Promise<BenchmarkAggregate[]> {
+  const perSeed = await Promise.all(seeds.map((seed) => runBenchmark(seed)));
+  const policies = perSeed[0]!.map((r) => r.policy);
+  const aggregates: BenchmarkAggregate[] = [];
+  for (const policy of policies) {
+    const rows = perSeed.map((results) => results.find((r) => r.policy === policy)!);
+    aggregates.push({
+      ...rows[0]!,
+      judgeCallRate: mean(rows.map((r) => r.judgeCallRate)),
+      successRate: mean(rows.map((r) => r.successRate)),
+      costUnits: mean(rows.map((r) => r.costUnits)),
+      judgeCalls: Math.round(mean(rows.map((r) => r.judgeCalls))),
+      heuristicDecisions: Math.round(mean(rows.map((r) => r.heuristicDecisions))),
+      judgeCallRateStd: std(rows.map((r) => r.judgeCallRate)),
+      successRateStd: std(rows.map((r) => r.successRate)),
+      costUnitsStd: std(rows.map((r) => r.costUnits)),
+      seeds: seeds.length,
+    });
+  }
+  return aggregates;
+}
+
+/** Markdown table with mean ± std per policy (the formal report format). */
+export function renderBenchmarkAggregateMarkdown(results: BenchmarkAggregate[]): string {
+  const lines = [
+    "# Router Policy Benchmark — Formal Comparison Report",
+    "",
+    `Seeds: ${results[0]?.seeds ?? 1} · buckets: ${BUCKETS} · turns: ${TURNS} · judge correctness: ${JUDGE_CORRECTNESS}`,
+    "",
+    "| policy | judge call rate | success rate | cost units |",
+    "|---|---|---|---|",
+  ];
+  for (const r of results) {
+    lines.push(
+      `| ${r.policy} | ${(r.judgeCallRate * 100).toFixed(1)}% ± ${(r.judgeCallRateStd * 100).toFixed(1)} | ` +
+      `${(r.successRate * 100).toFixed(1)}% ± ${(r.successRateStd * 100).toFixed(1)} | ` +
+      `${r.costUnits.toFixed(0)} ± ${r.costUnitsStd.toFixed(0)} |`,
+    );
+  }
+  lines.push("");
+  const baseline = results.find((r) => r.policy === "judge-only");
+  if (baseline) {
+    for (const r of results) {
+      if (r.policy === "judge-only") continue;
+      const judgeSaving = (1 - r.judgeCallRate / baseline.judgeCallRate) * 100;
+      const qualityDelta = r.successRate - baseline.successRate;
+      lines.push(
+        `**${r.policy}** vs judge-only: judge calls **-${judgeSaving.toFixed(1)}%** ± ` +
+        `${((r.judgeCallRateStd / baseline.judgeCallRate) * 100).toFixed(1)}` +
+        `, success rate ${qualityDelta >= 0 ? "+" : ""}${(qualityDelta * 100).toFixed(1)}pp, ` +
+        `cost **${((r.costUnits / baseline.costUnits - 1) * 100).toFixed(1)}%** vs baseline.`,
+      );
+    }
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
 export function renderBenchmarkMarkdown(results: BenchmarkPolicyResult[]): string {
   const lines = [
     "# Router Policy Benchmark",

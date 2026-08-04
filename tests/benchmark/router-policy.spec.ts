@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
-import { runBenchmark } from "../../src/benchmark/routerPolicyBenchmark.js";
+import { runBenchmark, runBenchmarkSeeds } from "../../src/benchmark/routerPolicyBenchmark.js";
 
 /**
  * Locks the router-policy benchmark (scripts/benchmark-router-policy.mjs):
@@ -58,4 +58,14 @@ test("benchmark: heuristic pre-filter cuts judge calls at zero quality cost (no-
     "heuristic must not hurt quality (zero mis-interception)",
   );
   assert.equal(heuristic.heuristicMisinterceptionRate, 0, "conservative exclusions must yield zero mis-interception");
+});
+
+test("benchmark: multi-seed aggregation is deterministic and stable", async () => {
+  const a = await runBenchmarkSeeds([42, 43, 44]);
+  const b = await runBenchmarkSeeds([42, 43, 44]);
+  assert.deepEqual(a, b, "same seed set must produce identical aggregates");
+  const gate = a.find((r) => r.policy === "gate")!;
+  assert.ok(gate.judgeCallRateStd > 0, "error bars are non-zero across seeds");
+  assert.ok(gate.judgeCallRate < 0.3, "gate stays under 30% judge calls across seeds");
+  assert.ok(gate.successRate >= 0.9, "gate quality stays above 90% across seeds");
 });
