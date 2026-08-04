@@ -158,7 +158,14 @@ export type RouterConfig = {
   scenarios?: RouterScenariosConfig;
   fallback?: RouterFallbackConfig;
   zeroUsageRetry?: { enabled: boolean; maxAttempts: number };
-  transientRetry?: { enabled: boolean; maxAttempts: number; baseDelayMs: number; maxDelayMs: number };
+  transientRetry?: {
+    enabled: boolean;
+    maxAttempts: number;
+    baseDelayMs: number;
+    maxDelayMs: number;
+    /** Upper bound for server-provided retry-after values (default 60s). */
+    retryAfterCapMs?: number;
+  };
   /** Per-provider in-flight request cap (LiteLLM-style concurrency gate). */
   concurrency?: RouterConcurrencyConfig;
   tokenSaver?: RouterTokenSaverConfig;

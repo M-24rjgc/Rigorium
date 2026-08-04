@@ -5,6 +5,7 @@ import {
   LITELLM_MAX_RETRY_DELAY_MS,
 } from "../../model/streaming/streamModel.js";
 import { DEFAULT_PROVIDER_CONCURRENCY } from "../execution/providerConcurrency.js";
+import { SERVER_RETRY_AFTER_CAP_MS } from "../../model/streaming/backoff.js";
 import {
   DEFAULT_ALLOWED_TOOLS,
   DEFAULT_BLOCKED_TOOLS,
@@ -398,6 +399,7 @@ function parseTransientRetry(
       maxAttempts: LITELLM_DEFAULT_MAX_RETRIES,
       baseDelayMs: LITELLM_INITIAL_RETRY_DELAY_MS,
       maxDelayMs: LITELLM_MAX_RETRY_DELAY_MS,
+      retryAfterCapMs: SERVER_RETRY_AFTER_CAP_MS,
     };
   }
   if (!isRecord(raw)) {
@@ -449,7 +451,20 @@ function parseTransientRetry(
       });
     }
   }
-  return { enabled, maxAttempts, baseDelayMs, maxDelayMs };
+  let retryAfterCapMs = SERVER_RETRY_AFTER_CAP_MS;
+  if (raw.retryAfterCapMs !== undefined) {
+    if (typeof raw.retryAfterCapMs === "number" && Number.isFinite(raw.retryAfterCapMs) && raw.retryAfterCapMs > 0) {
+      retryAfterCapMs = raw.retryAfterCapMs;
+    } else {
+      diagnostics.push({
+        code: "ROUTER_TRANSIENT_RETRY_AFTER_CAP_INVALID",
+        severity: "fatal",
+        path: "router.transientRetry.retryAfterCapMs",
+        message: "retryAfterCapMs must be a positive number.",
+      });
+    }
+  }
+  return { enabled, maxAttempts, baseDelayMs, maxDelayMs, retryAfterCapMs };
 }
 
 function parseConcurrency(

@@ -66,6 +66,7 @@ import {
   LITELLM_INITIAL_RETRY_DELAY_MS,
   LITELLM_MAX_RETRY_DELAY_MS,
 } from "../model/streaming/streamModel.js";
+import { SERVER_RETRY_AFTER_CAP_MS } from "../model/streaming/backoff.js";
 import { DEFAULT_PROVIDER_CONCURRENCY } from "../router/execution/providerConcurrency.js";
 import { createDefaultPermissionContext, type PermissionRule } from "../permission/index.js";
 import {
@@ -1538,6 +1539,7 @@ function defaultTransientRetry() {
     maxAttempts: LITELLM_DEFAULT_MAX_RETRIES,
     baseDelayMs: LITELLM_INITIAL_RETRY_DELAY_MS,
     maxDelayMs: LITELLM_MAX_RETRY_DELAY_MS,
+    retryAfterCapMs: SERVER_RETRY_AFTER_CAP_MS,
   };
 }
 

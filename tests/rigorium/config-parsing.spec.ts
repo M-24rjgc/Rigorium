@@ -157,6 +157,7 @@ router:
     maxAttempts: 3
     baseDelayMs: 200
     maxDelayMs: 4000
+    retryAfterCapMs: 30000
 `);
   assert.deepEqual(
     {
@@ -172,8 +173,9 @@ router:
       maxAttempts: snap.config.router!.transientRetry?.maxAttempts,
       baseDelayMs: snap.config.router!.transientRetry?.baseDelayMs,
       maxDelayMs: snap.config.router!.transientRetry?.maxDelayMs,
+      retryAfterCapMs: snap.config.router!.transientRetry?.retryAfterCapMs,
     },
-    { enabled: true, maxAttempts: 3, baseDelayMs: 200, maxDelayMs: 4000 },
+    { enabled: true, maxAttempts: 3, baseDelayMs: 200, maxDelayMs: 4000, retryAfterCapMs: 30000 },
   );
 });
 

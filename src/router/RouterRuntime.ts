@@ -644,6 +644,7 @@ export function createRouterRuntime(
     const transientRetryMax = Math.max(1, config.transientRetry?.maxAttempts ?? LITELLM_DEFAULT_MAX_RETRIES);
     const transientBaseDelayMs = config.transientRetry?.baseDelayMs ?? LITELLM_INITIAL_RETRY_DELAY_MS;
     const transientMaxDelayMs = config.transientRetry?.maxDelayMs ?? LITELLM_MAX_RETRY_DELAY_MS;
+    const retryAfterCapMs = config.transientRetry?.retryAfterCapMs ?? SERVER_RETRY_AFTER_CAP_MS;
 
     let lastBuffered: CanonicalModelEvent[] = [];
     let lastError: import("../model/index.js").CanonicalModelError | undefined;
@@ -833,7 +834,7 @@ export function createRouterRuntime(
             // not the local 8s cap — providers like Anthropic return 30-60s
             // for 429s; clamping them locally guarantees another 429).
             const delay = outcome.error.retryAfterMs != null
-              ? Math.min(outcome.error.retryAfterMs, SERVER_RETRY_AFTER_CAP_MS)
+              ? Math.min(outcome.error.retryAfterMs, retryAfterCapMs)
               : calculateLiteLLMRetryDelay(transientRetryCount, transientBaseDelayMs, transientMaxDelayMs);
             console.warn(
               `[Rigorium] transientRetry: ${outcome.error.code} (attempt ${transientRetryCount + 1}/${transientRetryMax}, delay=${Math.round(delay)}ms)`,
@@ -892,7 +893,7 @@ export function createRouterRuntime(
             const partialText = extractPartialText(outcome.buffered);
             if (partialText.length > 0) {
               const midDelay = outcome.error.retryAfterMs != null
-                ? Math.min(outcome.error.retryAfterMs, SERVER_RETRY_AFTER_CAP_MS)
+                ? Math.min(outcome.error.retryAfterMs, retryAfterCapMs)
                 : calculateLiteLLMRetryDelay(transientRetryCount, transientBaseDelayMs, transientMaxDelayMs);
               console.warn(
                 `[Rigorium] midStreamRetry: ${outcome.error.code} after partial content ` +
