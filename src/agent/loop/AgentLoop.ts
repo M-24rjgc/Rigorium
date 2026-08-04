@@ -34,6 +34,7 @@ import type { AgentPermissionDenial, AgentTurnResult } from "../protocol/result.
 import type { AgentRuntimeConfig } from "../runtime/AgentRuntimeConfig.js";
 import type { AgentRuntimeDependencies } from "../runtime/AgentRuntimeDependencies.js";
 import type { LifecycleDispatchResult } from "../../lifecycle/index.js";
+import { emptyLifecycleDispatchResult } from "../../lifecycle/protocol/payloads.js";
 import type { RigoriumHookEvent } from "../../extension/hooks/protocol/events.js";
 import { NullContextRuntime } from "../../context/NullContextRuntime.js";
 import type { AgentContextRuntime } from "../../context/ContextRuntime.js";
@@ -2265,30 +2266,43 @@ export class AgentLoop {
     };
   }
 
+  /**
+   * Lifecycle (hook) dispatch with a hard invariant: a hook backend failure
+   * must never break the agent loop. All lifecycle events funnel through
+   * here — Stop/StopFailure/SubagentStart/SubagentStop/PreModelRequest/
+   * InstructionsLoaded/PreCompact/PostCompact — and a thrown hook error
+   * degrades to the same empty result as an absent lifecycle runtime
+   * (surfaced as a warning), so a broken hook cannot kill a turn that would
+   * otherwise succeed.
+   */
   private async dispatchLifecycle(
     input: AgentLoopInput,
     event: RigoriumHookEvent,
     payload: Record<string, unknown>,
   ): Promise<LifecycleDispatchResult> {
-    return this.dependencies.lifecycle?.dispatch({
-      event,
-      baseInput: {
-        sessionId: input.sessionId,
-        transcriptPath: "",
-        cwd: this.config.cwd,
-        permissionMode: this.config.permissionMode,
-      },
-      payload,
-      matchQuery: event,
-      signal: input.abortSignal,
-      env: this.config.env,
-    }) ?? {
-      effects: [],
-      messages: [],
-      events: [],
-      blockingErrors: [],
-      nonBlockingErrors: [],
-    };
+    if (!this.dependencies.lifecycle) {
+      return emptyLifecycleDispatchResult();
+    }
+    try {
+      return await this.dependencies.lifecycle.dispatch({
+        event,
+        baseInput: {
+          sessionId: input.sessionId,
+          transcriptPath: "",
+          cwd: this.config.cwd,
+          permissionMode: this.config.permissionMode,
+        },
+        payload,
+        matchQuery: event,
+        signal: input.abortSignal,
+        env: this.config.env,
+      });
+    } catch (error) {
+      console.warn(
+        `[Rigorium] lifecycle dispatch failed for ${event}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return emptyLifecycleDispatchResult();
+    }
   }
 
   /**

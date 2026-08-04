@@ -165,15 +165,12 @@ test("compact hooks: a skipped compaction dispatches PreCompact only", async () 
   assert.ok(!events.includes("PostCompact"), "PostCompact must not fire when nothing was rewritten");
 });
 
-test("compact hooks: failing compact dispatch never breaks the turn", async () => {
+test("compact hooks: failing hook dispatch never breaks the turn (central guard)", async () => {
   const failing = new LifecycleRuntime(new HookRuntime({})) as CapturingLifecycle;
-  // Fail only for the compact events — other lifecycle dispatch sites
-  // (e.g. Stop) are intentionally awaited and out of scope here.
-  failing.dispatch = async (input) => {
-    if (input.event === "PreCompact" || input.event === "PostCompact") {
-      throw new Error("hook backend down");
-    }
-    return { effects: [], messages: [], events: [], blockingErrors: [], nonBlockingErrors: [] };
+  // Fail on EVERY lifecycle event — the loop boundary must swallow all of
+  // them (Stop/StopFailure/SubagentStart/PreCompact/...), not just compact.
+  failing.dispatch = async () => {
+    throw new Error("hook backend down");
   };
   const loop = new AgentLoop(
     {
@@ -186,5 +183,5 @@ test("compact hooks: failing compact dispatch never breaks the turn", async () =
     createDependencies(createCompactingContext(), failing as unknown as CapturingLifecycle),
   );
   await runTurn(loop); // must not throw
-  assert.ok(true, "a failing compact-hook dispatch is fire-and-forget");
+  assert.ok(true, "a failing lifecycle dispatch is fire-and-forget at the loop boundary");
 });
