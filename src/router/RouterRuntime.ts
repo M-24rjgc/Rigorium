@@ -51,7 +51,6 @@ import {
 } from "./execution/attemptPlanning.js";
 import { SERVER_RETRY_AFTER_CAP_MS, exponentialBackoffDelay } from "../model/streaming/backoff.js";
 import {
-  bufferedHasToolCall,
   calculateLiteLLMRetryDelay,
   classifyRetryReason,
   createUnsupportedMediaError,
@@ -901,12 +900,14 @@ export function createRouterRuntime(
           if (
             hasYieldedContent &&
             transientRetryCount < transientRetryMax &&
-            // Continuation is only safe for text: a mid-stream tool-call
-            // block's arguments are unreliable and must not be resumed, and
-            // non-retryable errors (auth, billing, invalid request) would
-            // fail identically on the retry.
-            outcome.error.retryable !== false &&
-            !bufferedHasToolCall(outcome.buffered)
+            // Continuation is only safe for text: a partially emitted
+            // tool-call block is dropped (never resumed — its arguments are
+            // unreliable), and the model continues from the clean text
+            // prefix; `buildLiteLLMContinuationRequest` emits a text-only
+            // assistant message, so no malformed tool-call block reaches the
+            // provider. Non-retryable errors (auth, billing, invalid
+            // request) would fail identically on the retry.
+            outcome.error.retryable !== false
           ) {
             const partialText = extractPartialText(outcome.buffered);
             if (partialText.length > 0) {
