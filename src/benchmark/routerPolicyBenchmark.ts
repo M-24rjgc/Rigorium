@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { AmortizedRanker } from "../router/learning/AmortizedRanker.js";
 import { UncertaintyGatedTierClassifier } from "../router/learning/uncertaintyGatedClassifier.js";
 import { createStickyGuard } from "../router/policy/stickyGuard.js";
+import { classifyHeuristicSimple } from "../router/tokenSaver/heuristicTier.js";
 import type { TierClassifier, TokenSaverDecision } from "../router/tokenSaver/tierClassifier.js";
 import type { SessionRoutingState } from "../router/protocol/decision.js";
 
@@ -51,6 +52,9 @@ export type BenchmarkPolicyResult = {
   judgeCallRate: number;
   learnedAgreement: number | null;
   successRate: number;
+  heuristicDecisions: number;
+  heuristicMisintercepted: number;
+  heuristicMisinterceptionRate: number | null;
 };
 
 function mulberry32(seed: number): () => number {
@@ -84,6 +88,20 @@ function requirementsForBucket(bucketIndex: number) {
   };
 }
 
+/**
+ * Message per turn, bound to the bucket's ground truth (simple buckets get
+ * short simple messages; complex buckets get long complex ones) with a 10%
+ * noise flip — so the heuristic's conservative exclusions are exercised.
+ */
+function messageForBucket(groundTruthTier: number, rng: () => number): string {
+  const noisy = rng() < 0.1;
+  const wantSimple = (groundTruthTier === 0) !== noisy;
+  if (wantSimple) {
+    return "what is the definition of the term?";
+  }
+  return "implement the feature with error handling and step by step reasoning about the architecture";
+}
+
 function buildTierConfig() {
   const models = TIER_NAMES.map((tier, i) => ({ id: `p/m${i}`, provider: "p", model: `m${i}` }));
   return {
@@ -95,17 +113,27 @@ function buildTierConfig() {
   };
 }
 
-/** Judge simulator: answers with the bucket's ground truth (p) else random. */
+/**
+ * Judge simulator backed by a PRECOMPUTED verdict sequence (drawn from the
+ * shared workload RNG): every policy sees the exact same judge answers for
+ * the same turns — the only thing policies differ on is their own decisions.
+ */
 function createJudgeSimulator(
   bucketGroundTruth: number[],
+  sessionBuckets: number[],
   rng: () => number,
-): { classify(input: { _bucketIndex: number }): Promise<{ tier: string; selection: { id: string; provider: string; model: string }; resolvedFrom: "judge" }> } {
+): { classify(input: { _turnIndex: number }): Promise<{ tier: string; selection: { id: string; provider: string; model: string }; resolvedFrom: "judge" }> } {
+  // One verdict per TURN (sessions repeat their bucket across 6 turns).
+  const verdicts = Array.from({ length: TURNS }, (_, turn) => {
+    const bucketIndex = sessionBuckets[Math.floor(turn / SESSION_LENGTH)];
+    const tier = rng() < JUDGE_CORRECTNESS
+      ? bucketGroundTruth[bucketIndex]
+      : Math.floor(rng() * TIER_NAMES.length);
+    return tier;
+  });
   return {
     async classify(input) {
-      const bucketIndex = input._bucketIndex;
-      const tier = rng() < JUDGE_CORRECTNESS
-        ? bucketGroundTruth[bucketIndex]
-        : Math.floor(rng() * TIER_NAMES.length);
+      const tier = verdicts[input._turnIndex];
       return {
         tier: TIER_NAMES[tier],
         selection: { id: `p/m${tier}`, provider: "p", model: `m${tier}` },
@@ -127,13 +155,34 @@ async function runPolicy(policy: string, seed: number): Promise<BenchmarkPolicyR
   // sequence across policies — only the decisions differ (fair comparison).
   const workloadRng = mulberry32(seed);
   const groundTruth = Array.from({ length: BUCKETS }, () => Math.floor(workloadRng() * TIER_NAMES.length));
+  // A session is one task shape: all its turns share a bucket.
+  const sessionCount = Math.ceil(TURNS / SESSION_LENGTH);
+  const sessionBuckets = Array.from({ length: sessionCount }, () => Math.floor(workloadRng() * BUCKETS));
   const policyRng = mulberry32(seed ^ 0x9e3779b9);
   const ranker = new AmortizedRanker();
-  const judge = createJudgeSimulator(groundTruth, policyRng);
+  const judge = createJudgeSimulator(groundTruth, sessionBuckets, workloadRng);
   const config = buildTierConfig();
 
   let classifier: TierClassifier = judge as unknown as TierClassifier;
-  if (policy !== "judge-only") {
+  if (policy === "heuristic+judge") {
+    // No learning: the zero-cost heuristic pre-filters obvious-simple
+    // messages over the judge (the heuristic's intended deployment — the
+    // default config has learning disabled).
+    classifier = {
+      async classify(input: { messages?: Array<{ content?: Array<{ type?: string; text?: string }> }> }) {
+        const message = String(input.messages?.[0]?.content?.[0]?.text ?? "");
+        const simple = classifyHeuristicSimple(message);
+        if (simple.isSimple) {
+          return {
+            tier: "simple",
+            selection: { id: "p/m0", provider: "p", model: "m0" },
+            resolvedFrom: "heuristic",
+          };
+        }
+        return judge.classify(input as never);
+      },
+    } as unknown as TierClassifier;
+  } else if (policy !== "judge-only") {
     const explorationRate = policy === "gate+explore" ? 0.05 : 0;
     classifier = new UncertaintyGatedTierClassifier(judge as unknown as TierClassifier, ranker, {
       minObservations: 4,
@@ -153,20 +202,26 @@ async function runPolicy(policy: string, seed: number): Promise<BenchmarkPolicyR
     judgeCalls: 0,
     learnedDecisions: 0,
     learnedAgreeing: 0,
+    heuristicDecisions: 0,
+    heuristicMisintercepted: 0,
     successfulTurns: 0,
     costUnits: 0,
     totalTurns: TURNS,
   };
 
-  // A session is one task shape: all its turns share a bucket. Fault
-  // sequence drawn once from the shared workload RNG.
-  const sessionCount = Math.ceil(TURNS / SESSION_LENGTH);
-  const sessionBuckets = Array.from({ length: sessionCount }, () => Math.floor(workloadRng() * BUCKETS));
+  // Fault and message sequences drawn once from the shared workload RNG —
+  // every policy sees the SAME workload (fair comparison).
   const faultSequence = Array.from({ length: TURNS }, () => workloadRng() < PROVIDER_FAULT_RATE);
+  const messageSequence = Array.from({ length: TURNS }, (_, turn) => {
+    const bucketIndex = sessionBuckets[Math.floor(turn / SESSION_LENGTH)];
+    return messageForBucket(groundTruth[bucketIndex], workloadRng);
+  });
   for (let turn = 0; turn < TURNS; turn += 1) {
     const sessionId = `s${Math.floor(turn / SESSION_LENGTH)}`;
     const bucketIndex = sessionBuckets[Math.floor(turn / SESSION_LENGTH)];
     const requirements = requirementsForBucket(bucketIndex);
+    const messageText = messageSequence[turn];
+    const messageIsSimple = messageText.startsWith("what is");
 
     // Sticky policy: reuse the session pin when usable (no re-classify);
     // quality failures release it so a broken pin is re-judged.
@@ -178,11 +233,12 @@ async function runPolicy(policy: string, seed: number): Promise<BenchmarkPolicyR
     if (!decision) {
       const input = {
         config,
-        messages: [{ role: "user", content: [{ type: "text", text: "task" }] }],
+        messages: [{ role: "user", content: [{ type: "text", text: messageText }] }],
         judgeRuntime: null,
         requirements,
         sessionId,
         _bucketIndex: bucketIndex,
+        _turnIndex: turn,
       };
       decision = (await classifier.classify(input as never)) ?? null;
       if (!decision) continue;
@@ -190,6 +246,13 @@ async function runPolicy(policy: string, seed: number): Promise<BenchmarkPolicyR
       if (decision?.resolvedFrom === "learned") {
         stats.learnedDecisions += 1;
         if (tierIndex(decision.tier) === groundTruth[bucketIndex]) stats.learnedAgreeing += 1;
+      }
+      if (decision?.resolvedFrom === "heuristic") {
+        stats.heuristicDecisions += 1;
+        // Mis-interception: the heuristic said simple but the message was
+        // actually complex (the conservative-exclusion guard failing would
+        // show up here) — the ONLY case where heuristic interception hurts.
+        if (!messageIsSimple) stats.heuristicMisintercepted += 1;
       }
       if (policy === "sticky+gate") {
         stickyState.set(sessionId, {
@@ -203,12 +266,19 @@ async function runPolicy(policy: string, seed: number): Promise<BenchmarkPolicyR
     }
 
     const tier = tierIndex(decision.tier);
-    const adequate = tier >= groundTruth[bucketIndex];
+    // Success model: a simple message is served correctly by ANY tier
+    // (a "what is X" question answered by a simple model succeeds); a
+    // complex message needs a tier at least as strong as the bucket's
+    // ground truth. This is the honest quality model for text-level
+    // heuristics — intercepting a simple message to the simple tier is
+    // NOT a failure.
+    const requiredTier = messageIsSimple ? 0 : groundTruth[bucketIndex];
+    const adequate = tier >= requiredTier;
     const providerFault = faultSequence[turn];
     const success = adequate && !providerFault;
     if (success) stats.successfulTurns += 1;
 
-    if (policy !== "judge-only") {
+    if (policy !== "judge-only" && policy !== "heuristic+judge") {
       const bucket = ranker.bucketKey(requirements as never);
       ranker.observe(bucket, decision.tier, success ? "success" : "failure");
     }
@@ -229,11 +299,12 @@ async function runPolicy(policy: string, seed: number): Promise<BenchmarkPolicyR
     judgeCallRate: stats.judgeCalls / TURNS,
     learnedAgreement: stats.learnedDecisions > 0 ? stats.learnedAgreeing / stats.learnedDecisions : null,
     successRate: stats.successfulTurns / TURNS,
+    heuristicMisinterceptionRate: stats.heuristicDecisions > 0 ? stats.heuristicMisintercepted / stats.heuristicDecisions : null,
   };
 }
 
 export async function runBenchmark(seed = 42): Promise<BenchmarkPolicyResult[]> {
-  const policies = ["judge-only", "gate", "gate+explore", "sticky+gate"];
+  const policies = ["judge-only", "heuristic+judge", "gate", "gate+explore", "sticky+gate"];
   const results: BenchmarkPolicyResult[] = [];
   for (const policy of policies) {
     stickyState.clear();
@@ -257,6 +328,12 @@ export function renderBenchmarkMarkdown(results: BenchmarkPolicyResult[]): strin
       `${r.learnedAgreement === null ? "n/a" : `${(r.learnedAgreement * 100).toFixed(1)}%`} | ` +
       `${(r.successRate * 100).toFixed(1)}% | ${r.costUnits.toFixed(0)} |`,
     );
+    if (r.policy === "heuristic+gate") {
+      lines.push(
+        `  heuristic: ${r.heuristicDecisions} decisions, ` +
+        `mis-interception rate ${r.heuristicMisinterceptionRate === null ? "n/a" : `${(r.heuristicMisinterceptionRate * 100).toFixed(1)}%`}`,
+      );
+    }
   }
   lines.push("");
   const baseline = results.find((r) => r.policy === "judge-only");

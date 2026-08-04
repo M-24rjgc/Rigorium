@@ -11,7 +11,9 @@ export type RouterDecisionResolution =
   | "fallback"
   | "judge"
   | "default"
-  | "learned";
+  | "learned"
+  | "heuristic"
+  | "continuation";
 
 export type RouterMutationsLog = {
   systemPromptSlim?: { from: number; to: number; preservedKeywords: string[] };

@@ -2,6 +2,9 @@ import type { ModelRuntime } from "../../model/index.js";
 import type { TelemetryClient } from "../../telemetry/index.js";
 import type { RouterModelRef, RouterTokenSaverConfig } from "../config/schema.js";
 import type { CapabilityRequirements } from "../policy/capabilityRequirements.js";
+import { extractLastUserMessage } from "../tokenSaver/extractLastUserMessage.js";
+import { isShortContinuation } from "../tokenSaver/classifyAndRoute.js";
+import { classifyHeuristicSimple } from "../tokenSaver/heuristicTier.js";
 import type {
   ClassifyAndRouteInput,
   TierClassifier,
@@ -50,6 +53,12 @@ export type UncertaintyGatedClassifierOptions = {
   explorationRate?: number;
   /** Injectable randomness for tests. */
   random?: () => number;
+  /**
+   * Enable the zero-cost first level (continuation inheritance + obvious-
+   * simple heuristic). Default true; diagnostics/benchmarks can disable it
+   * to measure the heuristic's marginal effect.
+   */
+  enableZeroCost?: boolean;
 };
 
 export type LearnedClassifyInput = ClassifyAndRouteInput & {
@@ -69,6 +78,7 @@ export class UncertaintyGatedTierClassifier implements TierClassifier {
   private readonly enabled: boolean;
   private readonly explorationRate: number;
   private readonly random: () => number;
+  private readonly enableZeroCost: boolean;
 
   constructor(
     judge: TierClassifier,
@@ -82,10 +92,27 @@ export class UncertaintyGatedTierClassifier implements TierClassifier {
     this.enabled = options.enabled ?? true;
     this.explorationRate = options.explorationRate ?? DEFAULT_EXPLORATION_RATE;
     this.random = options.random ?? Math.random;
+    this.enableZeroCost = options.enableZeroCost ?? true;
   }
 
   async classify(input: LearnedClassifyInput): Promise<TokenSaverDecision | undefined> {
     const requirements = input.requirements;
+    // Tier-0 zero-cost pre-filter (LiteLLM Auto Router first-level cascade):
+    //  1. Short continuations inherit the previous tier (agent-session short
+    //     messages are complex-task continuations, not new simple requests —
+    //     small models mis-classify them as "simple").
+    //  2. Obviously-simple messages short-circuit to the simple tier —
+    //     but ONLY while the bucket has no learned statistics yet (cold
+    //     start). Once the bucket has observations, the learned path must
+    //     own the tier competition: pre-filtering simple messages would
+    //     otherwise starve the bucket's multi-tier signal and keep the
+    //     judge in charge forever (benchmark-measured effect).
+    if (this.enableZeroCost) {
+      const zeroCost = this.tryZeroCostTier(input, requirements);
+      if (zeroCost) {
+        return zeroCost;
+      }
+    }
     if (!this.enabled || !requirements) {
       return this.judge.classify(input);
     }
@@ -147,6 +174,67 @@ export class UncertaintyGatedTierClassifier implements TierClassifier {
       };
     }
     return decision;
+  }
+
+  /**
+   * Zero-cost first level: short-continuation inheritance and the obvious-
+   * simple heuristic. Returns undefined when the request needs the learned
+   * path or the judge.
+   */
+  private tryZeroCostTier(
+    input: LearnedClassifyInput,
+    requirements: CapabilityRequirements | undefined,
+  ): TokenSaverDecision | undefined {
+    const userMessage = extractLastUserMessage(input.messages);
+    if (!userMessage) {
+      return undefined;
+    }
+    if (input.previousTier && isShortContinuation(userMessage)) {
+      const selection = tierModel(input.config, input.previousTier);
+      if (selection) {
+        return {
+          tier: input.previousTier,
+          selection,
+          resolvedFrom: "continuation",
+        };
+      }
+    }
+    // The simple-tier heuristic only applies to cold buckets (no learned
+    // statistics yet): once the bucket has observations, the learned path
+    // owns the tier competition and pre-filtering would starve its signal.
+    if (!requirements) {
+      return undefined;
+    }
+    const bucket = this.ranker.bucketKey(requirements);
+    const scored = this.ranker.score(bucket);
+    if (scored.totalObservations > 0) {
+      return undefined;
+    }
+    const simple = classifyHeuristicSimple(userMessage);
+    if (simple.isSimple) {
+      const selection = tierModel(input.config, "simple");
+      if (selection) {
+        input.telemetry?.trackFeatureLoopStage?.({
+          module: "router",
+          ownerModule: "router",
+          executionKind: "router_judge",
+          phase: "classify",
+          loopStage: "module_event",
+          outcome: "success",
+          sessionId: input.sessionId,
+          metadata: {
+            event: "heuristic_simple",
+            signals: simple.signals,
+          },
+        });
+        return {
+          tier: "simple",
+          selection,
+          resolvedFrom: "heuristic",
+        };
+      }
+    }
+    return undefined;
   }
 
   /**

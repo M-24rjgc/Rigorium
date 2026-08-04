@@ -6,7 +6,7 @@ import { classifyAndRoute } from "./classifyAndRoute.js";
 export type TokenSaverDecision = {
   tier: string;
   selection: RouterModelRef;
-  resolvedFrom: "judge" | "default" | "fallback" | "learned";
+  resolvedFrom: "judge" | "default" | "fallback" | "learned" | "heuristic" | "continuation";
   failureReason?: "timeout" | "model_error" | "parse_error";
 };
 
