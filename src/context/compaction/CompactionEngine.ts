@@ -34,7 +34,9 @@ export type CompactionEngineOptions = {
   tokenAccounting?: TokenAccountingRuntime;
   /** Optional lifecycle dispatcher (PreCompact / PostCompact). */
   lifecycle?: {
-    dispatch(input: { event: "PreCompact" | "PostCompact"; payload: Record<string, unknown> }): void | Promise<void>;
+    dispatch(
+      input: { event: "PreCompact" | "PostCompact"; payload: Record<string, unknown> },
+    ): void | Promise<void>;
   };
   /** Provider id forwarded to `stream()`. */
   provider: string;
@@ -138,14 +140,24 @@ export class CompactionEngine {
     const messagesToSummarize = compactPlan.messagesToSummarize;
     const messagesToKeep = compactPlan.messagesToKeep;
 
-    await this.options.lifecycle?.dispatch({
-      event: "PreCompact",
-      payload: {
-        trigger: input.trigger,
-        preTokens,
-        messagesSummarized: messagesToSummarize.length,
-      },
-    });
+    // Fire-and-forget with the platform invariant: a hook failure must never
+    // break compaction (same rule as the loop/tool boundaries). The engine
+    // never reads the result — the minimal dispatch shape only carries
+    // event+payload, so the guard lives here rather than in dispatchSafely.
+    try {
+      await this.options.lifecycle?.dispatch({
+        event: "PreCompact",
+        payload: {
+          trigger: input.trigger,
+          preTokens,
+          messagesSummarized: messagesToSummarize.length,
+        },
+      });
+    } catch (error) {
+      console.warn(
+        `[Rigorium] lifecycle dispatch failed for PreCompact: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     this.options.eventEmitter?.({ type: "compact_started", sessionId: input.sessionId ?? "", turnId: input.turnId ?? "", trigger: input.trigger, preTokens });
 
     let summaryMessage: CanonicalMessage | undefined;
@@ -200,17 +212,23 @@ export class CompactionEngine {
       result.postTokens = this.estimateMessages(buildPostCompactMessages(result));
     }
 
-    await this.options.lifecycle?.dispatch({
-      event: "PostCompact",
-      payload: {
-        trigger: input.trigger,
-        status: summaryError ? "error" : "success",
-        error: summaryError,
-        preTokens,
-        postTokens: result.postTokens,
-        summaryUsage,
-      },
-    });
+    try {
+      await this.options.lifecycle?.dispatch({
+        event: "PostCompact",
+        payload: {
+          trigger: input.trigger,
+          status: summaryError ? "error" : "success",
+          error: summaryError,
+          preTokens,
+          postTokens: result.postTokens,
+          summaryUsage,
+        },
+      });
+    } catch (error) {
+      console.warn(
+        `[Rigorium] lifecycle dispatch failed for PostCompact: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     this.options.eventEmitter?.({
       type: "compact_completed",
       sessionId: input.sessionId ?? "",

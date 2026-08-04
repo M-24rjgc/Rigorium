@@ -1,7 +1,7 @@
 import { isAbsolute, relative, resolve } from "node:path";
 import { PermissionRuntime } from "../../permission/index.js";
 import type { LifecycleRuntime, RigoriumHookEffect } from "../../lifecycle/index.js";
-import { emptyLifecycleDispatchResult } from "../../lifecycle/protocol/payloads.js";
+import { dispatchLifecycleSafely } from "../../lifecycle/dispatchSafely.js";
 import { toolError } from "../protocol/errors.js";
 import type { RigoriumToolErrorCode } from "../protocol/errors.js";
 import {
@@ -410,34 +410,24 @@ ${formatValidationError(tool.name, updatedValidation.issues, {
     context: RigoriumToolRuntimeContext,
     extraPayload: Record<string, unknown> = {},
   ) {
-    if (!this.lifecycle) {
-      return emptyLifecycleDispatchResult();
-    }
-    try {
-      return await this.lifecycle.dispatch({
-        event,
-        baseInput: {
-          sessionId: context.sessionId,
-          transcriptPath: "",
-          cwd: context.cwd,
-          permissionMode: context.permissionMode,
-        },
-        matchQuery: toolName,
-        payload: {
-          toolName,
-          toolInput,
-          toolUseId: toolCallId,
-          ...extraPayload,
-        },
-        signal: context.abortSignal,
-        env: context.env,
-      });
-    } catch (error) {
-      console.warn(
-        `[Rigorium] tool lifecycle dispatch failed for ${event} (${toolName}): ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return emptyLifecycleDispatchResult();
-    }
+    return dispatchLifecycleSafely(this.lifecycle, {
+      event,
+      baseInput: {
+        sessionId: context.sessionId,
+        transcriptPath: "",
+        cwd: context.cwd,
+        permissionMode: context.permissionMode,
+      },
+      matchQuery: toolName,
+      payload: {
+        toolName,
+        toolInput,
+        toolUseId: toolCallId,
+        ...extraPayload,
+      },
+      signal: context.abortSignal,
+      env: context.env,
+    });
   }
 }
 

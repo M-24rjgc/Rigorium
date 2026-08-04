@@ -35,6 +35,7 @@ import type { AgentSubagentTranscriptHooks } from "../agent/runtime/AgentRuntime
 import { createPlanTodoStateManager } from "../agent/runtime/PlanTodoState.js";
 import { HookRuntime, PluginRuntime } from "../extension/index.js";
 import { LifecycleRuntime } from "../lifecycle/index.js";
+import { dispatchLifecycleSafely } from "../lifecycle/dispatchSafely.js";
 import {
   GatewayElicitationChannel,
   InProcessGateway,
@@ -1198,7 +1199,7 @@ class ProjectRuntimeRegistry {
         tokenAccounting: runtime.tokenAccounting,
         lifecycle: {
           async dispatch(input) {
-            await lifecycle.dispatch({
+            await dispatchLifecycleSafely(lifecycle, {
               event: input.event,
               baseInput: {
                 sessionId: context.sessionKey,

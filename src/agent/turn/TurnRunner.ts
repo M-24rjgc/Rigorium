@@ -8,6 +8,7 @@ import type { AgentTranscriptWriter } from "../../session/transcript/TranscriptW
 import { TurnInputProcessor } from "./TurnInputProcessor.js";
 import type { CanonicalMessage, CanonicalUsage } from "../../model/index.js";
 import type { LifecycleRuntime } from "../../lifecycle/index.js";
+import { dispatchLifecycleSafely } from "../../lifecycle/dispatchSafely.js";
 import type { PermissionMode, PermissionRuleSet } from "../../permission/index.js";
 import type { AgentStatusMessageInput, AgentTranscriptWriterState } from "../../session/transcript/TranscriptWriter.js";
 import type { SessionMetadataStore } from "../../session/metadata/SessionMetadataStore.js";
@@ -115,7 +116,7 @@ export class TurnRunner {
     yield { type: "input_accepted", sessionId: options.sessionId, turnId: options.turnId, messages: accepted.messages };
 
     const prompt = inputToPromptText(options.input);
-    const userPromptHooks = await this.lifecycle?.dispatch({
+    const userPromptHooks = await dispatchLifecycleSafely(this.lifecycle, {
       event: "UserPromptSubmit",
       baseInput: {
         sessionId: options.sessionId,

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { LifecycleRuntime } from "../../lifecycle/index.js";
+import { dispatchLifecycleSafely } from "../../lifecycle/dispatchSafely.js";
 import type { AgentEvent } from "../protocol/events.js";
 import type { AgentInput, AgentSubmitOptions } from "../protocol/input.js";
 import { parseResearchHint } from "../../router/policy/capabilityRequirements.js";
@@ -48,7 +49,7 @@ export class AgentSession {
     this.state.currentTurnId = turnId;
     this.state.abortController = new AbortController();
     yield { type: "session_started", sessionId: this.state.sessionId };
-    await this.options.lifecycle?.dispatch({
+    await dispatchLifecycleSafely(this.options.lifecycle, {
       event: "SessionStart",
       baseInput: {
         sessionId: this.state.sessionId,
@@ -59,7 +60,7 @@ export class AgentSession {
       matchQuery: "SessionStart",
       signal: this.state.abortController.signal,
     });
-    await this.options.lifecycle?.dispatch({
+    await dispatchLifecycleSafely(this.options.lifecycle, {
       event: "Setup",
       baseInput: {
         sessionId: this.state.sessionId,
@@ -101,7 +102,7 @@ export class AgentSession {
     this.state.status = runResult.result.type === "aborted" ? "aborted" : runResult.result.type === "error" ? "failed" : "idle";
     this.state.currentTurnId = undefined;
     const sessionEndReason = this.state.status === "aborted" ? "other" : "prompt_input_exit";
-    await this.options.lifecycle?.dispatch({
+    await dispatchLifecycleSafely(this.options.lifecycle, {
       event: "SessionEnd",
       baseInput: {
         sessionId: this.state.sessionId,
