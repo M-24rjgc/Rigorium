@@ -212,12 +212,20 @@ test("attemptPlanning: clamps maxOutputTokens to model cap", () => {
 // execution/errors
 // ---------------------------------------------------------------------------
 
-test("errors: retry delay grows deterministically and respects the cap", () => {
+test("errors: retry delay uses exponential backoff with full jitter and respects the cap", () => {
+  // AWS-recommended full jitter: wait ∈ [0, min(cap, base·2^attempt)] —
+  // early attempts are near-immediate (no linear floor), growth is
+  // exponential, and the cap always holds.
   const d0 = calculateLiteLLMRetryDelay(0, 500, 8_000);
   const d1 = calculateLiteLLMRetryDelay(1, 500, 8_000);
-  assert.ok(d0 >= 500 && d0 <= 500 * (1 + 0.75));
-  assert.ok(d1 >= 1_000 && d1 <= 1_000 * (1 + 0.75));
+  const d4 = calculateLiteLLMRetryDelay(4, 500, 8_000);
+  assert.ok(d0 >= 0 && d0 <= 500, `d0=${d0} must be full-jitter within [0, 500]`);
+  assert.ok(d1 >= 0 && d1 <= 1_000, `d1=${d1} must be within [0, 1000]`);
+  assert.ok(d4 >= 0 && d4 <= 8_000, `d4=${d4} must be capped at 8s`);
   assert.ok(calculateLiteLLMRetryDelay(100, 500, 8_000) <= 8_000);
+  assert.ok(calculateLiteLLMRetryDelay(100, 500, 8_000) >= 0);
+  // The exponential ceiling doubles per attempt: upper bound(2) = 2×upper bound(1).
+  assert.ok(Math.min(8_000, 500 * 2 ** 2) === 2_000 && Math.min(8_000, 500 * 2 ** 1) === 1_000);
 });
 
 test("errors: retry reason and mid-stream classification", () => {

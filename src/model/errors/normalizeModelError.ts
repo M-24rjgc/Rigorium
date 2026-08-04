@@ -15,6 +15,7 @@ import {
   TRANSIENT_USAGE_SIGNAL_PATTERN,
   USAGE_LIMIT_PATTERN,
   parseRetryAfterFromMessage,
+  parseRetryAfterHeader,
   type CanonicalModelError,
   type CanonicalModelErrorCode,
   type SettingsFix,
@@ -26,6 +27,7 @@ export function normalizeModelError(
   protocol: ModelProtocol,
   error: unknown,
   status?: number,
+  headers?: { get(name: string): string | null } | null,
 ): CanonicalModelError {
   const raw = error;
   const record = firstErrorRecord(error);
@@ -78,6 +80,14 @@ export function normalizeModelError(
   const retryAfterMs = parseRetryAfterFromMessage(rawMessage);
   if (retryAfterMs !== undefined) {
     result.retryAfterMs = retryAfterMs;
+  } else if (headers) {
+    // Server-declared cooling time beats any local formula (429/503 paths
+    // where the message body carries no hint but the header does).
+    const headerValue = headers.get("retry-after") ?? headers.get("retry-after-ms");
+    const fromHeader = parseRetryAfterHeader(headerValue);
+    if (fromHeader !== undefined) {
+      result.retryAfterMs = fromHeader;
+    }
   }
   return result;
 }

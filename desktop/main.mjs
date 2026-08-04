@@ -1096,6 +1096,12 @@ function createWindow() {
       if (/^https?:/i.test(url) && !isLocalAppUrl(url)) void shell.openExternal(url);
     }
   });
+  // Electron security checklist #5: never auto-approve permission requests
+  // (notifications, camera, geolocation, ...) — the app needs none of them.
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+  mainWindow.webContents.session.setPermissionCheckHandler(() => false);
   mainWindow.once('ready-to-show', () => {
     if (!isWindowSmokeTest) mainWindow?.show();
   });

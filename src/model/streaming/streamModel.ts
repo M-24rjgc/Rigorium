@@ -12,6 +12,7 @@ import type {
   ProviderConfig,
 } from "../protocol/canonical.js";
 import { ModelProviderError, parseRetryAfterHeader } from "../protocol/errors.js";
+import { exponentialBackoffDelay } from "./backoff.js";
 import { parseModelResponse } from "../response/parseModelResponse.js";
 import { createStreamNormalizerState, normalizeStreamEvent } from "./normalizeStreamEvent.js";
 import { createGoogleStreamState, normalizeGoogleStreamEvent } from "../providers/google/stream.js";
@@ -71,6 +72,7 @@ export async function complete(
   const { provider } = validateModelRequest(nonStreamingRequest, config);
   const maxRetries = provider.retry?.requestMaxRetries ?? DEFAULT_REQUEST_MAX_RETRIES;
   const retryBaseDelay = provider.retry?.baseDelayMs ?? LITELLM_INITIAL_RETRY_DELAY_MS;
+  const retryMaxDelay = provider.retry?.maxDelayMs ?? LITELLM_MAX_RETRY_DELAY_MS;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     throwIfAborted(options.signal);
@@ -84,7 +86,8 @@ export async function complete(
         return parseGoogleResponse(raw, provider.id);
       } catch (error) {
         if (attempt < maxRetries && isRetryableRequestError(error)) {
-          const delayMs = retryBaseDelay * (attempt + 1);
+          const retryAfterMs = retryAfterMsForError(error);
+          const delayMs = exponentialBackoffDelay(attempt, retryBaseDelay, retryMaxDelay, retryAfterMs);
           console.warn(
             `[Rigorium] complete() retry: ${(error as Error).message} ` +
             `(attempt ${attempt + 1}/${maxRetries}, delay=${delayMs}ms)`,
@@ -102,7 +105,8 @@ export async function complete(
       response = await sendProviderRequest(provider, body, false, options.fetch ?? fetch, options.signal);
     } catch (error) {
       if (attempt < maxRetries && isRetryableRequestError(error)) {
-        const delayMs = retryBaseDelay * (attempt + 1);
+        const retryAfterMs = retryAfterMsForError(error);
+        const delayMs = exponentialBackoffDelay(attempt, retryBaseDelay, retryMaxDelay, retryAfterMs);
         console.warn(
           `[Rigorium] complete() retry: ${(error as Error).message} ` +
           `(attempt ${attempt + 1}/${maxRetries}, delay=${delayMs}ms)`,
@@ -116,7 +120,7 @@ export async function complete(
     if (!response.ok) {
       const raw = await safeReadJson(response);
       throw new ModelProviderError(
-        normalizeModelError(provider.id, provider.protocol, raw, response.status),
+        normalizeModelError(provider.id, provider.protocol, raw, response.status, response.headers),
       );
     }
 
@@ -480,16 +484,9 @@ function isRetryableStreamError(error: unknown): boolean {
 }
 
 function calculateRetryDelay(provider: ProviderConfig, attempt: number, retryAfterMs?: number): number {
-  if (retryAfterMs !== undefined) {
-    const maxDelayMs = provider.retry?.maxDelayMs ?? LITELLM_MAX_RETRY_DELAY_MS;
-    return Math.min(retryAfterMs, maxDelayMs);
-  }
   const baseDelayMs = provider.retry?.baseDelayMs ?? LITELLM_INITIAL_RETRY_DELAY_MS;
   const maxDelayMs = provider.retry?.maxDelayMs ?? LITELLM_MAX_RETRY_DELAY_MS;
-  const jitter = provider.retry?.jitter ?? LITELLM_RETRY_JITTER;
-  const deterministicDelay = baseDelayMs * (attempt + 1);
-  const jitterDelay = deterministicDelay * jitter * Math.random();
-  return Math.min(deterministicDelay + jitterDelay, maxDelayMs);
+  return exponentialBackoffDelay(attempt, baseDelayMs, maxDelayMs, retryAfterMs);
 }
 
 function retryAfterMsForError(error: unknown): number | undefined {

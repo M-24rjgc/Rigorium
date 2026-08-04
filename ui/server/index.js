@@ -490,6 +490,27 @@ app.use((req, res, next) => (
     isDesktopZoteroProtectedPath(req) ? next() : generalUrlencodedParser(req, res, next)
 ));
 
+// Security response headers (Electron security checklist #7): the app is
+// served same-origin, so a restrictive CSP neutralizes injected scripts and
+// `frame-ancestors 'none'` blocks clickjacking. `unsafe-inline` for styles
+// only — the UI injects style attributes/classes from React.
+app.use((req, res, next) => {
+    res.setHeader('Content-Security-Policy', [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "font-src 'self' data:",
+        "connect-src 'self' ws: wss: http://127.0.0.1:* http://localhost:*",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+    ].join('; '));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+});
+
 // Public health check endpoint (no authentication required)
 app.get('/health', (req, res) => {
     res.json({

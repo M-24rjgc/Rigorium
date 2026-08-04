@@ -39,7 +39,7 @@ import { NullContextRuntime } from "../../context/NullContextRuntime.js";
 import type { AgentContextRuntime } from "../../context/ContextRuntime.js";
 import type { ContextRecoveryDecision, ContextSupplementalToolResultMessage, TokenBudgetSnapshot } from "../../context/index.js";
 import type { PermissionMode, PermissionRule, PermissionRuleSet } from "../../permission/index.js";
-import { collectToolCalls } from "./collectToolCalls.js";
+import { collectToolCalls, countDuplicateToolCalls } from "./collectToolCalls.js";
 import { createMissingToolResult, ensureToolResultPairing } from "./ensureToolResultPairing.js";
 import { LargeFileRepair, type LargeFileRepairDecision } from "./LargeFileRepair.js";
 import { resolveOutputTokenRetryBump } from "./outputTokenRetry.js";
@@ -610,6 +610,16 @@ export class AgentLoop {
       usage = mergeUsage(usage, assembled.usage);
       lastModelUsage = assembled.usage;
       let assistantMessage = assembled.message;
+      const duplicateToolCallCount = countDuplicateToolCalls(assistantMessage);
+      if (duplicateToolCallCount > 0) {
+        yield {
+          type: "warning",
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          code: "duplicate_tool_calls_dropped",
+          message: `Model repeated ${duplicateToolCallCount} tool-call id(s) in one reply; duplicates were dropped (side-effecting tools must not run twice).`,
+        };
+      }
       let toolCalls = collectToolCalls(assistantMessage);
       if (assembled.hasTextFallbackToolCalls) {
         const repaired = this.repairTextExtractedToolNames(assistantMessage, toolCalls);

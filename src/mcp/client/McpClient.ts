@@ -378,11 +378,81 @@ export class McpClient {
       toolName: sanitized.name,
       wireName,
       description: truncateMcpToolDescription(sanitized.description ?? ""),
-      inputSchema: sanitized.inputSchema ?? { type: "object", properties: {} },
+      inputSchema: sanitizeMcpInputSchema(sanitized.inputSchema, this.spec.id, sanitized.name),
       annotations: sanitized.annotations,
       meta: sanitized._meta,
     };
   }
+}
+
+/**
+ * Bound and sanitize a remote MCP server's input schema (MCP JSON Schema
+ * Usage requirements): schemas MUST NOT be dereferenced across the network
+ * and MUST be depth-bounded so a malicious server cannot use a deeply nested
+ * schema as a DoS vector against the validator. `$ref` is stripped (the
+ * validator does not resolve refs — pretending otherwise would silently drop
+ * constraints); schemas deeper than the bound are rejected and the tool is
+ * excluded from the surface (the spec: rejection means the client MUST
+ * exclude the invalid tool).
+ */
+const MAX_MCP_SCHEMA_DEPTH = 32;
+
+function sanitizeMcpInputSchema(raw: unknown, serverId: string, toolName: string): unknown {
+  if (raw === undefined) {
+    return { type: "object", properties: {} };
+  }
+  const cleaned = stripMcpSchemaRefs(raw, serverId, toolName, 0);
+  if (cleaned === undefined) {
+    return { type: "object", properties: {} };
+  }
+  return cleaned;
+}
+
+function stripMcpSchemaRefs(
+  node: unknown,
+  serverId: string,
+  toolName: string,
+  depth: number,
+): unknown | undefined {
+  if (depth > MAX_MCP_SCHEMA_DEPTH) {
+    console.warn(
+      `[mcp] tool ${serverId}/${toolName}: input schema exceeds ${MAX_MCP_SCHEMA_DEPTH} levels; tool excluded (MCP schema depth bound).`,
+    );
+    return undefined;
+  }
+  if (!node || typeof node !== "object" || Array.isArray(node)) {
+    return node;
+  }
+  const record = node as Record<string, unknown>;
+  if (typeof record.$ref === "string") {
+    // Never dereference refs (network or otherwise) — drop the node and say
+    // why, rather than silently shipping a schema whose constraints don't
+    // apply.
+    console.warn(
+      `[mcp] tool ${serverId}/${toolName}: input schema contains $ref (${record.$ref}) which is not resolved; constraint dropped.`,
+    );
+    delete record.$ref;
+  }
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (Array.isArray(value)) {
+      const bounded: unknown[] = [];
+      for (const item of value) {
+        const cleaned = stripMcpSchemaRefs(item, serverId, toolName, depth + 1);
+        if (cleaned !== undefined) bounded.push(cleaned);
+      }
+      next[key] = bounded;
+      continue;
+    }
+    if (value && typeof value === "object") {
+      const cleaned = stripMcpSchemaRefs(value, serverId, toolName, depth + 1);
+      if (cleaned === undefined) return undefined;
+      next[key] = cleaned;
+      continue;
+    }
+    next[key] = value;
+  }
+  return next;
 }
 
 function withTimeout<T>(

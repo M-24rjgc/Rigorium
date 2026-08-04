@@ -703,6 +703,7 @@ function validateRequiredFrontmatter(
   skillMdContent: string,
   hardFails: SkillValidationIssue[],
   warnings: SkillValidationIssue[],
+  expectedSlug?: string,
 ): Record<string, unknown> | null {
   if (typeof skillMdContent !== "string" || !skillMdContent.trim()) {
     pushIssue(hardFails, "no_skill_md", "SKILL.md is empty or missing.");
@@ -723,6 +724,23 @@ function validateRequiredFrontmatter(
   }
   if (typeof fm.name !== "string" || !fm.name.trim()) {
     pushIssue(hardFails, "frontmatter_missing_name", "Frontmatter is missing required field: name.");
+  } else {
+    // Agent Skills spec alignment: `name` must be a clean slug — the slash
+    // menu and discovery key on it. A name like "PDF Tools" for directory
+    // `pdf-tools` silently breaks discovery.
+    if (!isValidSlug(fm.name.trim())) {
+      pushIssue(
+        hardFails,
+        "frontmatter_invalid_name",
+        `Frontmatter name "${fm.name}" is not a valid skill slug (lowercase letters, digits, dots, dashes, underscores; max 100 chars).`,
+      );
+    } else if (expectedSlug !== undefined && fm.name.trim() !== expectedSlug) {
+      pushIssue(
+        warnings,
+        "frontmatter_name_mismatch",
+        `Frontmatter name "${fm.name}" differs from the containing directory "${expectedSlug}" — discovery may be inconsistent.`,
+      );
+    }
   }
   if (typeof fm.description !== "string" || !fm.description.trim()) {
     pushIssue(
@@ -775,7 +793,7 @@ async function validateFromDisk(sourcePath: string): Promise<SkillValidationResu
     pushIssue(hardFails, "no_skill_md", "Source folder does not contain a SKILL.md at the root.");
     return { ok: false, hardFails, warnings, stats, frontmatter };
   }
-  frontmatter = validateRequiredFrontmatter(skillMdContent, hardFails, warnings);
+  frontmatter = validateRequiredFrontmatter(skillMdContent, hardFails, warnings, basename(sourcePath));
 
   await walkDir(sourcePath, "", stats, hardFails, warnings);
 

@@ -34,9 +34,9 @@
     "desktop:verify-release-metadata": "node scripts/verify-packaged-release-metadata.mjs",
     "desktop:rebuild-native": "node scripts/rebuild-electron-native.mjs",
     "desktop:pack": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && pnpm run desktop:rebuild-native && electron-builder --dir --win --x64",
-    "desktop:build": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && pnpm run desktop:rebuild-native && electron-builder --win nsis --x64 --publish never",
+    "desktop:build": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && pnpm run desktop:rebuild-native && electron-builder --win nsis --x64 --publish never && node scripts/flip-electron-fuses.mjs",
     "desktop:pack:mac": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:rebuild-native && electron-builder --dir --mac --publish never",
-    "desktop:build:mac": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:rebuild-native && electron-builder --mac dmg --publish never",
+    "desktop:build:mac": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:rebuild-native && electron-builder --mac dmg --publish never && node scripts/flip-electron-fuses.mjs",
     "predev": "npm run check:runtime && node scripts/bootstrap-rigorium-config.mjs",
     "dev": "node scripts/dev-launcher.mjs",
     "test": "npm run build && node --test --test-force-exit --test-timeout 60000 \"dist/tests/**/*.test.js\" \"dist/tests/**/*.spec.js\"",
@@ -48,6 +48,7 @@
     "research:smoke-sources": "node scripts/smoke-literature-sources.mjs"
   },
   "devDependencies": {
+    "@electron/fuses": "^2.1.3",
     "@electron/rebuild": "4.2.0",
     "@types/node": "^25.0.0",
     "@types/ws": "^8.18.1",

@@ -88,7 +88,40 @@ function normalizePathForPattern(value: string): string {
   return value.replace(/\\/g, "/");
 }
 
-function wildcardToRegExp(pattern: string): RegExp {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-  return new RegExp(`^${escaped}$`);
+/**
+ * Compile a permission glob into a RegExp with ecosystem-standard semantics
+ * (Claude Code `Write(src/**)` / Roo Code patterns):
+ *   `**` — any number of path segments (may span `/`, matches zero segments)
+ *   `*`  — any characters within one segment (never crosses `/`)
+ *   `?`  — exactly one character within a segment
+ * Everything else is escaped literally. Patterns are matched against
+ * `/`-normalized paths.
+ */
+export function wildcardToRegExp(pattern: string): RegExp {
+  let out = "";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index]!;
+    if (char === "*") {
+      if (pattern[index + 1] === "*") {
+        // `**`: consume the pair; if it is `**/`, the `/` becomes optional
+        // (zero segments must match too).
+        index += 1;
+        if (pattern[index + 1] === "/") {
+          index += 1;
+          out += "(?:[^/]+/)*";
+        } else {
+          out += "(?:[^/]+/)*[^/]*";
+        }
+      } else {
+        out += "[^/]*";
+      }
+      continue;
+    }
+    if (char === "?") {
+      out += "[^/]";
+      continue;
+    }
+    out += /[.+^${}()|[\]\\]/.test(char) ? `\\${char}` : char;
+  }
+  return new RegExp(`^${out}$`);
 }

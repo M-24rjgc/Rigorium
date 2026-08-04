@@ -125,6 +125,58 @@ test("messages: normalizeMessagesForModelRequest drops empty assistant messages"
   assert.equal(out.length, 2);
 });
 
+test("messages: orphan tool_calls (no matching tool_result) are stripped before the request", () => {
+  // A max_output continuation cut the reply before results arrived: the
+  // persisted conversation carries assistant(tool_calls) + assistant(text).
+  // OpenAI-style APIs reject that sequence with a 400.
+  const messages: CanonicalMessage[] = [
+    textMessage("user", "q"),
+    {
+      role: "assistant",
+      content: [
+        { type: "text", text: "plan" },
+        { type: "tool_call", id: "call-1", name: "read_file", input: { file_path: "a.ts" }, raw: {} },
+      ],
+    },
+    { role: "assistant", content: [{ type: "text", text: "continuing…" }] },
+    textMessage("user", "next"),
+  ];
+  const out = normalizeMessagesForModelRequest(messages);
+  const assistant = out.find((m) => m.role === "assistant");
+  assert.ok(assistant);
+  assert.equal(
+    assistant.content.some((block) => block.type === "tool_call"),
+    false,
+    "orphan tool_call must be stripped",
+  );
+  assert.ok(assistant.content.some((block) => block.type === "text" && block.text === "plan"));
+});
+
+test("messages: executed tool_calls (paired with tool_result) are preserved", () => {
+  const messages: CanonicalMessage[] = [
+    textMessage("user", "q"),
+    {
+      role: "assistant",
+      content: [
+        { type: "tool_call", id: "call-1", name: "read_file", input: { file_path: "a.ts" }, raw: {} },
+        { type: "tool_call", id: "call-2", name: "bash", input: { command: "ls" }, raw: {} },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        { type: "tool_result", toolCallId: "call-1", content: [{ type: "text", text: "ok" }] },
+        // call-2 has no result — it is an orphan even inside a paired message.
+      ],
+    },
+  ];
+  const out = normalizeMessagesForModelRequest(messages);
+  const assistant = out.find((m) => m.role === "assistant")!;
+  const calls = assistant.content.filter((block) => block.type === "tool_call");
+  assert.equal(calls.length, 1);
+  assert.equal((calls[0] as { id: string }).id, "call-1");
+});
+
 // ---------------------------------------------------------------------------
 // recovery/toolFailures
 // ---------------------------------------------------------------------------

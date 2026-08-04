@@ -45,12 +45,15 @@ const SELF_CORRECTABLE_CODES = new Set(["invalid_tool_arguments"]);
 /**
  * Non-retryable error codes that should still attempt provider fallback
  * because a different provider may succeed (e.g. billing exhaustion on
- * one provider, model not found on another).
+ * one provider, model not found on another). `provider_not_found` belongs
+ * here: the configured provider was removed/renamed in the catalog, and a
+ * fallback provider configured for the same scenario can still serve.
  */
 const FALLBACK_ELIGIBLE_NON_RETRYABLE = new Set([
   "billing",
   "model_not_found",
   "auth_error",
+  "provider_not_found",
 ]);
 
 export function isFallbackEligible(error: CanonicalModelError): boolean {

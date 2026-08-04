@@ -5,6 +5,14 @@ const DEFAULT_OPEN_THRESHOLD = 5;
 const DEFAULT_OPEN_DURATION_MS = 30_000;
 const DEFAULT_WINDOW_SIZE = 20;
 
+/**
+ * Error codes that signal provider *stress* rather than a bad request:
+ * a single 429/overloaded is enough to mark the provider degraded (the
+ * next request would likely hit the same limit) instead of waiting for
+ * `degradeThreshold` consecutive failures.
+ */
+const STRESS_CODES = new Set(["rate_limit_error", "overloaded_error"]);
+
 type ProviderRecord = {
   state: ProviderHealthState;
   consecutiveFailures: number;
@@ -64,11 +72,17 @@ export class ProviderHealthTracker {
     }
   }
 
-  recordFailure(providerId: string): void {
+  recordFailure(providerId: string, errorCode?: string): void {
     const rec = this.getOrCreate(providerId);
     rec.consecutiveFailures++;
     rec.window.push(false);
     if (rec.window.length > this.windowSize) rec.window.shift();
+    if (errorCode !== undefined && STRESS_CODES.has(errorCode) && rec.state === "healthy") {
+      // Provider-level stress (rate limit / overload) degrades immediately —
+      // the next attempt would likely hit the same wall. Still counts toward
+      // the consecutive-failure counters so sustained stress still opens.
+      rec.state = "degraded";
+    }
     if (rec.consecutiveFailures >= this.openThreshold) {
       if (rec.state !== "open") {
         rec.state = "open";

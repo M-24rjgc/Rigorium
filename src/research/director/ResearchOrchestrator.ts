@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { ClaimGraph } from "../claims/ClaimGraph.js";
 import type { ClaimEvidenceArtifact } from "../claims/ClaimGraph.js";
 import { planByInformationGain } from "./eig/planner.js";
@@ -126,6 +126,13 @@ export class ResearchOrchestrator {
       claimsDir,
     });
 
+    // Stop-decision audit log: "when to stop" is the platform's core
+    // recommendation, so every decision is recorded with the evidence that
+    // drove it. This is the dataset a future calibration loop uses to learn
+    // the stop bar empirically (OpenAI Deep Research / AI Scientist expose
+    // stop parameters; we record the decisions instead of hard-coding them).
+    await this.recordPlanHistory(actions, reconciled.plan.shouldStop, reconciled.plan.stopReason);
+
     return Object.freeze({
       computedAt: this.now().toISOString(),
       actions: Object.freeze(actions),
@@ -139,6 +146,33 @@ export class ResearchOrchestrator {
       summaryMarkdown,
       beliefs: Object.freeze(beliefs),
     });
+  }
+
+  /**
+   * Append one JSONL record per plan: top score, stop decision and reason,
+   * and the action mix. Append-only and read-only for the planner — the
+   * history is audit/calibration data, never a planning input.
+   */
+  private async recordPlanHistory(
+    actions: readonly OrchestratedAction[],
+    shouldStop: boolean,
+    stopReason: string | undefined,
+  ): Promise<void> {
+    try {
+      const claimsDir = join(this.projectRoot, ".rigorium", "research", "claims");
+      await mkdir(claimsDir, { recursive: true });
+      const record = {
+        computedAt: this.now().toISOString(),
+        shouldStop,
+        ...(stopReason !== undefined ? { stopReason } : {}),
+        topScore: actions[0]?.score ?? 0,
+        actionCount: actions.length,
+        actionTypes: actions.map((action) => action.type),
+      };
+      await appendFile(join(claimsDir, "planHistory.jsonl"), `${JSON.stringify(record)}\n`, "utf8");
+    } catch {
+      // Audit logging must never break a plan.
+    }
   }
 
   /** Persist the plan summary for the memory layer / human review. */

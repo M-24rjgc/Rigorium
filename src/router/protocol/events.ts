@@ -79,6 +79,23 @@ export type RouterRetryProgressEvent = {
   model: string;
 };
 
+/**
+ * Emitted when a provider transitions into the `degraded` health state
+ * (consecutive failures reached the degrade threshold, or a rate-limit /
+ * overload error stressed it). Observability only — degraded providers are
+ * still used (only `open` is skipped), but operators can see the provider
+ * struggling before the circuit opens.
+ */
+export type RouterProviderDegradedEvent = {
+  type: "rigorium_router_provider_degraded";
+  sessionId: string;
+  turnId?: string;
+  provider: string;
+  model: string;
+  errorCode: string;
+  consecutiveFailures: number;
+};
+
 export type RouterEvent =
   | RouterDecisionEvent
   | RouterFallbackEvent
@@ -87,7 +104,8 @@ export type RouterEvent =
   | RouterCustomFailedEvent
   | RouterExecuteFailedEvent
   | RouterTransientRetryEvent
-  | RouterRetryProgressEvent;
+  | RouterRetryProgressEvent
+  | RouterProviderDegradedEvent;
 
 export type RouterEventBus = {
   emit(event: RouterEvent): void;

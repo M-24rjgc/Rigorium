@@ -4,7 +4,7 @@ import type {
 } from "../../model/index.js";
 import type { ModelRuntime } from "../../model/index.js";
 import { ModelRequestError } from "../../model/index.js";
-import { LITELLM_RETRY_JITTER } from "../../model/streaming/streamModel.js";
+import { exponentialBackoffDelay } from "../../model/streaming/backoff.js";
 import type { RouterModelRef } from "../config/schema.js";
 
 /**
@@ -30,6 +30,26 @@ export function createUnsupportedMediaError(
   };
 }
 
+/**
+ * Recovery metadata for local request-validation errors (ModelRequestError).
+ * These are not HTTP-retryable (resending the identical request fails the
+ * same way), but they carry semantics the router must not lose: an
+ * `image_too_large` / `too_many_images` request can be retried after the
+ * media downgrade path strips images, and `provider_not_found` should fall
+ * back to another provider instead of terminating the attempt chain.
+ */
+const MODEL_REQUEST_ERROR_META: Readonly<Record<string, { recoverableViaImageStrip?: boolean }>> = {
+  image_too_large: { recoverableViaImageStrip: true },
+  too_many_images: { recoverableViaImageStrip: true },
+  pdf_too_large: {},
+  audio_too_long: {},
+  unsupported_modality: {},
+  unsupported_streaming: {},
+  unsupported_tool_use: {},
+  unsupported_thinking: {},
+  provider_not_found: {},
+};
+
 export function canonicalizeModelRequestError(
   error: unknown,
   request: { provider: string },
@@ -39,12 +59,14 @@ export function canonicalizeModelRequestError(
     return undefined;
   }
 
+  const meta = MODEL_REQUEST_ERROR_META[error.code];
   return {
     provider: request.provider,
     protocol,
     code: error.code,
     message: error.message,
     retryable: false,
+    ...(meta?.recoverableViaImageStrip ? { recoverableViaImageStrip: true } : {}),
     raw: error.details,
   };
 }
@@ -97,15 +119,16 @@ export function classifyRetryReason(
   return "server_error";
 }
 
-/** Deterministic exponential backoff with jitter, capped at `maxDelayMs`. */
+/**
+ * Deterministic exponential backoff with full jitter, capped at `maxDelayMs`
+ * (see src/model/streaming/backoff.ts — single shared implementation).
+ */
 export function calculateLiteLLMRetryDelay(
   attempt: number,
   baseDelayMs: number,
   maxDelayMs: number,
 ): number {
-  const deterministicDelay = baseDelayMs * (attempt + 1);
-  const jitterDelay = deterministicDelay * LITELLM_RETRY_JITTER * Math.random();
-  return Math.min(deterministicDelay + jitterDelay, maxDelayMs);
+  return exponentialBackoffDelay(attempt, baseDelayMs, maxDelayMs);
 }
 
 export function extractPartialText(buffered: readonly { type: string }[]): string {

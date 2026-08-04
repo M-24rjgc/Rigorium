@@ -132,7 +132,12 @@ export function normalizeOpenAIStreamEvent(
   const events: CanonicalModelEvent[] = [];
   const error = asRecord(chunk.error);
   if (Object.keys(error).length > 0) {
-    const code = readNonEmptyString(error.type) ?? readNonEmptyString(error.code) ?? "provider_error";
+    // Normalize provider-specific stream codes into the canonical
+    // vocabulary: `timeout_error` → `timeout` (the retry classifier and
+    // stats key on the canonical code; the provider name would mislabel a
+    // timeout as a server error).
+    const rawCode = readNonEmptyString(error.type) ?? readNonEmptyString(error.code) ?? "provider_error";
+    const code = rawCode === "timeout_error" ? "timeout" : rawCode;
     return [{
       type: "error",
       error: {
@@ -140,7 +145,7 @@ export function normalizeOpenAIStreamEvent(
         protocol: "openai",
         code,
         message: readNonEmptyString(error.message) ?? "OpenAI stream request failed.",
-        retryable: code === "rate_limit_error" || code === "overloaded_error" || code === "server_error" || code === "timeout_error",
+        retryable: code === "rate_limit_error" || code === "overloaded_error" || code === "server_error" || code === "timeout",
         raw,
       },
     }];

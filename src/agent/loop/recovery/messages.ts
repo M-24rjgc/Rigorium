@@ -112,9 +112,51 @@ export function removeTransientPromptsById(
   });
 }
 
-export function normalizeMessagesForModelRequest(messages: CanonicalMessage[]): CanonicalMessage[] {
+/**
+ * Strip tool_call blocks that have no matching tool_result in the following
+ * message. They are orphans — e.g. a `max_output_reached` continuation cut
+ * the reply off before any tool result arrived, leaving
+ * `assistant(tool_calls) + assistant(continuation)` in the persisted
+ * conversation. Sending that sequence to OpenAI-style APIs is a hard 400
+ * ("messages with 'tool_calls' must be followed by a message with 'tool'"),
+ * and replayed forks would see never-executed calls. Executed ids (paired
+ * with a tool_result in the immediate next message) are preserved.
+ */
+export function stripOrphanToolCalls(messages: CanonicalMessage[]): CanonicalMessage[] {
   const out: CanonicalMessage[] = [];
-  for (const rawMessage of messages) {
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]!;
+    if (message.role !== "assistant" || !hasToolCallBlock(message)) {
+      out.push(message);
+      continue;
+    }
+    const next = messages[index + 1];
+    const executedIds = new Set<string>();
+    if (next?.role === "user") {
+      for (const block of next.content) {
+        if (block.type === "tool_result") {
+          executedIds.add(block.toolCallId);
+        }
+      }
+    }
+    const cleanedContent = messageContent(message).filter(
+      (block) => block.type !== "tool_call" || executedIds.has(block.id),
+    );
+    if (cleanedContent.length === messageContent(message).length) {
+      out.push(message);
+      continue;
+    }
+    out.push({ ...message, content: cleanedContent });
+  }
+  return out;
+}
+
+export function normalizeMessagesForModelRequest(messages: CanonicalMessage[]): CanonicalMessage[] {
+  // First pass: drop orphan tool_calls so the merge and the provider request
+  // never see a call without its result.
+  const cleaned = stripOrphanToolCalls(messages);
+  const out: CanonicalMessage[] = [];
+  for (const rawMessage of cleaned) {
     const message: CanonicalMessage = {
       ...rawMessage,
       content: messageContent(rawMessage),

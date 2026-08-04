@@ -1,11 +1,26 @@
 import type { CanonicalToolSchema } from "../../model/index.js";
+import { assertValidToolSchema } from "../protocol/schema.js";
 import type { RigoriumToolDefinition } from "../protocol/types.js";
+
+/** MCP Tool Names SHOULD: 1-128 chars, `[A-Za-z0-9_.-]`, no leading/trailing space. */
+const TOOL_NAME_MAX_LENGTH = 128;
+const TOOL_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 
 export class ToolRegistry {
   private readonly toolsByName = new Map<string, RigoriumToolDefinition>();
   private readonly aliases = new Map<string, string>();
 
   register(tool: RigoriumToolDefinition): void {
+    assertValidToolName(tool.name, "tool");
+    if (tool.name.length > TOOL_NAME_MAX_LENGTH) {
+      throw new Error(`Tool name "${tool.name}" exceeds ${TOOL_NAME_MAX_LENGTH} characters.`);
+    }
+    // A malformed schema is a silent contract violation: validate it at
+    // registration time so "constraints don't apply" bugs surface early.
+    assertValidToolSchema(tool.inputSchema, tool.name);
+    for (const alias of tool.aliases ?? []) {
+      assertValidToolName(alias, "alias");
+    }
     if (this.toolsByName.has(tool.name)) {
       throw new Error(`Tool ${tool.name} is already registered.`);
     }
@@ -91,6 +106,11 @@ export class ToolRegistry {
     if (!existing) {
       throw new Error(`Tool ${tool.name} is not registered — cannot replace.`);
     }
+    assertValidToolName(tool.name, "tool");
+    assertValidToolSchema(tool.inputSchema, tool.name);
+    for (const alias of tool.aliases ?? []) {
+      assertValidToolName(alias, "alias");
+    }
     for (const alias of existing.aliases ?? []) {
       this.aliases.delete(alias);
     }
@@ -98,5 +118,13 @@ export class ToolRegistry {
     for (const alias of tool.aliases ?? []) {
       this.aliases.set(alias, tool.name);
     }
+  }
+}
+
+function assertValidToolName(name: string, kind: "tool" | "alias"): void {
+  if (name.length === 0 || name.length > TOOL_NAME_MAX_LENGTH || !TOOL_NAME_PATTERN.test(name)) {
+    throw new Error(
+      `${kind === "tool" ? "Tool" : "Alias"} name "${name}" is invalid: 1-${TOOL_NAME_MAX_LENGTH} chars, only [A-Za-z0-9_.-].`,
+    );
   }
 }

@@ -49,6 +49,7 @@ import {
   downgradeRequestForAttempt,
   type AttemptPlan,
 } from "./execution/attemptPlanning.js";
+import { SERVER_RETRY_AFTER_CAP_MS, exponentialBackoffDelay } from "../model/streaming/backoff.js";
 import {
   calculateLiteLLMRetryDelay,
   classifyRetryReason,
@@ -754,7 +755,19 @@ export function createRouterRuntime(
 
         if (outcome.error) {
           lastError = outcome.error;
-          getHealthTracker(ctx.sessionId).recordFailure(attempt.provider);
+          const health = getHealthTracker(ctx.sessionId);
+          health.recordFailure(attempt.provider, outcome.error.code);
+          if (health.getState(attempt.provider) === "degraded") {
+            events.emit({
+              type: "rigorium_router_provider_degraded",
+              sessionId: ctx.sessionId,
+              turnId: ctx.turnId,
+              provider: attempt.provider,
+              model: attempt.model,
+              errorCode: outcome.error.code,
+              consecutiveFailures: health.snapshot().get(attempt.provider)?.consecutiveFailures ?? 0,
+            });
+          }
           if (!hasYieldedContent && isFallbackEligible(outcome.error)) {
             if (attemptIndex < attemptPlans.length - 1) {
               // Fall back to the next attempt. The quality-failure counter is
@@ -801,8 +814,11 @@ export function createRouterRuntime(
             transientRetryEnabled &&
             transientRetryCount < transientRetryMax
           ) {
+            // A server-provided retry-after is authoritative (capped at 60s,
+            // not the local 8s cap — providers like Anthropic return 30-60s
+            // for 429s; clamping them locally guarantees another 429).
             const delay = outcome.error.retryAfterMs != null
-              ? Math.min(outcome.error.retryAfterMs, transientMaxDelayMs)
+              ? Math.min(outcome.error.retryAfterMs, SERVER_RETRY_AFTER_CAP_MS)
               : calculateLiteLLMRetryDelay(transientRetryCount, transientBaseDelayMs, transientMaxDelayMs);
             console.warn(
               `[Rigorium] transientRetry: ${outcome.error.code} (attempt ${transientRetryCount + 1}/${transientRetryMax}, delay=${Math.round(delay)}ms)`,
@@ -856,7 +872,7 @@ export function createRouterRuntime(
             const partialText = extractPartialText(outcome.buffered);
             if (partialText.length > 0) {
               const midDelay = outcome.error.retryAfterMs != null
-                ? Math.min(outcome.error.retryAfterMs, transientMaxDelayMs)
+                ? Math.min(outcome.error.retryAfterMs, SERVER_RETRY_AFTER_CAP_MS)
                 : calculateLiteLLMRetryDelay(transientRetryCount, transientBaseDelayMs, transientMaxDelayMs);
               console.warn(
                 `[Rigorium] midStreamRetry: ${outcome.error.code} after partial content ` +
@@ -910,7 +926,7 @@ export function createRouterRuntime(
             turnId: ctx.turnId,
             attempt: zeroUsageAttempt,
             maxAttempts: zeroUsageMax,
-            delayMs: 500 * zeroUsageAttempt,
+            delayMs: Math.round(exponentialBackoffDelay(zeroUsageAttempt, 500, 8000)),
             reason: "zero_usage",
             provider: attempt.provider,
             model: attempt.model,
@@ -929,7 +945,7 @@ export function createRouterRuntime(
               model: attempt.model,
             },
           });
-          await abortableDelay(500 * zeroUsageAttempt, ctx.abortSignal);
+          await abortableDelay(exponentialBackoffDelay(zeroUsageAttempt, 500, 8000), ctx.abortSignal);
           continue;
         }
 
