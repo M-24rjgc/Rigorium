@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Check out release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
 
@@ -208,7 +208,7 @@ jobs:
       RIGORIUM_UPDATE_INCLUDE_PRERELEASE: ${{ contains(github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name, '-') && '1' || '0' }}
     steps:
       - name: Check out updater implementation
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
