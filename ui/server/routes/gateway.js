@@ -629,6 +629,11 @@ const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const GITHUB_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const COPILOT_BASE_URL = 'https://api.githubcopilot.com';
 const COPILOT_MODEL = 'gpt-4o';
+// Copilot's OpenAI-compatible model catalog endpoint. Requires the Bearer
+// token from the device-flow login plus an integration-id header so Copilot
+// can route the request (vscode-chat is the most widely accepted value).
+const COPILOT_MODELS_URL = `${COPILOT_BASE_URL}/models`;
+const COPILOT_INTEGRATION_ID = process.env.RIGORIUM_COPILOT_INTEGRATION_ID || 'vscode-chat';
 // GitHub Copilot's public OAuth app client id (override via env for forks).
 const COPILOT_CLIENT_ID = process.env.RIGORIUM_COPILOT_CLIENT_ID || 'Iv1.b507a08c87ecfe98';
 const COPILOT_TOKEN_FILE = join(RIGORIUM_HOME, 'copilot-token.json');
@@ -740,12 +745,141 @@ router.get('/copilot/status', (_req, res) => {
   res.json({ ok: true, configured, baseUrl: vision.baseUrl || '', model: vision.model || '' });
 });
 
+// Manual endpoint config for the vision assistant: any OpenAI-compatible
+// vision service (new-api / one-api aggregators, OpenAI, self-hosted
+// gateways). Writes the same `vision:` section that the Copilot device-flow
+// login populates, so both paths stay interchangeable.
+router.post('/copilot/manual-save', async (req, res) => {
+  try {
+    const { baseUrl, apiKey, model } = req.body || {};
+    if (!baseUrl || !apiKey || !model) {
+      return res.status(400).json({ ok: false, error: 'baseUrl, apiKey, and model are required' });
+    }
+    const config = loadYaml();
+    config.vision = {
+      ...(config.vision ?? {}),
+      enabled: true,
+      baseUrl: String(baseUrl).trim().replace(/\/+$/, ''),
+      apiKey: String(apiKey).trim(),
+      model: String(model).trim(),
+    };
+    await persistConfigAndReload(config);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// List the models the signed-in Copilot subscription can use, via Copilot's
+// OpenAI-compatible /models endpoint. Returns `{ ok, models: [{ id, displayName }] }`.
+router.get('/copilot/models', async (_req, res) => {
+  try {
+    const token = loadYaml().vision?.apiKey;
+    if (!token) {
+      return res.json({ ok: false, error: 'Sign in to GitHub Copilot first' });
+    }
+    const resp = await fetch(COPILOT_MODELS_URL, {
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        'copilot-integration-id': COPILOT_INTEGRATION_ID,
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => '');
+      return res.json({ ok: false, error: `Copilot API responded HTTP ${resp.status}${detail ? `: ${detail.slice(0, 200)}` : ''}` });
+    }
+    const body = await resp.json().catch(() => null);
+    const list = Array.isArray(body?.data) ? body.data : [];
+    const models = list
+      .map((entry) => (typeof entry?.id === 'string' ? entry.id.trim() : ''))
+      .filter(Boolean)
+      .map((id) => ({ id, displayName: id }));
+    res.json({ ok: true, models });
+  } catch (error) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
+// Change the model used by the Copilot vision endpoint (after sign-in the
+// default is COPILOT_MODEL; the subscription may offer more).
+router.post('/copilot/model-save', async (req, res) => {
+  try {
+    const { model } = req.body || {};
+    if (!model || typeof model !== 'string') {
+      return res.status(400).json({ ok: false, error: 'model is required' });
+    }
+    const config = loadYaml();
+    if (!config.vision?.apiKey) {
+      return res.status(400).json({ ok: false, error: 'Sign in to GitHub Copilot first' });
+    }
+    config.vision = { ...config.vision, model: model.trim() };
+    await persistConfigAndReload(config);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 router.post('/copilot/disable', async (_req, res) => {
   try {
     const config = loadYaml();
     if (config.vision) {
       config.vision.enabled = false;
       delete config.vision.apiKey;
+    }
+    await persistConfigAndReload(config);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// ── Figure generation (figureGen: in rigorium.yaml) ─────────────────────
+// The `figure_generate` tool draws architecture/concept figures via an
+// OpenAI-compatible `images/generations` endpoint (gpt-image-2 class models,
+// new-api / one-api aggregators, self-hosted gateways). Same write path as
+// the vision assistant so the Service Config panel and this page stay
+// interchangeable.
+router.get('/figuregen/status', (_req, res) => {
+  const config = loadYaml();
+  const fg = config.figureGen ?? {};
+  const configured = fg.enabled === true
+    && fg.baseUrl
+    && fg.apiKey
+    && fg.model
+    && !/\.invalid/.test(fg.baseUrl || '');
+  res.json({ ok: true, configured, baseUrl: fg.baseUrl || '', model: fg.model || '' });
+});
+
+router.post('/figuregen/save', async (req, res) => {
+  try {
+    const { baseUrl, apiKey, model } = req.body || {};
+    if (!baseUrl || !apiKey || !model) {
+      return res.status(400).json({ ok: false, error: 'baseUrl, apiKey, and model are required' });
+    }
+    const config = loadYaml();
+    config.figureGen = {
+      ...(config.figureGen ?? {}),
+      enabled: true,
+      baseUrl: String(baseUrl).trim().replace(/\/+$/, ''),
+      apiKey: String(apiKey).trim(),
+      model: String(model).trim(),
+    };
+    await persistConfigAndReload(config);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.post('/figuregen/disable', async (_req, res) => {
+  try {
+    const config = loadYaml();
+    if (config.figureGen) {
+      config.figureGen.enabled = false;
+      delete config.figureGen.apiKey;
     }
     await persistConfigAndReload(config);
     res.json({ ok: true });

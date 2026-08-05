@@ -18,9 +18,15 @@
  *                   validates the harness end to end (protocol, parsing,
  *                   metrics) so the real run is one env-var away.
  *
+ * Endpoint discovery (unless --mode forces it): env vars win, then a real
+ * provider found in rigorium.yaml (placeholder .invalid hosts skipped),
+ * then mock fallback.
+ *
  * Usage:
- *   node scripts/benchmark-router-e2e.mjs                 # mock mode
- *   node scripts/benchmark-router-e2e.mjs --samples 40    # real or mock
+ *   node scripts/benchmark-router-e2e.mjs                      # auto (mock fallback)
+ *   node scripts/benchmark-router-e2e.mjs --mode mock          # force mock
+ *   node scripts/benchmark-router-e2e.mjs --mode real          # force real (env or yaml)
+ *   node scripts/benchmark-router-e2e.mjs --samples 40         # real or mock
  */
 import { createServer } from "node:http";
 
@@ -167,6 +173,8 @@ async function endpointFromConfig() {
 async function main() {
   const samplesArg = process.argv.indexOf("--samples");
   const sampleCount = samplesArg >= 0 ? Number(process.argv[samplesArg + 1] ?? SAMPLES_DEFAULT) : SAMPLES_DEFAULT;
+  const modeArg = process.argv.indexOf("--mode");
+  const forcedMode = modeArg >= 0 ? String(process.argv[modeArg + 1] ?? "") : "";
   const messages = SAMPLE_MESSAGES.slice(0, Math.max(1, Math.min(sampleCount, SAMPLE_MESSAGES.length)));
 
   let baseUrl = process.env.RIGORIUM_E2E_BASE_URL ?? process.env.OPENAI_BASE_URL;
@@ -176,7 +184,31 @@ async function main() {
   let mode = "mock";
   let configSource = "env";
 
-  if (!baseUrl || !apiKey) {
+  if (forcedMode === "mock") {
+    // Deterministic harness runs (tests, CI): never touch the real network,
+    // even when a real provider is configured in rigorium.yaml on this machine.
+    mockServer = await createMockServer();
+    const address = mockServer.address();
+    baseUrl = `http://127.0.0.1:${address.port}`;
+    apiKey = "mock-key";
+    model = "mock-judge";
+    configSource = "forced mock";
+  } else if (forcedMode === "real") {
+    if (!baseUrl || !apiKey) {
+      const fromConfig = await endpointFromConfig();
+      if (fromConfig) {
+        baseUrl = fromConfig.baseUrl;
+        apiKey = fromConfig.apiKey;
+        model = fromConfig.model;
+        configSource = `rigorium.yaml provider "${fromConfig.id}"`;
+      }
+    }
+    if (!baseUrl || !apiKey) {
+      throw new Error("--mode real requires RIGORIUM_E2E_BASE_URL / RIGORIUM_E2E_API_KEY or a configured provider in rigorium.yaml");
+    }
+    mode = "real";
+    model = model ?? "gpt-4o-mini";
+  } else if (!baseUrl || !apiKey) {
     const fromConfig = await endpointFromConfig();
     if (fromConfig) {
       baseUrl = fromConfig.baseUrl;

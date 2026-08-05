@@ -138,7 +138,7 @@
       "detail": "发送匿名使用数据以帮助改进产品"
     },
     "gateway": {
-      "detail": "连接飞书、微信等 IM 通道"
+      "detail": "IM 通道（飞书、微信、企业微信）与 GitHub Copilot 视觉助手"
     },
     "replayTour": "重新观看功能引导"
   },
@@ -1373,8 +1373,8 @@
     "dismiss": "关闭"
   },
   "gateway": {
-    "title": "IM 通道",
-    "description": "配置即时通讯通道（飞书、微信、企业微信），让 Agent 可通过 IM 应用被访问。",
+    "title": "网关",
+    "description": "配置即时通讯通道（飞书、微信、企业微信）与 GitHub Copilot 视觉助手。",
     "connected": "已连接",
     "notConfigured": "未配置",
     "enabled": "已启用",
@@ -1439,11 +1439,13 @@
       "saveSuccess": "企业微信配置已保存"
     },
     "copilot": {
-      "title": "GitHub Copilot 视觉模型",
+      "title": "视觉助手",
       "label": "视觉辅助（看图模型）",
       "configured": "已配置",
-      "notConfigured": "未配置 — 用 GitHub 账号一键登录，即可让主模型借助 Copilot 看图",
-      "connectedTo": "已连接 · {model}",
+      "notConfigured": "未配置 — 可用 GitHub Copilot 一键登录，或手动填写 OpenAI 兼容端点",
+      "connectedTo": "已连接 · {{model}}",
+      "connectedVia": "via {{baseUrl}}",
+      "copilotTab": "GitHub Copilot",
       "signIn": "登录 GitHub Copilot",
       "signingIn": "正在获取验证码…",
       "openLink": "打开 GitHub 登录页",
@@ -1456,7 +1458,51 @@
       "retry": "重试",
       "cancel": "取消",
       "disable": "停用视觉模型",
-      "disabled": "已停用"
+      "disabled": "已停用",
+      "fetchModels": "获取模型列表",
+      "fetchingModels": "获取中…",
+      "selectModel": "选择模型",
+      "modelFetchFailed": "获取 Copilot 模型列表失败，请确认已登录且订阅包含 Copilot API 访问权限。",
+      "manual": {
+        "tab": "手动端点",
+        "tabDescription": "OpenAI 兼容：new-api / one-api 聚合、OpenAI、自建网关",
+        "baseUrl": "Base URL",
+        "baseUrlPlaceholder": "https://api.openai.com/v1",
+        "apiKey": "API Key",
+        "apiKeyPlaceholder": "sk-…",
+        "model": "模型",
+        "modelPlaceholder": "gpt-4o-mini",
+        "fetchModels": "获取模型列表",
+        "fetchingModels": "获取中…",
+        "selectModel": "选择模型",
+        "modelFetchFailed": "获取模型列表失败，请检查 Base URL 和 API Key。",
+        "save": "保存端点",
+        "saving": "保存中…",
+        "invalid": "Base URL、API Key 和模型均为必填项。"
+      }
+    },
+    "figureGen": {
+      "title": "生图模型",
+      "label": "生图（架构图 / 概念图）",
+      "configured": "已配置",
+      "notConfigured": "未配置 — 添加 OpenAI 兼容生图端点（gpt-image-2 类模型）即可绘制论文配图",
+      "connectedTo": "已连接 · {{model}}",
+      "connectedVia": "via {{baseUrl}}",
+      "tabDescription": "OpenAI 兼容生图端点：new-api / one-api 聚合、OpenAI、自建网关",
+      "baseUrl": "Base URL",
+      "baseUrlPlaceholder": "https://api.openai.com/v1",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "sk-…",
+      "model": "模型",
+      "modelPlaceholder": "gpt-image-2",
+      "fetchModels": "获取模型列表",
+      "fetchingModels": "获取中…",
+      "selectModel": "选择模型",
+      "modelFetchFailed": "获取模型列表失败，请检查 Base URL 和 API Key。",
+      "save": "保存端点",
+      "saving": "保存中…",
+      "invalid": "Base URL、API Key 和模型均为必填项。",
+      "disable": "停用生图模型"
     }
   },
   "research": {

@@ -4,15 +4,18 @@ import {
   AlertCircle,
   Check,
   CheckCircle2,
+  Image as ImageIcon,
   KeyRound,
   Loader2,
   MessageSquare,
   QrCode,
   Radio,
+  RefreshCw,
   XCircle,
 } from 'lucide-react';
 import { Button } from '../../../../shared/view/ui';
 import { authenticatedFetch } from '../../../../utils/api';
+import { fetchProviderModels, type ApiModelListItem } from '../../../../shared/modelListApi';
 import SettingsCard from '../SettingsCard';
 import SettingsSection from '../SettingsSection';
 import { cn } from '../../../../lib/utils';
@@ -64,8 +67,25 @@ function useGatewayStatus() {
     try {
       const res = await authenticatedFetch('/api/gateway/status');
       const data = await res.json();
-      setStatus(data);
-      return data;
+      // Guard against non-status payloads (e.g. `{ error: ... }` from a 401):
+      // the sections read `status.feishu` / `.weixin` / `.wecom` directly and
+      // would throw on undefined. Treat anything without the expected shape
+      // as "not loaded" instead of crashing the whole settings page.
+      if (
+        data &&
+        typeof data === 'object' &&
+        data.feishu &&
+        typeof data.feishu === 'object' &&
+        data.weixin &&
+        typeof data.weixin === 'object' &&
+        data.wecom &&
+        typeof data.wecom === 'object'
+      ) {
+        setStatus(data);
+        return data;
+      }
+      if (showLoading) setStatus(null);
+      return null;
     } catch {
       if (showLoading) setStatus(null);
       return null;
@@ -1152,26 +1172,47 @@ export default function GatewaySettingsTab() {
       <WeixinSection status={status.weixin} refreshStatus={refresh} />
       <WeComSection status={status.wecom} onSaved={refresh} />
       <CopilotSection onSaved={refresh} />
+      <FigureGenSection onSaved={refresh} />
     </div>
   );
 }
 
-// ─── GitHub Copilot Vision Section ───────────────────────────────────────
-// Device-flow sign-in: the server requests a GitHub device code, the user
-// opens the verification link and enters the code, the server polls until
-// confirmed and writes the token into vision: in rigorium.yaml.
+// ─── Vision Assistant Section ────────────────────────────────────────────
+// Two interchangeable ways to configure the vision endpoint (both write the
+// same `vision:` block in rigorium.yaml):
+//   1. GitHub Copilot device-flow sign-in (server polls until confirmed).
+//   2. Manual OpenAI-compatible endpoint (new-api / one-api aggregators,
+//      OpenAI, self-hosted gateways) — baseUrl + apiKey + model.
 type CopilotQrPhase = 'idle' | 'connecting' | 'waiting' | 'success' | 'error';
+type VisionConfigMode = 'copilot' | 'manual';
 
 function CopilotSection({ onSaved }: { onSaved: () => void }) {
   const { t } = useTranslation('settings');
   const [configured, setConfigured] = useState(false);
   const [model, setModel] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
   const [phase, setPhase] = useState<CopilotQrPhase>('idle');
   const [userCode, setUserCode] = useState('');
   const [verifyUrl, setVerifyUrl] = useState('');
   const [error, setError] = useState('');
   const pollRef = useRef<number | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [mode, setMode] = useState<VisionConfigMode>('copilot');
+  // Manual endpoint form state.
+  const [manualBaseUrl, setManualBaseUrl] = useState('');
+  const [manualApiKey, setManualApiKey] = useState('');
+  const [manualModel, setManualModel] = useState('');
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualError, setManualError] = useState('');
+  // Fetched model list for the manual endpoint.
+  const [models, setModels] = useState<ApiModelListItem[] | null>(null);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [fetchModelsError, setFetchModelsError] = useState('');
+  // Fetched model list for the signed-in Copilot subscription.
+  const [copilotModels, setCopilotModels] = useState<ApiModelListItem[] | null>(null);
+  const [copilotFetching, setCopilotFetching] = useState(false);
+  const [copilotFetchError, setCopilotFetchError] = useState('');
+  const [copilotSavingModel, setCopilotSavingModel] = useState(false);
 
   useEffect(() => {
     void authenticatedFetch('/api/gateway/copilot/status')
@@ -1180,6 +1221,15 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
         if (data.ok) {
           setConfigured(data.configured);
           setModel(data.model || '');
+          setBaseUrl(data.baseUrl || '');
+          // Seed the manual form with the active endpoint so "Edit" feels
+          // continuous; the API key stays blank (never echoed back).
+          setManualBaseUrl(data.baseUrl || '');
+          setManualModel(data.model || '');
+          // The active configuration kind drives the default tab.
+          if (data.configured && data.baseUrl && !/githubcopilot\.com/i.test(data.baseUrl)) {
+            setMode('manual');
+          }
         }
       })
       .catch(() => undefined);
@@ -1234,12 +1284,116 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
     setPhase('idle');
   };
 
+  const fetchModels = async () => {
+    if (!manualBaseUrl.trim()) return;
+    setFetchingModels(true);
+    setFetchModelsError('');
+    try {
+      const list = await fetchProviderModels({
+        protocol: 'openai',
+        baseUrl: manualBaseUrl.trim(),
+        apiKey: manualApiKey.trim() || undefined,
+      });
+      if (list.length > 0) {
+        setModels(list);
+        setManualModel((current) => (list.some((m) => m.id === current) ? current : list[0].id));
+      } else {
+        setModels([]);
+        setFetchModelsError(t('gateway.copilot.manual.modelFetchFailed'));
+      }
+    } catch (err) {
+      setFetchModelsError(err instanceof Error ? err.message : t('gateway.copilot.manual.modelFetchFailed'));
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
+  const fetchCopilotModels = async () => {
+    setCopilotFetching(true);
+    setCopilotFetchError('');
+    try {
+      const res = await authenticatedFetch('/api/gateway/copilot/models');
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.models)) {
+        setCopilotModels(data.models);
+      } else {
+        setCopilotModels([]);
+        setCopilotFetchError(data.error || t('gateway.copilot.modelFetchFailed'));
+      }
+    } catch (err) {
+      setCopilotModels([]);
+      setCopilotFetchError(err instanceof Error ? err.message : t('gateway.copilot.modelFetchFailed'));
+    } finally {
+      setCopilotFetching(false);
+    }
+  };
+
+  const saveCopilotModel = async (nextModel: string) => {
+    if (!nextModel) return;
+    setCopilotSavingModel(true);
+    setCopilotFetchError('');
+    try {
+      const res = await authenticatedFetch('/api/gateway/copilot/model-save', {
+        method: 'POST',
+        body: JSON.stringify({ model: nextModel }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setModel(nextModel);
+        onSaved();
+      } else {
+        setCopilotFetchError(data.error || t('gateway.copilot.failed'));
+      }
+    } catch (err) {
+      setCopilotFetchError(err instanceof Error ? err.message : t('gateway.copilot.failed'));
+    } finally {
+      setCopilotSavingModel(false);
+    }
+  };
+
+  const saveManual = async () => {
+    const trimmed = {
+      baseUrl: manualBaseUrl.trim(),
+      apiKey: manualApiKey.trim(),
+      model: manualModel.trim(),
+    };
+    if (!trimmed.baseUrl || !trimmed.apiKey || !trimmed.model) {
+      setManualError(t('gateway.copilot.manual.invalid'));
+      return;
+    }
+    setManualSaving(true);
+    setManualError('');
+    try {
+      const res = await authenticatedFetch('/api/gateway/copilot/manual-save', {
+        method: 'POST',
+        body: JSON.stringify(trimmed),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setConfigured(true);
+        setModel(trimmed.model);
+        setBaseUrl(trimmed.baseUrl);
+        setManualApiKey('');
+        setModels(null);
+        setPhase('idle');
+        onSaved();
+      } else {
+        setManualError(data.error || t('gateway.copilot.failed'));
+      }
+    } catch (err) {
+      setManualError(err instanceof Error ? err.message : t('gateway.copilot.failed'));
+    } finally {
+      setManualSaving(false);
+    }
+  };
+
   const disable = async () => {
     const res = await authenticatedFetch('/api/gateway/copilot/disable', { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
       setConfigured(false);
       setPhase('idle');
+      setManualApiKey('');
       onSaved();
     }
   };
@@ -1254,7 +1408,14 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
               <div>
                 <div className="text-[13px] font-medium text-foreground">{t('gateway.copilot.label')}</div>
                 <div className="text-xs text-muted-foreground">
-                  {configured ? t('gateway.copilot.connectedTo', { model }) : t('gateway.copilot.notConfigured')}
+                  {configured
+                    ? (
+                      <>
+                        {t('gateway.copilot.connectedTo', { model })}
+                        {baseUrl && <span className="ml-1 opacity-70">{t('gateway.copilot.connectedVia', { baseUrl })}</span>}
+                      </>
+                    )
+                    : t('gateway.copilot.notConfigured')}
                 </div>
               </div>
             </div>
@@ -1275,73 +1436,216 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
 
           {expanded && (
             <div className="space-y-3 border-t border-border pt-4">
-              {phase === 'idle' && (
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={startLogin}>
-                    {t('gateway.copilot.signIn')}
-                  </Button>
-                  {configured && (
-                    <Button size="sm" variant="outline" onClick={disable}>
-                      {t('gateway.copilot.disable')}
-                    </Button>
+              {/* Config method switcher */}
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant={mode === 'copilot' ? 'default' : 'outline'}
+                  onClick={() => setMode('copilot')}
+                >
+                  {t('gateway.copilot.copilotTab')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant={mode === 'manual' ? 'default' : 'outline'}
+                  onClick={() => setMode('manual')}
+                >
+                  {t('gateway.copilot.manual.tab')}
+                </Button>
+              </div>
+
+              {mode === 'copilot' && (
+                <>
+                  {phase === 'idle' && (
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={startLogin}>
+                        {t('gateway.copilot.signIn')}
+                      </Button>
+                    </div>
                   )}
-                </div>
+
+                  {phase === 'connecting' && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {t('gateway.copilot.signingIn')}
+                    </div>
+                  )}
+
+                  {phase === 'waiting' && (
+                    <div className="space-y-3">
+                      <div className="text-xs text-muted-foreground">
+                        {t('gateway.copilot.enterCode')}
+                      </div>
+                      <div className="font-mono text-3xl font-bold tracking-[0.3em] text-foreground">
+                        {userCode}
+                      </div>
+                      <a
+                        href={verifyUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-primary underline"
+                      >
+                        {t('gateway.copilot.openLink')}
+                      </a>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {t('gateway.copilot.waiting')}
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={cancelLogin}>
+                        {t('gateway.copilot.cancel')}
+                      </Button>
+                    </div>
+                  )}
+
+                  {phase === 'success' && (
+                    <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
+                      <CheckCircle2 className="h-4 w-4" />
+                      {t('gateway.copilot.success')}
+                    </div>
+                  )}
+
+                  {phase === 'error' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                        <AlertCircle className="h-4 w-4" />
+                        {error}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={startLogin}>
+                          {t('gateway.copilot.retry')}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Model picker: shown after a successful sign-in, or when a
+                      Copilot endpoint is already configured (edit flow). */}
+                  {(phase === 'success' || (phase === 'idle' && configured)) && (
+                    <div className="space-y-1.5 border-t border-border pt-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={fetchCopilotModels}
+                        disabled={copilotFetching}
+                      >
+                        {copilotFetching
+                          ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                          : <RefreshCw className="mr-1.5 h-3 w-3" />}
+                        {copilotFetching ? t('gateway.copilot.fetchingModels') : t('gateway.copilot.fetchModels')}
+                      </Button>
+                      {copilotModels && copilotModels.length > 0 && (
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={model}
+                            onChange={(e) => void saveCopilotModel(e.target.value)}
+                            className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs outline-none focus:border-primary"
+                          >
+                            <option value="">{t('gateway.copilot.selectModel')}</option>
+                            {copilotModels.map((m) => (
+                              <option key={m.id} value={m.id}>{m.displayName}</option>
+                            ))}
+                          </select>
+                          {copilotSavingModel && <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />}
+                        </div>
+                      )}
+                      {copilotFetchError && (
+                        <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                          <AlertCircle className="h-3.5 w-3.5" />
+                          {copilotFetchError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
 
-              {phase === 'connecting' && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {t('gateway.copilot.signingIn')}
-                </div>
-              )}
-
-              {phase === 'waiting' && (
+              {mode === 'manual' && (
                 <div className="space-y-3">
-                  <div className="text-xs text-muted-foreground">
-                    {t('gateway.copilot.enterCode')}
+                  <p className="text-xs text-muted-foreground">{t('gateway.copilot.manual.tabDescription')}</p>
+                  <label className="block space-y-1">
+                    <span className="text-xs font-medium text-foreground">{t('gateway.copilot.manual.baseUrl')}</span>
+                    <input
+                      type="text"
+                      value={manualBaseUrl}
+                      placeholder={t('gateway.copilot.manual.baseUrlPlaceholder')}
+                      spellCheck={false}
+                      onChange={(e) => setManualBaseUrl(e.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs outline-none focus:border-primary"
+                    />
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="text-xs font-medium text-foreground">{t('gateway.copilot.manual.apiKey')}</span>
+                    <input
+                      type="password"
+                      value={manualApiKey}
+                      placeholder={t('gateway.copilot.manual.apiKeyPlaceholder')}
+                      spellCheck={false}
+                      onChange={(e) => setManualApiKey(e.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs outline-none focus:border-primary"
+                    />
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="text-xs font-medium text-foreground">{t('gateway.copilot.manual.model')}</span>
+                    <input
+                      type="text"
+                      value={manualModel}
+                      placeholder={t('gateway.copilot.manual.modelPlaceholder')}
+                      spellCheck={false}
+                      onChange={(e) => setManualModel(e.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs outline-none focus:border-primary"
+                    />
+                  </label>
+                  <div className="space-y-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={fetchModels}
+                      disabled={fetchingModels || !manualBaseUrl.trim()}
+                    >
+                      {fetchingModels
+                        ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                        : <RefreshCw className="mr-1.5 h-3 w-3" />}
+                      {fetchingModels ? t('gateway.copilot.manual.fetchingModels') : t('gateway.copilot.manual.fetchModels')}
+                    </Button>
+                    {models && models.length > 0 && (
+                      <select
+                        value={manualModel}
+                        onChange={(e) => setManualModel(e.target.value)}
+                        className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs outline-none focus:border-primary"
+                      >
+                        <option value="">{t('gateway.copilot.manual.selectModel')}</option>
+                        {models.map((m) => (
+                          <option key={m.id} value={m.id}>{m.displayName}</option>
+                        ))}
+                      </select>
+                    )}
+                    {fetchModelsError && (
+                      <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        {fetchModelsError}
+                      </div>
+                    )}
                   </div>
-                  <div className="font-mono text-3xl font-bold tracking-[0.3em] text-foreground">
-                    {userCode}
-                  </div>
-                  <a
-                    href={verifyUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs text-primary underline"
-                  >
-                    {t('gateway.copilot.openLink')}
-                  </a>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    {t('gateway.copilot.waiting')}
-                  </div>
-                  <Button size="sm" variant="ghost" onClick={cancelLogin}>
-                    {t('gateway.copilot.cancel')}
-                  </Button>
-                </div>
-              )}
-
-              {phase === 'success' && (
-                <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
-                  <CheckCircle2 className="h-4 w-4" />
-                  {t('gateway.copilot.success')}
-                </div>
-              )}
-
-              {phase === 'error' && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
-                    <AlertCircle className="h-4 w-4" />
-                    {error}
-                  </div>
+                  {manualError && (
+                    <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      {manualError}
+                    </div>
+                  )}
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={startLogin}>
-                      {t('gateway.copilot.retry')}
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setExpanded(false)}>
-                      {t('gateway.close')}
+                    <Button size="sm" onClick={saveManual} disabled={manualSaving}>
+                      {manualSaving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                      {manualSaving ? t('gateway.copilot.manual.saving') : t('gateway.copilot.manual.save')}
                     </Button>
                   </div>
+                </div>
+              )}
+
+              {configured && (
+                <div className="border-t border-border pt-3">
+                  <Button size="sm" variant="ghost" onClick={disable}>
+                    {t('gateway.copilot.disable')}
+                  </Button>
                 </div>
               )}
             </div>
@@ -1351,4 +1655,240 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
     </SettingsSection>
   );
 }
+
+// ─── Figure Generation Section ───────────────────────────────────────────
+// The `figure_generate` tool draws architecture/concept figures through an
+// OpenAI-compatible images/generations endpoint (gpt-image-2 class models).
+// Mirrors the manual vision endpoint form: same `figureGen:` yaml block that
+// the Service Config panel edits, so both entries stay interchangeable.
+function FigureGenSection({ onSaved }: { onSaved: () => void }) {
+  const { t } = useTranslation('settings');
+  const [configured, setConfigured] = useState(false);
+  const [model, setModel] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [expanded, setExpanded] = useState(false);
+  const [fgBaseUrl, setFgBaseUrl] = useState('');
+  const [fgApiKey, setFgApiKey] = useState('');
+  const [fgModel, setFgModel] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [models, setModels] = useState<ApiModelListItem[] | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+
+  useEffect(() => {
+    void authenticatedFetch('/api/gateway/figuregen/status')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.ok) {
+          setConfigured(data.configured);
+          setModel(data.model || '');
+          setBaseUrl(data.baseUrl || '');
+          setFgBaseUrl(data.baseUrl || '');
+          setFgModel(data.model || '');
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const fetchModels = async () => {
+    if (!fgBaseUrl.trim()) return;
+    setFetching(true);
+    setFetchError('');
+    try {
+      const list = await fetchProviderModels({
+        protocol: 'openai',
+        baseUrl: fgBaseUrl.trim(),
+        apiKey: fgApiKey.trim() || undefined,
+      });
+      if (list.length > 0) {
+        setModels(list);
+        setFgModel((current) => (list.some((m) => m.id === current) ? current : list[0].id));
+      } else {
+        setModels([]);
+        setFetchError(t('gateway.figureGen.modelFetchFailed'));
+      }
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : t('gateway.figureGen.modelFetchFailed'));
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  const save = async () => {
+    const trimmed = {
+      baseUrl: fgBaseUrl.trim(),
+      apiKey: fgApiKey.trim(),
+      model: fgModel.trim(),
+    };
+    if (!trimmed.baseUrl || !trimmed.apiKey || !trimmed.model) {
+      setError(t('gateway.figureGen.invalid'));
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const res = await authenticatedFetch('/api/gateway/figuregen/save', {
+        method: 'POST',
+        body: JSON.stringify(trimmed),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setConfigured(true);
+        setModel(trimmed.model);
+        setBaseUrl(trimmed.baseUrl);
+        setFgApiKey('');
+        setModels(null);
+        onSaved();
+      } else {
+        setError(data.error || t('gateway.copilot.failed'));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('gateway.copilot.failed'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const disable = async () => {
+    const res = await authenticatedFetch('/api/gateway/figuregen/disable', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      setConfigured(false);
+      setFgApiKey('');
+      setModels(null);
+      onSaved();
+    }
+  };
+
+  return (
+    <SettingsSection title={t('gateway.figureGen.title')}>
+      <SettingsCard>
+        <div className="space-y-4 p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <ImageIcon className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <div className="text-[13px] font-medium text-foreground">{t('gateway.figureGen.label')}</div>
+                <div className="text-xs text-muted-foreground">
+                  {configured
+                    ? (
+                      <>
+                        {t('gateway.figureGen.connectedTo', { model })}
+                        {baseUrl && <span className="ml-1 opacity-70">{t('gateway.figureGen.connectedVia', { baseUrl })}</span>}
+                      </>
+                    )
+                    : t('gateway.figureGen.notConfigured')}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {configured && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[11px] font-medium text-green-600 dark:text-green-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                  {t('gateway.figureGen.configured')}
+                </span>
+              )}
+              {!expanded && (
+                <Button variant={configured ? 'ghost' : 'outline'} size="sm" onClick={() => setExpanded(true)}>
+                  {configured ? t('gateway.edit') : t('gateway.setup')}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {expanded && (
+            <div className="space-y-3 border-t border-border pt-4">
+              <p className="text-xs text-muted-foreground">{t('gateway.figureGen.tabDescription')}</p>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-foreground">{t('gateway.figureGen.baseUrl')}</span>
+                <input
+                  type="text"
+                  value={fgBaseUrl}
+                  placeholder={t('gateway.figureGen.baseUrlPlaceholder')}
+                  spellCheck={false}
+                  onChange={(e) => setFgBaseUrl(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs outline-none focus:border-primary"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-foreground">{t('gateway.figureGen.apiKey')}</span>
+                <input
+                  type="password"
+                  value={fgApiKey}
+                  placeholder={t('gateway.figureGen.apiKeyPlaceholder')}
+                  spellCheck={false}
+                  onChange={(e) => setFgApiKey(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs outline-none focus:border-primary"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-foreground">{t('gateway.figureGen.model')}</span>
+                <input
+                  type="text"
+                  value={fgModel}
+                  placeholder={t('gateway.figureGen.modelPlaceholder')}
+                  spellCheck={false}
+                  onChange={(e) => setFgModel(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs outline-none focus:border-primary"
+                />
+              </label>
+              <div className="space-y-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={fetchModels}
+                  disabled={fetching || !fgBaseUrl.trim()}
+                >
+                  {fetching
+                    ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                    : <RefreshCw className="mr-1.5 h-3 w-3" />}
+                  {fetching ? t('gateway.figureGen.fetchingModels') : t('gateway.figureGen.fetchModels')}
+                </Button>
+                {models && models.length > 0 && (
+                  <select
+                    value={fgModel}
+                    onChange={(e) => setFgModel(e.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs outline-none focus:border-primary"
+                  >
+                    <option value="">{t('gateway.figureGen.selectModel')}</option>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>{m.displayName}</option>
+                    ))}
+                  </select>
+                )}
+                {fetchError && (
+                  <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    {fetchError}
+                  </div>
+                )}
+              </div>
+              {error && (
+                <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  {error}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button size="sm" onClick={save} disabled={saving}>
+                  {saving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                  {saving ? t('gateway.figureGen.saving') : t('gateway.figureGen.save')}
+                </Button>
+              </div>
+              {configured && (
+                <div className="border-t border-border pt-3">
+                  <Button size="sm" variant="ghost" onClick={disable}>
+                    {t('gateway.figureGen.disable')}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
 

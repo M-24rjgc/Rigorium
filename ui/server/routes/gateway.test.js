@@ -326,4 +326,132 @@ describe('gateway Copilot routes', () => {
     expect(saved.vision.enabled).toBe(false);
     expect(saved.vision.apiKey).toBeUndefined();
   });
+
+  it('copilot/manual-save writes an OpenAI-compatible vision endpoint', async () => {
+    const { request, configPath } = await createGatewayApp({});
+    const res = await request('/api/gateway/copilot/manual-save', {
+      method: 'POST',
+      body: JSON.stringify({
+        baseUrl: 'https://api.newapi.example/v1/',
+        apiKey: 'sk-manual-123',
+        model: 'gpt-4o-mini',
+      }),
+    });
+    expect(res.ok).toBe(true);
+    const saved = parseYaml(readFileSync(configPath, 'utf-8'));
+    expect(saved.vision.enabled).toBe(true);
+    expect(saved.vision.baseUrl).toBe('https://api.newapi.example/v1'); // trailing slash trimmed
+    expect(saved.vision.apiKey).toBe('sk-manual-123');
+    expect(saved.vision.model).toBe('gpt-4o-mini');
+
+    const status = await request('/api/gateway/copilot/status');
+    expect(status.configured).toBe(true);
+    expect(status.baseUrl).toBe('https://api.newapi.example/v1');
+    expect(status.model).toBe('gpt-4o-mini');
+  });
+
+  it('copilot/manual-save rejects missing fields', async () => {
+    const { request } = await createGatewayApp({});
+    const missingModel = await request('/api/gateway/copilot/manual-save', {
+      method: 'POST',
+      body: JSON.stringify({ baseUrl: 'https://x.example', apiKey: 'sk-1' }),
+    });
+    expect(missingModel.ok).toBe(false);
+    expect(missingModel.error).toContain('required');
+
+    const emptyKey = await request('/api/gateway/copilot/manual-save', {
+      method: 'POST',
+      body: JSON.stringify({ baseUrl: 'https://x.example', apiKey: '', model: 'm' }),
+    });
+    expect(emptyKey.ok).toBe(false);
+  });
+
+  it('copilot/models lists subscription models with the saved token', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ object: 'list', data: [{ id: 'gpt-4o' }, { id: 'gpt-4o-mini' }, { id: 'claude-sonnet-4' }] }),
+    })));
+    const { request } = await createGatewayApp({
+      vision: { enabled: true, baseUrl: 'https://api.githubcopilot.com', apiKey: 'ghu-token', model: 'gpt-4o' },
+    });
+    const res = await request('/api/gateway/copilot/models');
+    expect(res.ok).toBe(true);
+    expect(res.models.map((m) => m.id)).toEqual(['gpt-4o', 'gpt-4o-mini', 'claude-sonnet-4']);
+    // The request must carry the saved token.
+    const fetchMock = vi.mocked(fetch);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.githubcopilot.com/models',
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: 'Bearer ghu-token' }) }),
+    );
+  });
+
+  it('copilot/models requires a signed-in session', async () => {
+    const { request } = await createGatewayApp({});
+    const res = await request('/api/gateway/copilot/models');
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('Sign in');
+  });
+
+  it('copilot/model-save updates only the vision model', async () => {
+    const { request, configPath } = await createGatewayApp({
+      vision: { enabled: true, baseUrl: 'https://api.githubcopilot.com', apiKey: 'ghu-token', model: 'gpt-4o' },
+    });
+    const res = await request('/api/gateway/copilot/model-save', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'gpt-4o-mini' }),
+    });
+    expect(res.ok).toBe(true);
+    const saved = parseYaml(readFileSync(configPath, 'utf-8'));
+    expect(saved.vision.model).toBe('gpt-4o-mini');
+    expect(saved.vision.apiKey).toBe('ghu-token'); // token untouched
+  });
+
+  it('figuregen/status reports not configured when empty or placeholder', async () => {
+    const { request } = await createGatewayApp({});
+    const empty = await request('/api/gateway/figuregen/status');
+    expect(empty.configured).toBe(false);
+
+    const { request: request2 } = await createGatewayApp({
+      figureGen: { enabled: true, baseUrl: 'https://placeholder.invalid', apiKey: 'x', model: 'm' },
+    });
+    const placeholder = await request2('/api/gateway/figuregen/status');
+    expect(placeholder.configured).toBe(false);
+  });
+
+  it('figuregen/save writes the figure endpoint and rejects missing fields', async () => {
+    const { request, configPath } = await createGatewayApp({});
+    const res = await request('/api/gateway/figuregen/save', {
+      method: 'POST',
+      body: JSON.stringify({
+        baseUrl: 'https://api.newapi.example/v1/',
+        apiKey: 'sk-figure-1',
+        model: 'gpt-image-2',
+      }),
+    });
+    expect(res.ok).toBe(true);
+    const saved = parseYaml(readFileSync(configPath, 'utf-8'));
+    expect(saved.figureGen.enabled).toBe(true);
+    expect(saved.figureGen.baseUrl).toBe('https://api.newapi.example/v1');
+    expect(saved.figureGen.model).toBe('gpt-image-2');
+
+    const status = await request('/api/gateway/figuregen/status');
+    expect(status.configured).toBe(true);
+
+    const bad = await request('/api/gateway/figuregen/save', {
+      method: 'POST',
+      body: JSON.stringify({ baseUrl: 'https://x.example' }),
+    });
+    expect(bad.ok).toBe(false);
+  });
+
+  it('figuregen/disable clears the figure api key', async () => {
+    const { request, configPath } = await createGatewayApp({
+      figureGen: { enabled: true, baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-fig', model: 'gpt-image-2' },
+    });
+    const res = await request('/api/gateway/figuregen/disable', { method: 'POST' });
+    expect(res.ok).toBe(true);
+    const saved = parseYaml(readFileSync(configPath, 'utf-8'));
+    expect(saved.figureGen.enabled).toBe(false);
+    expect(saved.figureGen.apiKey).toBeUndefined();
+  });
 });

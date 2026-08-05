@@ -521,7 +521,10 @@ router.post('/test-connection', async (req, res) => {
         },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
-          generationConfig: { maxOutputTokens: 8 },
+          // Generous budget: reasoning models burn tokens on thinking before
+          // any visible text appears (observed with deepseek-v4-*). A tiny
+          // cap makes them look like they "produce no chat text".
+          generationConfig: { maxOutputTokens: 512 },
         }),
         signal: controller.signal,
       };
@@ -536,7 +539,9 @@ router.post('/test-connection', async (req, res) => {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 8,
+          // Generous budget: reasoning models burn tokens on thinking before
+          // any visible text appears (observed with deepseek-v4-*).
+          max_tokens: 512,
           messages: [{ role: 'user', content: 'Hi' }],
         }),
         signal: controller.signal,
@@ -551,7 +556,9 @@ router.post('/test-connection', async (req, res) => {
         },
         body: JSON.stringify({
           model,
-          max_output_tokens: 16,
+          // Generous budget: reasoning models burn tokens on thinking before
+          // any visible text appears (observed with deepseek-v4-*).
+          max_output_tokens: 512,
           input: 'Hi',
           store: false,
         }),
@@ -567,7 +574,9 @@ router.post('/test-connection', async (req, res) => {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 8,
+          // Generous budget: reasoning models burn tokens on thinking before
+          // any visible text appears (observed with deepseek-v4-*).
+          max_tokens: 512,
           messages: [{ role: 'user', content: 'Hi' }],
         }),
         signal: controller.signal,

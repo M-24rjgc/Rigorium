@@ -81,6 +81,8 @@ test("benchmark: e2e routing harness runs in mock mode with full judge agreement
     "scripts/benchmark-router-e2e.mjs",
     "--samples",
     "20",
+    "--mode",
+    "mock",
   ], { cwd: fileURLToPath(new URL("../../../", import.meta.url)) });
   const out = stdout as string;
   assert.match(out, /mode: mock/);
