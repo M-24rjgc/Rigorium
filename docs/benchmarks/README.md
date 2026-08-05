@@ -5,6 +5,8 @@
 
 ## 报告
 
+- **[验收审计](ACCEPTANCE.md)**：目标逐项核查清单（已证实/开放项 + 解锁方式）
+
 | 域 | 报告 | 复现命令 | 锁定测试 |
 |---|---|---|---|
 | 路由策略 | [router-policy.md](router-policy.md) | `node scripts/benchmark-router-policy.mjs --seeds 42,43,44,45,46` | `tests/benchmark/router-policy.spec.ts`（6 用例） |
