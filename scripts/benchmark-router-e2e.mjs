@@ -130,6 +130,26 @@ function pct(values, p) {
   return sorted[index];
 }
 
+/** Try the user's rigorium.yaml providers (first with url + apiKey). */
+async function endpointFromConfig() {
+  try {
+    const { loadRigoriumConfig } = await import("../dist/src/rigorium/config/loadRigoriumConfig.js");
+    const snapshot = loadRigoriumConfig({ projectRoot: process.cwd() });
+    const providers = snapshot.config.model?.providers ?? {};
+    for (const [id, provider] of Object.entries(providers)) {
+      if (provider?.url && provider?.apiKey) {
+        // Skip placeholder endpoints (config templates, e.g. .invalid hosts).
+        if (/placeholder\.invalid|\.invalid/i.test(provider.url)) continue;
+        const firstModel = Object.keys(provider.models ?? {})[0];
+        return { baseUrl: provider.url, apiKey: provider.apiKey, model: firstModel, id };
+      }
+    }
+  } catch {
+    // no config / parse failure → mock mode
+  }
+  return null;
+}
+
 async function main() {
   const samplesArg = process.argv.indexOf("--samples");
   const sampleCount = samplesArg >= 0 ? Number(process.argv[samplesArg + 1] ?? SAMPLES_DEFAULT) : SAMPLES_DEFAULT;
@@ -140,20 +160,30 @@ async function main() {
   let model = process.env.RIGORIUM_E2E_MODEL ?? process.env.OPENAI_MODEL;
   let mockServer = null;
   let mode = "mock";
+  let configSource = "env";
 
   if (!baseUrl || !apiKey) {
-    mockServer = await createMockServer();
-    const address = mockServer.address();
-    baseUrl = `http://127.0.0.1:${address.port}`;
-    apiKey = "mock-key";
-    model = "mock-judge";
+    const fromConfig = await endpointFromConfig();
+    if (fromConfig) {
+      baseUrl = fromConfig.baseUrl;
+      apiKey = fromConfig.apiKey;
+      model = fromConfig.model;
+      mode = "real";
+      configSource = `rigorium.yaml provider "${fromConfig.id}"`;
+    } else {
+      mockServer = await createMockServer();
+      const address = mockServer.address();
+      baseUrl = `http://127.0.0.1:${address.port}`;
+      apiKey = "mock-key";
+      model = "mock-judge";
+    }
   } else {
     mode = "real";
     model = model ?? "gpt-4o-mini";
   }
 
   const lines = [`# End-to-End Routing Comparison (mode: ${mode})`, ""];
-  lines.push(`Samples: ${messages.length} · endpoint: ${mode === "mock" ? "built-in mock (protocol-validated)" : baseUrl}`);
+  lines.push(`Samples: ${messages.length} · endpoint: ${mode === "mock" ? "built-in mock (protocol-validated)" : `${baseUrl} (${configSource})`}`);
   lines.push("");
 
   const latencies = { judge: [], heuristic: [] };
