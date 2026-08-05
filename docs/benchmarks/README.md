@@ -12,6 +12,7 @@
 | 路由策略 | [router-policy.md](router-policy.md) | `node scripts/benchmark-router-policy.mjs --seeds 42,43,44,45,46` | `tests/benchmark/router-policy.spec.ts`（6 用例） |
 | 可靠性机制 | [reliability-comparison.md](reliability-comparison.md) | `node scripts/benchmark-circuit-breaker.mjs 200 7` | `tests/router/providerHealth.spec.ts` 等 4 个 spec（29 用例） |
 | 科研编排 | [orchestration-comparison.md](orchestration-comparison.md) | 见报告内测试清单 | beliefGolden/eigProperties/orchestrator/replay/compactHooks（29 用例） |
+| 真实端点 E2E | [real-endpoint-e2e.md](real-endpoint-e2e.md) | `RIGORIUM_E2E_BASE_URL/API_KEY/MODEL` + `node scripts/benchmark-router-e2e.mjs` | harness mock 模式锁定测试 |
 
 ## 核心数字（多 seed 均值 ± 标准差，5 seeds）
 

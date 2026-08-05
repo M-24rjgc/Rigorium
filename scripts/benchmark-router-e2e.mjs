@@ -94,11 +94,18 @@ function createMockServer() {
 }
 
 /** One judge call over the OpenAI-compatible protocol. */
+function completionsUrl(baseUrl) {
+  // Accept both https://host and https://host/v1 forms.
+  return baseUrl.replace(/\/+$/, "").endsWith("/v1")
+    ? `${baseUrl.replace(/\/+$/, "")}/chat/completions`
+    : `${baseUrl.replace(/\/+$/, "")}/v1/chat/completions`;
+}
+
 async function judgeTier(baseUrl, apiKey, model, message) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const response = await fetch(completionsUrl(baseUrl), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -106,8 +113,15 @@ async function judgeTier(baseUrl, apiKey, model, message) {
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: "user", content: message }],
-        max_tokens: 32,
+        messages: [{
+          role: "user",
+          content:
+            "You are a model-tier classifier. Given the user message below, " +
+            "return exactly one tier wrapped in <tier>NAME</tier>. " +
+            "Available tiers: simple, medium, complex, reasoning. " +
+            `User message:\n"""${message}"""`,
+        }],
+        max_tokens: 512, // generous: reasoning models burn tokens on thinking
         temperature: 0,
       }),
       signal: controller.signal,
