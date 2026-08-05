@@ -34,7 +34,7 @@
     "desktop:verify-release-metadata": "node scripts/verify-packaged-release-metadata.mjs",
     "desktop:rebuild-native": "node scripts/rebuild-electron-native.mjs",
     "desktop:pack": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && pnpm run desktop:rebuild-native && electron-builder --dir --win --x64",
-    "desktop:pack:win-unpacked": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && pnpm run desktop:rebuild-native && electron-builder --win nsis --x64 --dir",
+    "desktop:pack:win-unpacked": "pnpm run build && pnpm --dir ui run build && pnpm run desktop:prepare-icon && pnpm run desktop:rebuild-native && electron-builder --win nsis --x64 --dir --publish never",
     "desktop:harden": "node scripts/flip-electron-fuses.mjs",
     "desktop:package:nsis": "electron-builder --win nsis --x64 --publish never --prepackaged release/win-unpacked",
     "desktop:build": "pnpm run desktop:pack:win-unpacked && pnpm run desktop:harden && pnpm run desktop:package:nsis",
