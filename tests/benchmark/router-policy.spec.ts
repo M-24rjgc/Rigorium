@@ -69,3 +69,21 @@ test("benchmark: multi-seed aggregation is deterministic and stable", async () =
   assert.ok(gate.judgeCallRate < 0.3, "gate stays under 30% judge calls across seeds");
   assert.ok(gate.successRate >= 0.9, "gate quality stays above 90% across seeds");
 });
+
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+
+const execFileAsync = promisify(execFile);
+
+test("benchmark: e2e routing harness runs in mock mode with full judge agreement", async () => {
+  const { stdout } = await execFileAsync(process.execPath, [
+    "scripts/benchmark-router-e2e.mjs",
+    "--samples",
+    "20",
+  ], { cwd: fileURLToPath(new URL("../../../", import.meta.url)) });
+  const out = stdout as string;
+  assert.match(out, /mode: mock/);
+  assert.match(out, /Heuristic intercepts: 7\/20/);
+  assert.match(out, /Judge agreement on intercepted messages: 7\/7 \(100%\)/);
+});
