@@ -391,10 +391,12 @@ jobs:
     needs: publish
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      RIGORIUM_PUBLIC_RELEASE_TAG: ${{ env.RELEASE_TAG }}
+      # The env: mapping evaluates before the env context exists, so the tag
+      # must be derived from event/ref contexts instead of env.RELEASE_TAG.
+      RIGORIUM_PUBLIC_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
       RIGORIUM_PUBLIC_CURRENT_VERSION: '0.2.0'
       RIGORIUM_UPDATE_REPOSITORY: ${{ github.repository }}
-      RIGORIUM_UPDATE_INCLUDE_PRERELEASE: ${{ contains(env.RELEASE_TAG, '-') && '1' || '0' }}
+      RIGORIUM_UPDATE_INCLUDE_PRERELEASE: ${{ contains(github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name, '-') && '1' || '0' }}
     steps:
       - name: Check out updater implementation
         uses: actions/checkout@v4
