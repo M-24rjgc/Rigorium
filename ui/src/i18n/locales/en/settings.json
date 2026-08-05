@@ -1437,6 +1437,26 @@
       "groupPolicy": "Group Policy",
       "policyHint": "Basic policies are written to rigorium.yaml; edit YAML later for finer user or group allowlists.",
       "saveSuccess": "WeCom config saved"
+    },
+    "copilot": {
+      "title": "GitHub Copilot Vision",
+      "label": "Vision assistant (image understanding)",
+      "configured": "Configured",
+      "notConfigured": "Not configured — sign in with GitHub to let the main model see images via Copilot",
+      "connectedTo": "Connected · {model}",
+      "signIn": "Sign in with GitHub Copilot",
+      "signingIn": "Requesting device code…",
+      "openLink": "Open GitHub login page",
+      "enterCode": "Enter this code (8 characters) on the opened page:",
+      "waiting": "Waiting for confirmation on GitHub…",
+      "success": "Signed in! Vision model enabled",
+      "expired": "Code expired, please retry",
+      "denied": "Login cancelled",
+      "failed": "Login failed",
+      "retry": "Retry",
+      "cancel": "Cancel",
+      "disable": "Disable vision model",
+      "disabled": "Disabled"
     }
   },
   "research": {

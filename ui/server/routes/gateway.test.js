@@ -239,3 +239,91 @@ function jsonResponse(payload) {
     text: async () => JSON.stringify(payload),
   };
 }
+
+describe('gateway Copilot routes', () => {
+  it('reports vision not configured when empty or placeholder', async () => {
+    const { request } = await createGatewayApp({});
+    const empty = await request('/api/gateway/copilot/status');
+    expect(empty.configured).toBe(false);
+
+    const { request: request2 } = await createGatewayApp({
+      vision: { enabled: true, baseUrl: 'https://placeholder.invalid', apiKey: 'x', model: 'm' },
+    });
+    const placeholder = await request2('/api/gateway/copilot/status');
+    expect(placeholder.configured).toBe(false);
+  });
+
+  it('copilot/qr-begin returns the user code from GitHub', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        device_code: 'dc-123',
+        user_code: 'ABCD-1234',
+        verification_uri: 'https://github.com/login/device',
+        verification_uri_complete: 'https://github.com/login/device?user_code=ABCD-1234',
+        expires_in: 900,
+        interval: 5,
+      }),
+    })));
+    const { request } = await createGatewayApp({});
+    const res = await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
+    expect(res.ok).toBe(true);
+    expect(res.userCode).toBe('ABCD-1234');
+    expect(res.verificationUriComplete).toContain('user_code=ABCD-1234');
+  });
+
+  it('copilot/qr-poll stays pending until the user confirms, then writes vision config', async () => {
+    let calls = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return { ok: true, json: async () => ({ device_code: 'dc-123', user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 }) };
+      }
+      // First poll: still pending. Second poll: token granted.
+      if (calls === 2) return { ok: true, json: async () => ({ error: 'authorization_pending' }) };
+      return { ok: true, json: async () => ({ access_token: 'ghu-copilot-token', scope: 'copilot' }) };
+    }));
+    const { request, configPath } = await createGatewayApp({});
+    const begin = await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
+    expect(begin.ok).toBe(true);
+
+    const pending = await request('/api/gateway/copilot/qr-poll');
+    expect(pending.pending).toBe(true);
+
+    const done = await request('/api/gateway/copilot/qr-poll');
+    expect(done.ok).toBe(true);
+
+    const saved = parseYaml(readFileSync(configPath, 'utf-8'));
+    expect(saved.vision).toEqual({
+      enabled: true,
+      baseUrl: 'https://api.githubcopilot.com',
+      apiKey: 'ghu-copilot-token',
+      model: 'gpt-4o',
+    });
+  });
+
+  it('copilot/qr-poll handles denied login', async () => {
+    let calls = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) return { ok: true, json: async () => ({ device_code: 'dc-1', user_code: 'X', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 }) };
+      return { ok: true, json: async () => ({ error: 'access_denied' }) };
+    }));
+    const { request } = await createGatewayApp({});
+    await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
+    const res = await request('/api/gateway/copilot/qr-poll');
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('denied');
+  });
+
+  it('copilot/disable clears the vision api key', async () => {
+    const { request, configPath } = await createGatewayApp({
+      vision: { enabled: true, baseUrl: 'https://api.githubcopilot.com', apiKey: 'ghu-x', model: 'gpt-4o' },
+    });
+    const res = await request('/api/gateway/copilot/disable', { method: 'POST' });
+    expect(res.ok).toBe(true);
+    const saved = parseYaml(readFileSync(configPath, 'utf-8'));
+    expect(saved.vision.enabled).toBe(false);
+    expect(saved.vision.apiKey).toBeUndefined();
+  });
+});

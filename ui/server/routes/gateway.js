@@ -618,3 +618,138 @@ router.post('/wecom/disable', async (_req, res) => {
 });
 
 export default router;
+
+// ── GitHub Copilot (device-flow login for the vision assistant) ─────────
+// GitHub's OAuth device authorization grant: begin returns a user code the
+// user enters at github.com/login/device; the server polls the token
+// endpoint until the user confirms. On success the token is written into
+// `vision:` in rigorium.yaml (same plaintext pattern as feishu appSecret)
+// plus a standalone copy for auditing.
+const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code';
+const GITHUB_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
+const COPILOT_BASE_URL = 'https://api.githubcopilot.com';
+const COPILOT_MODEL = 'gpt-4o';
+// GitHub Copilot's public OAuth app client id (override via env for forks).
+const COPILOT_CLIENT_ID = process.env.RIGORIUM_COPILOT_CLIENT_ID || 'Iv1.b507a08c87ecfe98';
+const COPILOT_TOKEN_FILE = join(RIGORIUM_HOME, 'copilot-token.json');
+
+async function postGitHubForm(url, form) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      accept: 'application/json',
+    },
+    body: new URLSearchParams(form).toString(),
+  });
+  if (!res.ok) throw new Error(`GitHub responded HTTP ${res.status}`);
+  return res.json();
+}
+
+router.post('/copilot/qr-begin', async (req, res) => {
+  try {
+    const begin = await postGitHubForm(GITHUB_DEVICE_CODE_URL, {
+      client_id: COPILOT_CLIENT_ID,
+      scope: 'copilot',
+    });
+    if (!begin.device_code) {
+      return res.json({ ok: false, error: begin.error_description || 'GitHub did not return a device code' });
+    }
+    req.app.locals._copilotQr = {
+      deviceCode: begin.device_code,
+      interval: begin.interval || 5,
+      expiresAt: Date.now() + (begin.expires_in || 900) * 1000,
+    };
+    res.json({
+      ok: true,
+      userCode: begin.user_code,
+      verificationUri: begin.verification_uri,
+      verificationUriComplete: begin.verification_uri_complete || '',
+    });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/copilot/qr-poll', async (req, res) => {
+  const state = req.app.locals._copilotQr;
+  if (!state) {
+    return res.json({ ok: false, error: 'No Copilot login session active' });
+  }
+  if (Date.now() > state.expiresAt) {
+    req.app.locals._copilotQr = null;
+    return res.json({ ok: false, error: 'Verification code expired, please try again' });
+  }
+  try {
+    const poll = await postGitHubForm(GITHUB_ACCESS_TOKEN_URL, {
+      client_id: COPILOT_CLIENT_ID,
+      device_code: state.deviceCode,
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+    });
+    if (poll.access_token) {
+      req.app.locals._copilotQr = null;
+      const config = loadYaml();
+      config.vision = {
+        ...(config.vision ?? {}),
+        enabled: true,
+        baseUrl: COPILOT_BASE_URL,
+        apiKey: poll.access_token,
+        model: COPILOT_MODEL,
+      };
+      await persistConfigAndReload(config);
+      try {
+        writeFileSync(COPILOT_TOKEN_FILE, JSON.stringify({
+          accessToken: poll.access_token,
+          scope: poll.scope || 'copilot',
+          loggedInAt: new Date().toISOString(),
+        }, null, 2), 'utf-8');
+      } catch { /* token file is best-effort */ }
+      return res.json({ ok: true });
+    }
+    const error = poll.error || '';
+    if (error === 'access_denied') {
+      req.app.locals._copilotQr = null;
+      return res.json({ ok: false, error: 'Login denied on GitHub' });
+    }
+    if (error === 'expired_token') {
+      req.app.locals._copilotQr = null;
+      return res.json({ ok: false, error: 'Verification code expired, please try again' });
+    }
+    if (error === 'slow_down') {
+      // GitHub spec: extend the polling interval by 5 seconds.
+      state.interval += 5;
+    }
+    return res.json({ pending: true });
+  } catch {
+    return res.json({ pending: true });
+  }
+});
+
+router.post('/copilot/qr-cancel', (req, res) => {
+  req.app.locals._copilotQr = null;
+  res.json({ ok: true });
+});
+
+router.get('/copilot/status', (_req, res) => {
+  const config = loadYaml();
+  const vision = config.vision ?? {};
+  const configured = vision.enabled === true
+    && vision.baseUrl
+    && vision.apiKey
+    && !/\.invalid/.test(vision.baseUrl || '');
+  res.json({ ok: true, configured, baseUrl: vision.baseUrl || '', model: vision.model || '' });
+});
+
+router.post('/copilot/disable', async (_req, res) => {
+  try {
+    const config = loadYaml();
+    if (config.vision) {
+      config.vision.enabled = false;
+      delete config.vision.apiKey;
+    }
+    await persistConfigAndReload(config);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});

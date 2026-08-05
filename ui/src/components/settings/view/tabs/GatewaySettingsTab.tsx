@@ -1151,6 +1151,204 @@ export default function GatewaySettingsTab() {
       <FeishuSection status={status.feishu} onSaved={refresh} />
       <WeixinSection status={status.weixin} refreshStatus={refresh} />
       <WeComSection status={status.wecom} onSaved={refresh} />
+      <CopilotSection onSaved={refresh} />
     </div>
   );
 }
+
+// ─── GitHub Copilot Vision Section ───────────────────────────────────────
+// Device-flow sign-in: the server requests a GitHub device code, the user
+// opens the verification link and enters the code, the server polls until
+// confirmed and writes the token into vision: in rigorium.yaml.
+type CopilotQrPhase = 'idle' | 'connecting' | 'waiting' | 'success' | 'error';
+
+function CopilotSection({ onSaved }: { onSaved: () => void }) {
+  const { t } = useTranslation('settings');
+  const [configured, setConfigured] = useState(false);
+  const [model, setModel] = useState('');
+  const [phase, setPhase] = useState<CopilotQrPhase>('idle');
+  const [userCode, setUserCode] = useState('');
+  const [verifyUrl, setVerifyUrl] = useState('');
+  const [error, setError] = useState('');
+  const pollRef = useRef<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    void authenticatedFetch('/api/gateway/copilot/status')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.ok) {
+          setConfigured(data.configured);
+          setModel(data.model || '');
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    return () => { if (pollRef.current) window.clearInterval(pollRef.current); };
+  }, []);
+
+  const startLogin = async () => {
+    setPhase('connecting');
+    setError('');
+    try {
+      const res = await authenticatedFetch('/api/gateway/copilot/qr-begin', { method: 'POST' });
+      const data = await res.json();
+      if (!data.ok) {
+        setPhase('error');
+        setError(data.error || t('gateway.copilot.failed'));
+        return;
+      }
+      setUserCode(data.userCode);
+      setVerifyUrl(data.verificationUriComplete || data.verificationUri || 'https://github.com/login/device');
+      setPhase('waiting');
+      if (data.verificationUriComplete || data.verificationUri) {
+        window.open(data.verificationUriComplete || data.verificationUri, '_blank');
+      }
+      pollRef.current = window.setInterval(async () => {
+        try {
+          const pollRes = await authenticatedFetch('/api/gateway/copilot/qr-poll');
+          const pollData = await pollRes.json();
+          if (pollData.pending) return;
+          if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
+          if (pollData.ok) {
+            setPhase('success');
+            setConfigured(true);
+            onSaved();
+          } else {
+            setPhase('error');
+            setError(pollData.error || t('gateway.copilot.failed'));
+          }
+        } catch { /* network error, keep polling */ }
+      }, 3000);
+    } catch (err) {
+      setPhase('error');
+      setError(err instanceof Error ? err.message : t('gateway.copilot.failed'));
+    }
+  };
+
+  const cancelLogin = () => {
+    if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
+    void authenticatedFetch('/api/gateway/copilot/qr-cancel', { method: 'POST' });
+    setPhase('idle');
+  };
+
+  const disable = async () => {
+    const res = await authenticatedFetch('/api/gateway/copilot/disable', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      setConfigured(false);
+      setPhase('idle');
+      onSaved();
+    }
+  };
+
+  return (
+    <SettingsSection title={t('gateway.copilot.title')}>
+      <SettingsCard>
+        <div className="space-y-4 p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <KeyRound className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <div className="text-[13px] font-medium text-foreground">{t('gateway.copilot.label')}</div>
+                <div className="text-xs text-muted-foreground">
+                  {configured ? t('gateway.copilot.connectedTo', { model }) : t('gateway.copilot.notConfigured')}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {configured && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[11px] font-medium text-green-600 dark:text-green-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                  {t('gateway.copilot.configured')}
+                </span>
+              )}
+              {!expanded && (
+                <Button variant={configured ? 'ghost' : 'outline'} size="sm" onClick={() => setExpanded(true)}>
+                  {configured ? t('gateway.edit') : t('gateway.setup')}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {expanded && (
+            <div className="space-y-3 border-t border-border pt-4">
+              {phase === 'idle' && (
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={startLogin}>
+                    {t('gateway.copilot.signIn')}
+                  </Button>
+                  {configured && (
+                    <Button size="sm" variant="outline" onClick={disable}>
+                      {t('gateway.copilot.disable')}
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {phase === 'connecting' && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {t('gateway.copilot.signingIn')}
+                </div>
+              )}
+
+              {phase === 'waiting' && (
+                <div className="space-y-3">
+                  <div className="text-xs text-muted-foreground">
+                    {t('gateway.copilot.enterCode')}
+                  </div>
+                  <div className="font-mono text-3xl font-bold tracking-[0.3em] text-foreground">
+                    {userCode}
+                  </div>
+                  <a
+                    href={verifyUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-primary underline"
+                  >
+                    {t('gateway.copilot.openLink')}
+                  </a>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {t('gateway.copilot.waiting')}
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={cancelLogin}>
+                    {t('gateway.copilot.cancel')}
+                  </Button>
+                </div>
+              )}
+
+              {phase === 'success' && (
+                <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
+                  <CheckCircle2 className="h-4 w-4" />
+                  {t('gateway.copilot.success')}
+                </div>
+              )}
+
+              {phase === 'error' && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                    <AlertCircle className="h-4 w-4" />
+                    {error}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={startLogin}>
+                      {t('gateway.copilot.retry')}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setExpanded(false)}>
+                      {t('gateway.close')}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
