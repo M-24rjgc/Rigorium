@@ -265,16 +265,13 @@ A file-based, multi-tier memory architecture:
 
 ### Windows Desktop App
 
-Download from [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) (current v0.2.2, ~149 MB). Built-in auto-update with SHA-256 verification.
+Download from [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) (current v0.3.0). Built-in auto-update with SHA-256 verification.
 
 ### macOS Desktop App
 
-Download the DMG for your Mac from [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest):
-
-- Apple Silicon (M-series): `Rigorium-Setup-<version>-mac-arm64.dmg`
-- Intel: `Rigorium-Setup-<version>-mac-x64.dmg`
-
-Open the DMG and drag Rigorium into Applications. The desktop updater selects the matching architecture and verifies its SHA-256 checksum before opening an update installer.
+> macOS installers are temporarily unavailable — the macOS release pipeline is
+> being reworked (see [docs/releases.md](./docs/releases.md)). Windows builds
+> are unaffected.
 
 ### Docker
 
@@ -319,7 +316,7 @@ v0.2.2 · Early development
 - Research Artifact DAG (18 types, content-addressed, invalidation propagation)
 - **Belief-driven orchestration** (claim graph + belief propagation + EIG/cost planning + anomaly-boosted principle revision + belief-revision backtracking, `research_plan` / `claim_monitor` tools)
 - **PaperStudio** (18 built-in venue templates with year fallback, per-venue exemplar corpus + fine-grained style profiles, ICLR 2026 verified template pin)
-- **Vision assistant** (`vision:` config — OpenAI-compatible endpoint, GitHub Copilot compatible; automatic image enrichment for non-vision models + `describe_image`)
+- **Vision assistant** (`vision:` config — GitHub Copilot one-click sign-in with device flow + model picker, or any OpenAI-compatible endpoint (new-api / one-api aggregators); automatic image enrichment for non-vision models + `describe_image`)
 - **GPT Image figure generation** (`figureGen:` config — `figure_generate`, config-surface only until a key is supplied)
 - Research Director (6 decision types, capability-dependency planning)
 - Remote experiment execution (local / SSH / Slurm, 3 authorization modes)

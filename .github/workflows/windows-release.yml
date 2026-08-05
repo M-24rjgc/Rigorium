@@ -69,14 +69,13 @@ jobs:
           pnpm exec tsc --noEmit -p tsconfig.json
           pnpm --dir ui exec vitest run src/components/updates/DesktopUpdateNotifier.test.tsx
 
-      - name: Build Windows installer
-        # Unhardened build: the packaged-app verification below launches the
-        # binary via playwright, which needs Node CLI inspect support. Fuses
-        # are flipped in the dedicated step after verification.
-        run: pnpm run desktop:build:unhardened
-
-      - name: Verify packaged release metadata
-        run: pnpm run desktop:verify-release-metadata
+      - name: Build unpacked application
+        # Unhardened on purpose: the packaged-app verification below launches
+        # the binary via playwright, which needs Node CLI inspect support.
+        # Fuses are flipped in the dedicated step, and only THEN is the NSIS
+        # installer packaged (--prepackaged) so the hardening actually lands
+        # inside the installer.
+        run: pnpm run desktop:pack:win-unpacked
 
       - name: Verify packaged research runtime
         shell: pwsh
@@ -91,6 +90,13 @@ jobs:
       - name: Harden packaged binary (security fuses)
         shell: pwsh
         run: node scripts/flip-electron-fuses.mjs
+
+      - name: Package NSIS installer from hardened build
+        shell: pwsh
+        run: pnpm run desktop:package:nsis
+
+      - name: Verify packaged release metadata
+        run: pnpm run desktop:verify-release-metadata
 
       - name: Generate Windows installer checksum
         id: checksum

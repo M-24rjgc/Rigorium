@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Latest eligible public release containing Windows and both macOS installers
+        description: Latest eligible public release (Windows installer)
         required: true
         type: string
       current_version:
@@ -32,18 +32,12 @@ jobs:
           - os: windows-latest
             platform: win32
             arch: x64
-          - os: macos-15
-            platform: darwin
-            arch: arm64
-          - os: macos-15-intel
-            platform: darwin
-            arch: x64
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      RIGORIUM_PUBLIC_RELEASE_TAG: ${{ inputs.tag }}
-      RIGORIUM_PUBLIC_CURRENT_VERSION: ${{ inputs.current_version }}
-      RIGORIUM_UPDATE_REPOSITORY: ${{ github.repository }}
-      RIGORIUM_UPDATE_INCLUDE_PRERELEASE: ${{ contains(inputs.tag, '-') && '1' || '0' }}
+      RIGIORIUM_PUBLIC_RELEASE_TAG: ${{ inputs.tag }}
+      RIGIORIUM_PUBLIC_CURRENT_VERSION: ${{ inputs.current_version }}
+      RIGIORIUM_UPDATE_REPOSITORY: ${{ github.repository }}
+      RIGIORIUM_UPDATE_INCLUDE_PRERELEASE: ${{ contains(inputs.tag, '-') && '1' || '0' }}
 
     steps:
       - name: Check out updater implementation

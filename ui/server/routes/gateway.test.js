@@ -1,5 +1,6 @@
 import express from 'express';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
@@ -453,5 +454,82 @@ describe('gateway Copilot routes', () => {
     const saved = parseYaml(readFileSync(configPath, 'utf-8'));
     expect(saved.figureGen.enabled).toBe(false);
     expect(saved.figureGen.apiKey).toBeUndefined();
+  });
+
+  it('refuses to overwrite a config file with broken YAML', async () => {
+    const { request, configPath } = await createGatewayApp({});
+    // Corrupt the file after app creation: the write paths must refuse to
+    // save instead of overwriting the whole config with a near-empty doc.
+    writeFileSync(configPath, 'adapters: [unclosed\n  broken: {', 'utf-8');
+    const res = await request('/api/gateway/copilot/manual-save', {
+      method: 'POST',
+      body: JSON.stringify({ baseUrl: 'https://x.example/v1', apiKey: 'sk-1', model: 'm' }),
+    });
+    expect(res.ok).toBe(false);
+    const onDisk = readFileSync(configPath, 'utf-8');
+    expect(onDisk).toContain('unclosed'); // file untouched
+  });
+
+  it('copilot/manual-save reuses the stored api key when blank', async () => {
+    const { request, configPath } = await createGatewayApp({
+      vision: { enabled: true, baseUrl: 'https://old.example/v1', apiKey: 'sk-stored', model: 'm1' },
+    });
+    const res = await request('/api/gateway/copilot/manual-save', {
+      method: 'POST',
+      body: JSON.stringify({ baseUrl: 'https://new.example/v1', apiKey: '', model: 'm2' }),
+    });
+    expect(res.ok).toBe(true);
+    const saved = parseYaml(readFileSync(configPath, 'utf-8'));
+    expect(saved.vision.apiKey).toBe('sk-stored');
+    expect(saved.vision.baseUrl).toBe('https://new.example/v1');
+    expect(saved.vision.model).toBe('m2');
+  });
+
+  it('copilot/manual-save still requires a key when nothing is stored', async () => {
+    const { request } = await createGatewayApp({});
+    const res = await request('/api/gateway/copilot/manual-save', {
+      method: 'POST',
+      body: JSON.stringify({ baseUrl: 'https://x.example/v1', apiKey: '', model: 'm' }),
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('apiKey');
+  });
+
+  it('figuregen/save reuses the stored api key when blank', async () => {
+    const { request, configPath } = await createGatewayApp({
+      figureGen: { enabled: true, baseUrl: 'https://old.example/v1', apiKey: 'sk-fig', model: 'gpt-image-1' },
+    });
+    const res = await request('/api/gateway/figuregen/save', {
+      method: 'POST',
+      body: JSON.stringify({ baseUrl: 'https://new.example/v1', apiKey: '', model: 'gpt-image-2' }),
+    });
+    expect(res.ok).toBe(true);
+    const saved = parseYaml(readFileSync(configPath, 'utf-8'));
+    expect(saved.figureGen.apiKey).toBe('sk-fig');
+    expect(saved.figureGen.model).toBe('gpt-image-2');
+  });
+
+  it('copilot/disable removes the standalone token file', async () => {
+    const { request, configPath } = await createGatewayApp({
+      vision: { enabled: true, baseUrl: 'https://api.githubcopilot.com', apiKey: 'ghu-x', model: 'gpt-4o' },
+    });
+    const tokenFile = join(dirname(configPath), 'copilot-token.json');
+    writeFileSync(tokenFile, JSON.stringify({ accessToken: 'ghu-x' }), 'utf-8');
+    const res = await request('/api/gateway/copilot/disable', { method: 'POST' });
+    expect(res.ok).toBe(true);
+    expect(existsSync(tokenFile)).toBe(false);
+  });
+
+  it('copilot/models treats a non-array payload as failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ object: 'list' }), // no .data array
+    })));
+    const { request } = await createGatewayApp({
+      vision: { enabled: true, baseUrl: 'https://api.githubcopilot.com', apiKey: 'ghu-token', model: 'gpt-4o' },
+    });
+    const res = await request('/api/gateway/copilot/models');
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('unexpected');
   });
 });

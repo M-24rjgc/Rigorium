@@ -249,16 +249,11 @@ Rigorium 支持 20+ 外部渠道接入，所有渠道复用同一套 Agent 运�
 
 ### Windows 桌面应用
 
-从 [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) 下载最新安装包（当前 v0.2.2，约 149 MB）。桌面应用内置自动更新。
+从 [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) 下载最新安装包（当前 v0.3.0）。桌面应用内置自动更新。
 
 ### macOS 桌面应用
 
-从 [GitHub Releases](https://github.com/M-24rjgc/Rigorium/releases/latest) 下载与 Mac 架构对应的 DMG：
-
-- Apple Silicon（M 系列）：`Rigorium-Setup-<version>-mac-arm64.dmg`
-- Intel：`Rigorium-Setup-<version>-mac-x64.dmg`
-
-打开 DMG 后将 Rigorium 拖入“应用程序”目录。桌面更新器会自动选择匹配当前架构的安装包，并在打开更新安装包前校验 SHA-256。
+> macOS 安装包暂不可用——macOS 发布管线正在重构（见 [docs/releases.md](./docs/releases.md)）。Windows 构建不受影响。
 
 ### Docker
 
@@ -290,7 +285,7 @@ rigorium
 
 ## 当前状态
 
-v0.2.2 · 早期开发阶段
+v0.3.0 · 早期开发阶段
 
 **已落地：**
 - 完整 Agent 执行循环（多阶段恢复、熔断器、透明合成提示）
@@ -303,7 +298,7 @@ v0.2.2 · 早期开发阶段
 - Research Artifact DAG（18 种类型，内容寻址，失效传播）
 - **信念驱动编排**（claim 图 + 信念传播 + EIG/成本规划 + 异常增强的原则修订 + 信念修正回溯，`research_plan` / `claim_monitor` 工具）
 - **PaperStudio**（18 个内置会议/期刊模板带年份回退、按 venue 的范文语料 + 细粒度风格画像、ICLR 2026 已验证模板钉扎）
-- **视觉助手**（`vision:` 配置节——OpenAI 兼容端点、兼容 GitHub Copilot；无视觉主模型自动图片富集 + `describe_image`）
+- **视觉助手**（`vision:` 配置节——支持 GitHub Copilot 一键登录（设备码 + 模型选择）与任意 OpenAI 兼容端点（new-api / one-api 聚合）；无视觉主模型自动图片富集 + `describe_image`）
 - **GPT Image 配图生成**（`figureGen:` 配置节——`figure_generate`，配置面先行、提供 Key 后实测）
 - Research Director（6 种决策，能力-依赖规划）
 - 远程实验执行（local / SSH / Slurm，三档授权模式）

@@ -1,5 +1,5 @@
 import express from 'express';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
@@ -45,6 +45,39 @@ function loadYaml() {
     if (!existsSync(RIGORIUM_YAML)) return {};
     return parseYaml(readFileSync(RIGORIUM_YAML, 'utf-8')) ?? {};
   } catch { return {}; }
+}
+
+/**
+ * Load the config for a write path. Unlike loadYaml() (read-only, tolerant),
+ * this refuses to return anything when the file is missing, unparseable, or
+ * not a YAML object — otherwise a save route would silently overwrite the
+ * whole config file with a near-empty document (all sections lost).
+ * Throws an error with `code === 'CONFIG_PARSE_ERROR'`; routes map it to 400.
+ */
+function loadConfigForWrite() {
+  if (!existsSync(RIGORIUM_YAML)) {
+    const err = new Error('Configuration file is missing; refusing to overwrite it.');
+    err.code = 'CONFIG_PARSE_ERROR';
+    throw err;
+  }
+  let config;
+  try {
+    config = parseYaml(readFileSync(RIGORIUM_YAML, 'utf-8'));
+  } catch (error) {
+    const err = new Error(`Configuration file has a YAML error and cannot be saved: ${error.message}`);
+    err.code = 'CONFIG_PARSE_ERROR';
+    throw err;
+  }
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    const err = new Error('Configuration file is not a YAML object; refusing to overwrite it.');
+    err.code = 'CONFIG_PARSE_ERROR';
+    throw err;
+  }
+  return config;
+}
+
+function isConfigParseError(error) {
+  return Boolean(error && typeof error === 'object' && error.code === 'CONFIG_PARSE_ERROR');
 }
 
 function loadChannelRuntimeStatus() {
@@ -305,7 +338,7 @@ router.get('/feishu/qr-poll', async (req, res) => {
       const domain = state.domain;
 
       // Auto-save to config
-      const config = loadYaml();
+      const config = loadConfigForWrite();
       if (!config.adapters) config.adapters = {};
       const previous = config.adapters.feishu ?? {};
       config.adapters.feishu = {
@@ -356,7 +389,7 @@ router.post('/feishu/save', async (req, res) => {
   }
 
   try {
-    const config = loadYaml();
+    const config = loadConfigForWrite();
     if (!config.adapters) config.adapters = {};
     const previous = config.adapters.feishu ?? {};
     config.adapters.feishu = {
@@ -375,13 +408,14 @@ router.post('/feishu/save', async (req, res) => {
 
     res.json({ ok: true, message: '飞书配置已保存，重启后生效' });
   } catch (error) {
+    if (isConfigParseError(error)) return res.status(400).json({ ok: false, error: error.message });
     res.status(500).json({ ok: false, error: error.message });
   }
 });
 
 router.post('/feishu/disable', async (_req, res) => {
   try {
-    const config = loadYaml();
+    const config = loadConfigForWrite();
     if (config.adapters?.feishu) {
       config.adapters.feishu.enabled = false;
     }
@@ -393,6 +427,7 @@ router.post('/feishu/disable', async (_req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
+    if (isConfigParseError(error)) return res.status(400).json({ ok: false, error: error.message });
     res.status(500).json({ ok: false, error: error.message });
   }
 });
@@ -402,7 +437,7 @@ router.post('/feishu/disable', async (_req, res) => {
 router.post('/weixin/qr-begin', async (_req, res) => {
   const requestedAt = new Date().toISOString();
   try {
-    const config = loadYaml();
+    const config = loadConfigForWrite();
     if (!config.adapters) config.adapters = {};
     const previous = config.adapters.weixin ?? {};
     if (previous.enabled !== true) {
@@ -473,7 +508,7 @@ router.get('/weixin/qr-poll', (_req, res) => {
 
 router.post('/weixin/disable', async (_req, res) => {
   try {
-    const config = loadYaml();
+    const config = loadConfigForWrite();
     if (config.adapters?.weixin) {
       config.adapters.weixin.enabled = false;
     }
@@ -485,6 +520,7 @@ router.post('/weixin/disable', async (_req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
+    if (isConfigParseError(error)) return res.status(400).json({ ok: false, error: error.message });
     res.status(500).json({ ok: false, error: error.message });
   }
 });
@@ -606,18 +642,17 @@ router.post('/wecom/save', async (req, res) => {
 
 router.post('/wecom/disable', async (_req, res) => {
   try {
-    const config = loadYaml();
+    const config = loadConfigForWrite();
     if (config.adapters?.wecom) {
       config.adapters.wecom.enabled = false;
     }
     await persistConfigAndReload(config);
     res.json({ ok: true });
   } catch (error) {
+    if (isConfigParseError(error)) return res.status(400).json({ ok: false, error: error.message });
     res.status(500).json({ ok: false, error: error.message });
   }
 });
-
-export default router;
 
 // ── GitHub Copilot (device-flow login for the vision assistant) ─────────
 // GitHub's OAuth device authorization grant: begin returns a user code the
@@ -639,16 +674,24 @@ const COPILOT_CLIENT_ID = process.env.RIGORIUM_COPILOT_CLIENT_ID || 'Iv1.b507a08
 const COPILOT_TOKEN_FILE = join(RIGORIUM_HOME, 'copilot-token.json');
 
 async function postGitHubForm(url, form) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-      accept: 'application/json',
-    },
-    body: new URLSearchParams(form).toString(),
-  });
-  if (!res.ok) throw new Error(`GitHub responded HTTP ${res.status}`);
-  return res.json();
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        accept: 'application/json',
+      },
+      body: new URLSearchParams(form).toString(),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`GitHub responded HTTP ${res.status}`);
+    return res.json();
+  } catch (error) {
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+      throw new Error('GitHub request timed out after 10s');
+    }
+    throw error;
+  }
 }
 
 router.post('/copilot/qr-begin', async (req, res) => {
@@ -693,15 +736,22 @@ router.get('/copilot/qr-poll', async (req, res) => {
     });
     if (poll.access_token) {
       req.app.locals._copilotQr = null;
-      const config = loadYaml();
-      config.vision = {
-        ...(config.vision ?? {}),
-        enabled: true,
-        baseUrl: COPILOT_BASE_URL,
-        apiKey: poll.access_token,
-        model: COPILOT_MODEL,
-      };
-      await persistConfigAndReload(config);
+      // Persistence is separate from the GitHub poll: if saving fails the
+      // client must see a real error, not an endless "pending" (the session
+      // slot is already cleared, so the next poll would say "no session").
+      try {
+        const config = loadConfigForWrite();
+        config.vision = {
+          ...(config.vision ?? {}),
+          enabled: true,
+          baseUrl: COPILOT_BASE_URL,
+          apiKey: poll.access_token,
+          model: COPILOT_MODEL,
+        };
+        await persistConfigAndReload(config);
+      } catch (error) {
+        return res.json({ ok: false, error: `Login succeeded but saving the config failed: ${error.message}` });
+      }
       try {
         writeFileSync(COPILOT_TOKEN_FILE, JSON.stringify({
           accessToken: poll.access_token,
@@ -732,6 +782,9 @@ router.get('/copilot/qr-poll', async (req, res) => {
 
 router.post('/copilot/qr-cancel', (req, res) => {
   req.app.locals._copilotQr = null;
+  // Best-effort: drop the stored token copy so a cancelled login leaves
+  // nothing usable on disk.
+  try { if (existsSync(COPILOT_TOKEN_FILE)) unlinkSync(COPILOT_TOKEN_FILE); } catch { /* best-effort */ }
   res.json({ ok: true });
 });
 
@@ -741,6 +794,7 @@ router.get('/copilot/status', (_req, res) => {
   const configured = vision.enabled === true
     && vision.baseUrl
     && vision.apiKey
+    && vision.model
     && !/\.invalid/.test(vision.baseUrl || '');
   res.json({ ok: true, configured, baseUrl: vision.baseUrl || '', model: vision.model || '' });
 });
@@ -752,20 +806,28 @@ router.get('/copilot/status', (_req, res) => {
 router.post('/copilot/manual-save', async (req, res) => {
   try {
     const { baseUrl, apiKey, model } = req.body || {};
-    if (!baseUrl || !apiKey || !model) {
-      return res.status(400).json({ ok: false, error: 'baseUrl, apiKey, and model are required' });
+    if (!baseUrl || !model) {
+      return res.status(400).json({ ok: false, error: 'baseUrl and model are required' });
     }
-    const config = loadYaml();
+    const config = loadConfigForWrite();
+    const previous = config.vision ?? {};
+    // Empty / masked key means "keep the stored one" (edit flow), mirroring
+    // the WeCom save pattern. Still required when nothing is stored yet.
+    const resolvedApiKey = apiKey && apiKey !== '********' ? String(apiKey).trim() : (previous.apiKey || '');
+    if (!resolvedApiKey) {
+      return res.status(400).json({ ok: false, error: 'apiKey is required (no stored key to reuse)' });
+    }
     config.vision = {
-      ...(config.vision ?? {}),
+      ...previous,
       enabled: true,
       baseUrl: String(baseUrl).trim().replace(/\/+$/, ''),
-      apiKey: String(apiKey).trim(),
+      apiKey: resolvedApiKey,
       model: String(model).trim(),
     };
     await persistConfigAndReload(config);
     res.json({ ok: true });
   } catch (error) {
+    if (isConfigParseError(error)) return res.status(400).json({ ok: false, error: error.message });
     res.status(500).json({ ok: false, error: error.message });
   }
 });
@@ -791,8 +853,10 @@ router.get('/copilot/models', async (_req, res) => {
       return res.json({ ok: false, error: `Copilot API responded HTTP ${resp.status}${detail ? `: ${detail.slice(0, 200)}` : ''}` });
     }
     const body = await resp.json().catch(() => null);
-    const list = Array.isArray(body?.data) ? body.data : [];
-    const models = list
+    if (!body || !Array.isArray(body.data)) {
+      return res.json({ ok: false, error: 'Copilot API returned an unexpected model list shape' });
+    }
+    const models = body.data
       .map((entry) => (typeof entry?.id === 'string' ? entry.id.trim() : ''))
       .filter(Boolean)
       .map((id) => ({ id, displayName: id }));
@@ -810,7 +874,7 @@ router.post('/copilot/model-save', async (req, res) => {
     if (!model || typeof model !== 'string') {
       return res.status(400).json({ ok: false, error: 'model is required' });
     }
-    const config = loadYaml();
+    const config = loadConfigForWrite();
     if (!config.vision?.apiKey) {
       return res.status(400).json({ ok: false, error: 'Sign in to GitHub Copilot first' });
     }
@@ -818,20 +882,24 @@ router.post('/copilot/model-save', async (req, res) => {
     await persistConfigAndReload(config);
     res.json({ ok: true });
   } catch (error) {
+    if (isConfigParseError(error)) return res.status(400).json({ ok: false, error: error.message });
     res.status(500).json({ ok: false, error: error.message });
   }
 });
 
 router.post('/copilot/disable', async (_req, res) => {
   try {
-    const config = loadYaml();
+    const config = loadConfigForWrite();
     if (config.vision) {
       config.vision.enabled = false;
       delete config.vision.apiKey;
     }
     await persistConfigAndReload(config);
+    // The standalone token copy must not outlive the disabled session.
+    try { if (existsSync(COPILOT_TOKEN_FILE)) unlinkSync(COPILOT_TOKEN_FILE); } catch { /* best-effort */ }
     res.json({ ok: true });
   } catch (error) {
+    if (isConfigParseError(error)) return res.status(400).json({ ok: false, error: error.message });
     res.status(500).json({ ok: false, error: error.message });
   }
 });
@@ -856,27 +924,34 @@ router.get('/figuregen/status', (_req, res) => {
 router.post('/figuregen/save', async (req, res) => {
   try {
     const { baseUrl, apiKey, model } = req.body || {};
-    if (!baseUrl || !apiKey || !model) {
-      return res.status(400).json({ ok: false, error: 'baseUrl, apiKey, and model are required' });
+    if (!baseUrl || !model) {
+      return res.status(400).json({ ok: false, error: 'baseUrl and model are required' });
     }
-    const config = loadYaml();
+    const config = loadConfigForWrite();
+    const previous = config.figureGen ?? {};
+    // Empty / masked key means "keep the stored one" (edit flow).
+    const resolvedApiKey = apiKey && apiKey !== '********' ? String(apiKey).trim() : (previous.apiKey || '');
+    if (!resolvedApiKey) {
+      return res.status(400).json({ ok: false, error: 'apiKey is required (no stored key to reuse)' });
+    }
     config.figureGen = {
-      ...(config.figureGen ?? {}),
+      ...previous,
       enabled: true,
       baseUrl: String(baseUrl).trim().replace(/\/+$/, ''),
-      apiKey: String(apiKey).trim(),
+      apiKey: resolvedApiKey,
       model: String(model).trim(),
     };
     await persistConfigAndReload(config);
     res.json({ ok: true });
   } catch (error) {
+    if (isConfigParseError(error)) return res.status(400).json({ ok: false, error: error.message });
     res.status(500).json({ ok: false, error: error.message });
   }
 });
 
 router.post('/figuregen/disable', async (_req, res) => {
   try {
-    const config = loadYaml();
+    const config = loadConfigForWrite();
     if (config.figureGen) {
       config.figureGen.enabled = false;
       delete config.figureGen.apiKey;
@@ -884,6 +959,9 @@ router.post('/figuregen/disable', async (_req, res) => {
     await persistConfigAndReload(config);
     res.json({ ok: true });
   } catch (error) {
+    if (isConfigParseError(error)) return res.status(400).json({ ok: false, error: error.message });
     res.status(500).json({ ok: false, error: error.message });
   }
 });
+
+export default router;

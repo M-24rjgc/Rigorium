@@ -800,13 +800,10 @@ function WeComSection({ status, onSaved }: { status: GatewayStatus['wecom']; onS
   const [saveResult, setSaveResult] = useState<TestResult>(null);
   const pollRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    setWebsocketUrl(status.websocketUrl || 'wss://openws.work.weixin.qq.com');
-    setDmPolicy(normalizeWeComPolicy(status.dmPolicy, 'open'));
-    setGroupPolicy(normalizeWeComPolicy(status.groupPolicy, 'disabled'));
-    setAllowFrom((status.allowFrom || []).join(', '));
-    setGroupAllowFrom((status.groupAllowFrom || []).join(', '));
-  }, [status]);
+  // NOTE: the form is seeded from `status` once via useState initializers
+  // (the section only mounts after the gateway status is loaded). Do NOT
+  // re-seed on every status refresh — background polling or an onSaved
+  // reload would wipe text the user is currently typing.
 
   useEffect(() => {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
@@ -1213,11 +1210,18 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
   const [copilotFetching, setCopilotFetching] = useState(false);
   const [copilotFetchError, setCopilotFetchError] = useState('');
   const [copilotSavingModel, setCopilotSavingModel] = useState(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     void authenticatedFetch('/api/gateway/copilot/status')
       .then((res) => res.json())
       .then((data) => {
+        if (!mountedRef.current) return;
         if (data.ok) {
           setConfigured(data.configured);
           setModel(data.model || '');
@@ -1239,7 +1243,24 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
     return () => { if (pollRef.current) window.clearInterval(pollRef.current); };
   }, []);
 
+  const refreshCopilotStatus = () => {
+    void authenticatedFetch('/api/gateway/copilot/status')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!mountedRef.current) return;
+        if (data.ok) {
+          setConfigured(data.configured);
+          setModel(data.model || '');
+          setBaseUrl(data.baseUrl || '');
+        }
+      })
+      .catch(() => undefined);
+  };
+
   const startLogin = async () => {
+    // Never stack a second poll on top of a live one: two intervals would
+    // fight over pollRef and one could overwrite the other's success.
+    if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
     setPhase('connecting');
     setError('');
     try {
@@ -1265,6 +1286,9 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
           if (pollData.ok) {
             setPhase('success');
             setConfigured(true);
+            // The default model only exists server-side; pull it back so the
+            // model picker shows the real value instead of a stale one.
+            refreshCopilotStatus();
             onSaved();
           } else {
             setPhase('error');
@@ -1394,6 +1418,11 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
       setConfigured(false);
       setPhase('idle');
       setManualApiKey('');
+      // Don't leave a stale endpoint in the form after the vision model is
+      // disabled — the next "Set Up" should start clean.
+      setManualBaseUrl('');
+      setManualModel('');
+      setModels(null);
       onSaved();
     }
   };
@@ -1436,19 +1465,21 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
 
           {expanded && (
             <div className="space-y-3 border-t border-border pt-4">
-              {/* Config method switcher */}
+              {/* Config method switcher. Switching tabs cancels any live QR
+                  poll so a background login can't flip state the user can't
+                  see (or overwrite a later success). */}
               <div className="flex gap-2">
                 <Button
                   size="sm"
                   variant={mode === 'copilot' ? 'default' : 'outline'}
-                  onClick={() => setMode('copilot')}
+                  onClick={() => { cancelLogin(); setMode('copilot'); }}
                 >
                   {t('gateway.copilot.copilotTab')}
                 </Button>
                 <Button
                   size="sm"
                   variant={mode === 'manual' ? 'default' : 'outline'}
-                  onClick={() => setMode('manual')}
+                  onClick={() => { cancelLogin(); setMode('manual'); }}
                 >
                   {t('gateway.copilot.manual.tab')}
                 </Button>
@@ -1756,6 +1787,8 @@ function FigureGenSection({ onSaved }: { onSaved: () => void }) {
     if (data.ok) {
       setConfigured(false);
       setFgApiKey('');
+      setFgBaseUrl('');
+      setFgModel('');
       setModels(null);
       onSaved();
     }
