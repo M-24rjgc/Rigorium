@@ -330,10 +330,10 @@ try {
   await page.evaluate(() => window.openSettings?.('research'));
   await page.getByRole('heading', { name: /Research Settings|科研设置/u, level: 2 }).waitFor({ timeout: 30_000 });
   await page.getByRole('button', { name: /Test Zotero|测试 Zotero/u }).click();
-  await page.getByText(/Local API unavailable|Connector unavailable|Zotero is not ready|Zotero 未准备好/u).first().waitFor({ timeout: 30_000 });
+  await page.getByText(/Local API unavailable|Connector unavailable|Zotero is not ready|Zotero 尚未就绪|Zotero 未准备好/u).first().waitFor({ timeout: 30_000 });
 
   await page.getByRole('button', { name: /Browse collections|浏览 Collection/u }).click();
-  await page.getByText(/Local API unavailable|fetch failed|Zotero.*not running|Zotero.*unavailable|Zotero.*未运行|Zotero.*不可用/u).first().waitFor({ timeout: 30_000 });
+  await page.getByText(/Local API unavailable|fetch failed|Zotero.*not running|Zotero.*unavailable|Zotero.*未运行|Zotero.*不可用|Zotero 尚未就绪/u).first().waitFor({ timeout: 30_000 });
 
   const desktopOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (desktopOverflow > 1) throw new Error(`Desktop research settings overflow horizontally by ${desktopOverflow}px.`);
@@ -699,9 +699,9 @@ try {
     true,
     'The packaged terminology panel exposed a private retrieval parameter.',
   );
-  await page.getByRole('tab', { name: /Collection|文献库/u }).click();
+  await page.getByRole('tab', { name: /Collection|文献库|收藏夹/u }).click();
   await page.getByText('Packaged Zotero item', { exact: true }).waitFor({ timeout: 30_000 });
-  await page.getByRole('button', { name: /Show details for Packaged Zotero item|展开.*Packaged Zotero item/u }).click();
+  await page.getByRole('button', { name: /Show details for Packaged Zotero item|显示 Packaged Zotero item 的详情/u }).click();
   await page.getByText('10.1000/packaged-verification', { exact: true }).waitFor({ timeout: 30_000 });
   await page.getByText('Verification note', { exact: true }).waitFor({ timeout: 30_000 });
   await page.getByRole('button', { name: /Read full text for verification.pdf|读取.*verification.pdf/u }).click();
