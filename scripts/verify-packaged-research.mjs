@@ -681,7 +681,9 @@ try {
   await terminology.getByText(/not synonyms or author keywords|不是同义词或作者关键词/u).waitFor({ timeout: 30_000 });
   await terminology.getByText('Fixture Alpha keyword 01', { exact: true }).waitFor({ timeout: 30_000 });
   await terminology.getByText('Fixture Alpha keyword 08', { exact: true }).waitFor({ timeout: 30_000 });
-  await terminology.getByText(/8\s+of\s+16/u).waitFor({ timeout: 30_000 });
+  // Accept both the English ("8 of 16") and zh-CN ("8 / 共 16 条") formats
+  // of the terminology count — the app defaults to Simplified Chinese now.
+  await terminology.getByText(/8\s+of\s+16|8\s*\/\s*共\s*16\s*条/u).waitFor({ timeout: 30_000 });
   const terminologyGroups = terminology.locator('[data-testid^="research-terminology-group-"]');
   assert.equal(await terminologyGroups.count(), 1, 'The packaged terminology panel did not render the bounded fixture evidence kind.');
   const terminologyDetails = terminology.locator('details');
