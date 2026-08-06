@@ -1245,7 +1245,7 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
   }, []);
 
   useEffect(() => {
-    return () => { if (pollRef.current) window.clearInterval(pollRef.current); };
+    return () => { if (pollRef.current) window.clearTimeout(pollRef.current); };
   }, []);
 
   const refreshCopilotStatus = () => {
@@ -1263,9 +1263,9 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
   };
 
   const startLogin = async () => {
-    // Never stack a second poll on top of a live one: two intervals would
+    // Never stack a second poll on top of a live one: two polls would
     // fight over pollRef and one could overwrite the other's success.
-    if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
+    if (pollRef.current) { window.clearTimeout(pollRef.current); pollRef.current = null; }
     setPendingHint('');
     setPhase('connecting');
     setError('');
@@ -1279,6 +1279,11 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
       }
       setUserCode(data.userCode);
       setLoginSessionId(data.sessionId || '');
+      // Poll at GitHub's requested interval (default 5s), NOT a fixed 3s
+      // timer. Polling faster than `interval` makes GitHub reply slow_down
+      // every time (+5s each) and the granted token is never delivered —
+      // this is why a completed authorization could stay "waiting" forever.
+      let pollInterval = Math.max(Number(data.interval) || 5, 5);
       // GitHub may not return `verification_uri_complete` for this client,
       // which would open a BLANK device page and force the user to type the
       // code by hand — a common source of mismatch. When absent, build the
@@ -1296,7 +1301,12 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
       // Count consecutive pending polls so the UI can surface "still
       // waiting" instead of silently spinning forever.
       let pendingCount = 0;
-      pollRef.current = window.setInterval(async () => {
+      // Poll at GitHub's requested interval (default 5s), NOT a fixed 3s
+      // timer: polling faster than `interval` makes GitHub reply slow_down
+      // every time (+5s each) and the granted token is never delivered —
+      // that is why a completed authorization stayed "waiting" forever.
+      let pollIntervalMs = Math.max((Number(data.interval) || 5) * 1000, 5000);
+      const runPoll = async () => {
         try {
           // Poll the QR session AND the config status in parallel: the
           // desktop app and the browser dev server run separate server
@@ -1316,14 +1326,17 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
             && /githubcopilot\.com/i.test(statusData.baseUrl || '');
           if (pollData.pending && !alreadyConfigured) {
             pendingCount += 1;
+            // Honor GitHub's backoff: slow_down tells us to wait longer.
+            if (Number(pollData.interval) >= 5) pollIntervalMs = Math.max(pollIntervalMs, Number(pollData.interval) * 1000);
             // Surface repeated waiting — a code mismatch or a stalled
             // network would otherwise look identical to "still waiting".
             setPendingHint(pendingCount >= 4
               ? t('gateway.copilot.stillWaitingHint', { count: pendingCount })
               : '');
+            if (pollRef.current !== null) pollRef.current = window.setTimeout(() => void runPoll(), pollIntervalMs);
             return;
           }
-          if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
+          if (pollRef.current !== null) { window.clearTimeout(pollRef.current); pollRef.current = null; }
           if (pollData.ok || alreadyConfigured) {
             setPendingHint('');
             setPhase('success');
@@ -1343,13 +1356,16 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
           // pending": surface it so the user knows the server is unreachable.
           pendingCount += 1;
           if (pendingCount >= 2) {
-            if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
+            if (pollRef.current !== null) { window.clearTimeout(pollRef.current); pollRef.current = null; }
             setPendingHint('');
             setPhase('error');
             setError(err instanceof Error ? err.message : t('gateway.copilot.failed'));
+          } else if (pollRef.current !== null) {
+            pollRef.current = window.setTimeout(() => void runPoll(), pollIntervalMs);
           }
         }
-      }, 3000);
+      };
+      pollRef.current = window.setTimeout(() => void runPoll(), pollIntervalMs);
     } catch (err) {
       setPhase('error');
       setError(err instanceof Error ? err.message : t('gateway.copilot.failed'));
@@ -1357,7 +1373,7 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
   };
 
   const cancelLogin = () => {
-    if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
+    if (pollRef.current) { window.clearTimeout(pollRef.current); pollRef.current = null; }
     void authenticatedFetch('/api/gateway/copilot/qr-cancel', {
       method: 'POST',
       body: JSON.stringify({ sessionId: loginSessionId }),

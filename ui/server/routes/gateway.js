@@ -742,6 +742,7 @@ router.post('/copilot/qr-begin', async (req, res) => {
       userCode: begin.user_code,
       verificationUri: begin.verification_uri,
       verificationUriComplete: begin.verification_uri_complete || '',
+      interval: begin.interval || 5,
     });
   } catch (err) {
     appendCopilotLog(`qr-begin EXCEPTION: ${err.message}`);
@@ -816,13 +817,18 @@ router.get('/copilot/qr-poll', async (req, res) => {
     return res.json({ ok: false, error: 'Verification code expired, please try again' });
   }
   if (error === 'slow_down') {
-    // GitHub spec: extend the polling interval by 5 seconds.
+    // GitHub spec: extend the polling interval by 5 seconds. The client
+    // MUST poll no faster than this — polling too fast (our old fixed 3s
+    // timer) makes GitHub keep returning slow_down and the granted token
+    // is never delivered. Return the new interval so the client can wait.
     state.interval += 5;
     appendCopilotLog(`qr-poll session=${sessionId} SLOW_DOWN interval=${state.interval}`);
+    return res.json({ pending: true, interval: state.interval });
   } else if (error) {
     appendCopilotLog(`qr-poll session=${sessionId} GITHUB_ERROR ${error}`);
   }
-  return res.json({ pending: true });
+  // Plain authorization_pending: keep polling at the session's interval.
+  return res.json({ pending: true, interval: state.interval });
 });
 
 router.post('/copilot/qr-cancel', (req, res) => {

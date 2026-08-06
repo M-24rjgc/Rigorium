@@ -271,6 +271,7 @@ describe('gateway Copilot routes', () => {
     expect(res.ok).toBe(true);
     expect(res.userCode).toBe('ABCD-1234');
     expect(res.sessionId).toBeTruthy();
+    expect(res.interval).toBe(5);
     expect(res.verificationUriComplete).toContain('user_code=ABCD-1234');
   });
 
@@ -348,6 +349,21 @@ describe('gateway Copilot routes', () => {
     const res = await request(`/api/gateway/copilot/qr-poll?sessionId=${begin.sessionId}`);
     expect(res.ok).toBe(false);
     expect(res.error).toContain('denied');
+  });
+
+  it('copilot/qr-poll reports slow_down with the backoff interval', async () => {
+    let calls = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) return { ok: true, json: async () => ({ device_code: 'dc-1', user_code: 'X', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 }) };
+      return { ok: true, json: async () => ({ error: 'slow_down' }) };
+    }));
+    const { request } = await createGatewayApp({});
+    const begin = await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
+    const res = await request(`/api/gateway/copilot/qr-poll?sessionId=${begin.sessionId}`);
+    expect(res.pending).toBe(true);
+    // GitHub adds 5s to the interval on slow_down; the client must wait 10s.
+    expect(res.interval).toBe(10);
   });
 
   it('copilot/qr-poll surfaces a GitHub network failure instead of endless pending', async () => {
