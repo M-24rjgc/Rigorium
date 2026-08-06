@@ -1328,11 +1328,21 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
             pendingCount += 1;
             // Honor GitHub's backoff: slow_down tells us to wait longer.
             if (Number(pollData.interval) >= 5) pollIntervalMs = Math.max(pollIntervalMs, Number(pollData.interval) * 1000);
-            // Surface repeated waiting — a code mismatch or a stalled
-            // network would otherwise look identical to "still waiting".
-            setPendingHint(pendingCount >= 4
-              ? t('gateway.copilot.stillWaitingHint', { count: pendingCount })
-              : '');
+            // A transient network failure (pollData.networkError) must NOT
+            // abort the login — the user may have already authorized and the
+            // token arrives on the next poll once connectivity returns. Keep
+            // polling and tell the user we're retrying instead of failing.
+            if (pollData.networkError) {
+              setPendingHint(pendingCount >= 2
+                ? t('gateway.copilot.networkRetryHint', { count: pendingCount })
+                : t('gateway.copilot.networkRetryHint', { count: 1 }));
+            } else {
+              // Surface repeated waiting — a code mismatch or a stalled
+              // network would otherwise look identical to "still waiting".
+              setPendingHint(pendingCount >= 4
+                ? t('gateway.copilot.stillWaitingHint', { count: pendingCount })
+                : '');
+            }
             if (pollRef.current !== null) pollRef.current = window.setTimeout(() => void runPoll(), pollIntervalMs);
             return;
           }
@@ -1352,10 +1362,12 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
             setError(pollData.error || t('gateway.copilot.failed'));
           }
         } catch (err) {
-          // A fetch/network failure inside the poll is different from "still
-          // pending": surface it so the user knows the server is unreachable.
+          // A fetch/network failure is transient (this machine's link to
+          // github.com is flaky) and the user may already have authorized —
+          // keep retrying instead of aborting. Only give up after many tries.
           pendingCount += 1;
-          if (pendingCount >= 2) {
+          setPendingHint(t('gateway.copilot.networkRetryHint', { count: pendingCount }));
+          if (pendingCount >= 10) {
             if (pollRef.current !== null) { window.clearTimeout(pollRef.current); pollRef.current = null; }
             setPendingHint('');
             setPhase('error');

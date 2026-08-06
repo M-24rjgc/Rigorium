@@ -771,10 +771,13 @@ router.get('/copilot/qr-poll', async (req, res) => {
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
     });
   } catch (error) {
-    // Do NOT swallow this as pending: a network failure would otherwise look
-    // like "waiting for the user" forever, with no way to tell them apart.
-    appendCopilotLog(`qr-poll session=${sessionId} NETWORK_ERROR ${error.message}`);
-    return res.json({ ok: false, error: `连接 GitHub 失败: ${error.message}` });
+    // A transient network failure must NOT abort the login: the user may
+    // have already authorized, and the token is delivered on the next poll
+    // once connectivity returns (this machine's link to github.com is
+    // intermittently flaky). Keep the session alive and let the client
+    // poll again; mark it so the UI can show "retrying" instead of silence.
+    appendCopilotLog(`qr-poll session=${sessionId} NETWORK_ERROR ${error.message} (retrying)`);
+    return res.json({ pending: true, networkError: true, interval: state.interval });
   }
   if (poll.access_token) {
     sessions.delete(sessionId);

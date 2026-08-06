@@ -1452,6 +1452,7 @@
       "enterCode": "请在打开的页面中输入以下验证码（8 位）：",
       "waiting": "等待你在 GitHub 上确认…",
       "stillWaitingHint": "已检查 {{count}} 次仍在等待。请确认 GitHub 页面上输入的验证码与上方显示完全一致。",
+      "networkRetryHint": "网络波动 — 正在重试连接 GitHub（第 {{count}} 次）。请保持验证码页面打开。",
       "success": "登录成功！视觉模型已启用",
       "failed": "登录失败",
       "retry": "重试",

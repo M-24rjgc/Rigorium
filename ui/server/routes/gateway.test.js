@@ -378,9 +378,15 @@ describe('gateway Copilot routes', () => {
     const begin = await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
     expect(begin.ok).toBe(true);
     const res = await request(`/api/gateway/copilot/qr-poll?sessionId=${begin.sessionId}`);
-    expect(res.ok).toBe(false);
-    expect(res.error).toContain('连接 GitHub 失败');
-    expect(res.pending).toBeUndefined();
+    // A transient network failure must keep the session alive: the user may
+    // already have authorized, and the token arrives on the next poll once
+    // connectivity returns. Not a terminal error.
+    expect(res.pending).toBe(true);
+    expect(res.networkError).toBe(true);
+    // The session survives, so a later poll (when the network recovers) can
+    // still complete the login.
+    const retry = await request(`/api/gateway/copilot/qr-poll?sessionId=${begin.sessionId}`);
+    expect(retry.pending).toBe(true);
   });
 
   it('copilot/qr-poll expired_token clears the session', async () => {

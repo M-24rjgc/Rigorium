@@ -1452,6 +1452,7 @@
       "enterCode": "Enter this code (8 characters) on the opened page:",
       "waiting": "Waiting for confirmation on GitHub…",
       "stillWaitingHint": "Checked {{count}} times and still waiting. Make sure the code shown above was entered on the GitHub page exactly as displayed.",
+      "networkRetryHint": "Network hiccup — retrying connection to GitHub (attempt {{count}}). Keep the code page open.",
       "success": "Signed in! Vision model enabled",
       "failed": "Login failed",
       "retry": "Retry",
