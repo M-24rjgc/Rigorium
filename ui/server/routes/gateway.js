@@ -1,4 +1,5 @@
 import express from 'express';
+import { randomUUID } from 'crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
@@ -703,13 +704,21 @@ router.post('/copilot/qr-begin', async (req, res) => {
     if (!begin.device_code) {
       return res.json({ ok: false, error: begin.error_description || 'GitHub did not return a device code' });
     }
-    req.app.locals._copilotQr = {
+    // Each begin creates its OWN session keyed by id. A single in-memory
+    // slot meant a second login (another tab/window) silently replaced the
+    // first device code — the user authorized the first code while the
+    // server polled the second, so login hung forever. The client polls and
+    // cancels by session id, so concurrent logins never interfere.
+    const sessionId = randomUUID();
+    if (!req.app.locals._copilotQrSessions) req.app.locals._copilotQrSessions = new Map();
+    req.app.locals._copilotQrSessions.set(sessionId, {
       deviceCode: begin.device_code,
       interval: begin.interval || 5,
       expiresAt: Date.now() + (begin.expires_in || 900) * 1000,
-    };
+    });
     res.json({
       ok: true,
+      sessionId,
       userCode: begin.user_code,
       verificationUri: begin.verification_uri,
       verificationUriComplete: begin.verification_uri_complete || '',
@@ -720,12 +729,14 @@ router.post('/copilot/qr-begin', async (req, res) => {
 });
 
 router.get('/copilot/qr-poll', async (req, res) => {
-  const state = req.app.locals._copilotQr;
+  const sessionId = String(req.query.sessionId || '');
+  const sessions = req.app.locals._copilotQrSessions;
+  const state = sessionId && sessions ? sessions.get(sessionId) : undefined;
   if (!state) {
     return res.json({ ok: false, error: 'No Copilot login session active' });
   }
   if (Date.now() > state.expiresAt) {
-    req.app.locals._copilotQr = null;
+    sessions.delete(sessionId);
     return res.json({ ok: false, error: 'Verification code expired, please try again' });
   }
   try {
@@ -735,10 +746,10 @@ router.get('/copilot/qr-poll', async (req, res) => {
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
     });
     if (poll.access_token) {
-      req.app.locals._copilotQr = null;
+      sessions.delete(sessionId);
       // Persistence is separate from the GitHub poll: if saving fails the
       // client must see a real error, not an endless "pending" (the session
-      // slot is already cleared, so the next poll would say "no session").
+      // is already cleared, so the next poll would say "no session").
       try {
         const config = loadConfigForWrite();
         config.vision = {
@@ -763,7 +774,7 @@ router.get('/copilot/qr-poll', async (req, res) => {
     }
     const error = poll.error || '';
     if (error === 'access_denied') {
-      req.app.locals._copilotQr = null;
+      sessions.delete(sessionId);
       return res.json({ ok: false, error: 'Login denied on GitHub' });
     }
     if (error === 'expired_token') {
@@ -781,7 +792,9 @@ router.get('/copilot/qr-poll', async (req, res) => {
 });
 
 router.post('/copilot/qr-cancel', (req, res) => {
-  req.app.locals._copilotQr = null;
+  const sessionId = String(req.body?.sessionId || req.query.sessionId || '');
+  const sessions = req.app.locals._copilotQrSessions;
+  if (sessionId && sessions) sessions.delete(sessionId);
   // Best-effort: drop the stored token copy so a cancelled login leaves
   // nothing usable on disk.
   try { if (existsSync(COPILOT_TOKEN_FILE)) unlinkSync(COPILOT_TOKEN_FILE); } catch { /* best-effort */ }

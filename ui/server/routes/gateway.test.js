@@ -270,6 +270,7 @@ describe('gateway Copilot routes', () => {
     const res = await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
     expect(res.ok).toBe(true);
     expect(res.userCode).toBe('ABCD-1234');
+    expect(res.sessionId).toBeTruthy();
     expect(res.verificationUriComplete).toContain('user_code=ABCD-1234');
   });
 
@@ -288,10 +289,10 @@ describe('gateway Copilot routes', () => {
     const begin = await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
     expect(begin.ok).toBe(true);
 
-    const pending = await request('/api/gateway/copilot/qr-poll');
+    const pending = await request(`/api/gateway/copilot/qr-poll?sessionId=${begin.sessionId}`);
     expect(pending.pending).toBe(true);
 
-    const done = await request('/api/gateway/copilot/qr-poll');
+    const done = await request(`/api/gateway/copilot/qr-poll?sessionId=${begin.sessionId}`);
     expect(done.ok).toBe(true);
 
     const saved = parseYaml(readFileSync(configPath, 'utf-8'));
@@ -303,6 +304,38 @@ describe('gateway Copilot routes', () => {
     });
   });
 
+  it('copilot concurrent logins keep separate sessions (second begin must not clobber the first)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ device_code: 'dc-shared', user_code: 'X', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 }),
+    })));
+    const { request } = await createGatewayApp({});
+    const first = await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
+    const second = await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
+    expect(first.sessionId).toBeTruthy();
+    expect(second.sessionId).toBeTruthy();
+    expect(first.sessionId).not.toBe(second.sessionId);
+
+    // Polling the FIRST session still works even though a second begin ran.
+    const pollFirst = await request(`/api/gateway/copilot/qr-poll?sessionId=${first.sessionId}`);
+    expect(pollFirst.pending).toBe(true);
+
+    // A bogus session id must not accidentally match.
+    const pollBogus = await request('/api/gateway/copilot/qr-poll?sessionId=nope');
+    expect(pollBogus.ok).toBe(false);
+
+    // Cancel only the second session; the first stays cancellable/alive.
+    const cancelSecond = await request('/api/gateway/copilot/qr-cancel', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId: second.sessionId }),
+    });
+    expect(cancelSecond.ok).toBe(true);
+    const pollFirstAfter = await request(`/api/gateway/copilot/qr-poll?sessionId=${first.sessionId}`);
+    expect(pollFirstAfter.pending).toBe(true);
+    const pollSecondGone = await request(`/api/gateway/copilot/qr-poll?sessionId=${second.sessionId}`);
+    expect(pollSecondGone.ok).toBe(false);
+  });
+
   it('copilot/qr-poll handles denied login', async () => {
     let calls = 0;
     vi.stubGlobal('fetch', vi.fn(async () => {
@@ -311,8 +344,8 @@ describe('gateway Copilot routes', () => {
       return { ok: true, json: async () => ({ error: 'access_denied' }) };
     }));
     const { request } = await createGatewayApp({});
-    await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
-    const res = await request('/api/gateway/copilot/qr-poll');
+    const begin = await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
+    const res = await request(`/api/gateway/copilot/qr-poll?sessionId=${begin.sessionId}`);
     expect(res.ok).toBe(false);
     expect(res.error).toContain('denied');
   });

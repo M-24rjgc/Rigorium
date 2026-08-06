@@ -1195,6 +1195,10 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
   const pollRef = useRef<number | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [mode, setMode] = useState<VisionConfigMode>('copilot');
+  // Tracks the device-flow session for THIS login so polling/cancel hit the
+  // exact device code that was issued here — a second login in another tab
+  // must not invalidate the first (the backend now keys sessions by id).
+  const [loginSessionId, setLoginSessionId] = useState('');
   // Manual endpoint form state.
   const [manualBaseUrl, setManualBaseUrl] = useState('');
   const [manualApiKey, setManualApiKey] = useState('');
@@ -1272,6 +1276,7 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
         return;
       }
       setUserCode(data.userCode);
+      setLoginSessionId(data.sessionId || '');
       setVerifyUrl(data.verificationUriComplete || data.verificationUri || 'https://github.com/login/device');
       setPhase('waiting');
       if (data.verificationUriComplete || data.verificationUri) {
@@ -1286,8 +1291,9 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
           // elsewhere (e.g. in the browser), the config is already saved
           // and this poll should finish as "success" instead of waiting
           // forever on a device code nobody authorized here.
+          const qs = data.sessionId ? `?sessionId=${encodeURIComponent(data.sessionId)}` : '';
           const [pollRes, statusRes] = await Promise.all([
-            authenticatedFetch('/api/gateway/copilot/qr-poll'),
+            authenticatedFetch(`/api/gateway/copilot/qr-poll${qs}`),
             authenticatedFetch('/api/gateway/copilot/status'),
           ]);
           const pollData = await pollRes.json();
@@ -1318,7 +1324,11 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
 
   const cancelLogin = () => {
     if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
-    void authenticatedFetch('/api/gateway/copilot/qr-cancel', { method: 'POST' });
+    void authenticatedFetch('/api/gateway/copilot/qr-cancel', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId: loginSessionId }),
+    });
+    setLoginSessionId('');
     setPhase('idle');
   };
 
