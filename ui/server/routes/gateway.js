@@ -1,6 +1,6 @@
 import express from 'express';
 import { randomUUID } from 'crypto';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
@@ -673,6 +673,21 @@ const COPILOT_INTEGRATION_ID = process.env.RIGORIUM_COPILOT_INTEGRATION_ID || 'v
 // GitHub Copilot's public OAuth app client id (override via env for forks).
 const COPILOT_CLIENT_ID = process.env.RIGORIUM_COPILOT_CLIENT_ID || 'Iv1.b507a08c87ecfe98';
 const COPILOT_TOKEN_FILE = join(RIGORIUM_HOME, 'copilot-token.json');
+const COPILOT_LOG_FILE = join(RIGORIUM_HOME, 'copilot-login.log');
+
+/**
+ * Append a line to the Copilot login diagnostic log. The device flow spans
+ * the app's server (begin/poll) and an external browser (authorize), so a
+ * mismatch between "which code the user authorized" and "which device code
+ * the server polls" is otherwise invisible. Writing each step here turns a
+ * stuck login into a one-line answer.
+ */
+function appendCopilotLog(message) {
+  try {
+    mkdirSync(dirname(COPILOT_LOG_FILE), { recursive: true });
+    appendFileSync(COPILOT_LOG_FILE, `${new Date().toISOString()} ${message}\n`, 'utf-8');
+  } catch { /* logging is best-effort */ }
+}
 
 async function postGitHubForm(url, form) {
   try {
@@ -702,6 +717,7 @@ router.post('/copilot/qr-begin', async (req, res) => {
       scope: 'copilot',
     });
     if (!begin.device_code) {
+      appendCopilotLog(`qr-begin FAILED (no device_code): ${begin.error_description || 'unknown'}`);
       return res.json({ ok: false, error: begin.error_description || 'GitHub did not return a device code' });
     }
     // Each begin creates its OWN session keyed by id. A single in-memory
@@ -716,6 +732,10 @@ router.post('/copilot/qr-begin', async (req, res) => {
       interval: begin.interval || 5,
       expiresAt: Date.now() + (begin.expires_in || 900) * 1000,
     });
+    appendCopilotLog(
+      `qr-begin session=${sessionId} user_code=${begin.user_code} ` +
+      `device_code=${String(begin.device_code).slice(0, 6)}… verif=${begin.verification_uri || ''} complete=${begin.verification_uri_complete || '(none)'}`,
+    );
     res.json({
       ok: true,
       sessionId,
@@ -724,6 +744,7 @@ router.post('/copilot/qr-begin', async (req, res) => {
       verificationUriComplete: begin.verification_uri_complete || '',
     });
   } catch (err) {
+    appendCopilotLog(`qr-begin EXCEPTION: ${err.message}`);
     res.json({ ok: false, error: err.message });
   }
 });
@@ -733,68 +754,84 @@ router.get('/copilot/qr-poll', async (req, res) => {
   const sessions = req.app.locals._copilotQrSessions;
   const state = sessionId && sessions ? sessions.get(sessionId) : undefined;
   if (!state) {
+    appendCopilotLog(`qr-poll session=${sessionId || '(none)'} NOT_FOUND`);
     return res.json({ ok: false, error: 'No Copilot login session active' });
   }
   if (Date.now() > state.expiresAt) {
     sessions.delete(sessionId);
+    appendCopilotLog(`qr-poll session=${sessionId} EXPIRED`);
     return res.json({ ok: false, error: 'Verification code expired, please try again' });
   }
+  let poll;
   try {
-    const poll = await postGitHubForm(GITHUB_ACCESS_TOKEN_URL, {
+    poll = await postGitHubForm(GITHUB_ACCESS_TOKEN_URL, {
       client_id: COPILOT_CLIENT_ID,
       device_code: state.deviceCode,
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
     });
-    if (poll.access_token) {
-      sessions.delete(sessionId);
-      // Persistence is separate from the GitHub poll: if saving fails the
-      // client must see a real error, not an endless "pending" (the session
-      // is already cleared, so the next poll would say "no session").
-      try {
-        const config = loadConfigForWrite();
-        config.vision = {
-          ...(config.vision ?? {}),
-          enabled: true,
-          baseUrl: COPILOT_BASE_URL,
-          apiKey: poll.access_token,
-          model: COPILOT_MODEL,
-        };
-        await persistConfigAndReload(config);
-      } catch (error) {
-        return res.json({ ok: false, error: `Login succeeded but saving the config failed: ${error.message}` });
-      }
-      try {
-        writeFileSync(COPILOT_TOKEN_FILE, JSON.stringify({
-          accessToken: poll.access_token,
-          scope: poll.scope || 'copilot',
-          loggedInAt: new Date().toISOString(),
-        }, null, 2), 'utf-8');
-      } catch { /* token file is best-effort */ }
-      return res.json({ ok: true });
-    }
-    const error = poll.error || '';
-    if (error === 'access_denied') {
-      sessions.delete(sessionId);
-      return res.json({ ok: false, error: 'Login denied on GitHub' });
-    }
-    if (error === 'expired_token') {
-      req.app.locals._copilotQr = null;
-      return res.json({ ok: false, error: 'Verification code expired, please try again' });
-    }
-    if (error === 'slow_down') {
-      // GitHub spec: extend the polling interval by 5 seconds.
-      state.interval += 5;
-    }
-    return res.json({ pending: true });
-  } catch {
-    return res.json({ pending: true });
+  } catch (error) {
+    // Do NOT swallow this as pending: a network failure would otherwise look
+    // like "waiting for the user" forever, with no way to tell them apart.
+    appendCopilotLog(`qr-poll session=${sessionId} NETWORK_ERROR ${error.message}`);
+    return res.json({ ok: false, error: `连接 GitHub 失败: ${error.message}` });
   }
+  if (poll.access_token) {
+    sessions.delete(sessionId);
+    appendCopilotLog(`qr-poll session=${sessionId} TOKEN_GRANTED`);
+    // Persistence is separate from the GitHub poll: if saving fails the
+    // client must see a real error, not an endless "pending" (the session
+    // is already cleared, so the next poll would say "no session").
+    try {
+      const config = loadConfigForWrite();
+      config.vision = {
+        ...(config.vision ?? {}),
+        enabled: true,
+        baseUrl: COPILOT_BASE_URL,
+        apiKey: poll.access_token,
+        model: COPILOT_MODEL,
+      };
+      await persistConfigAndReload(config);
+    } catch (error) {
+      appendCopilotLog(`qr-poll session=${sessionId} SAVE_FAILED ${error.message}`);
+      return res.json({ ok: false, error: `Login succeeded but saving the config failed: ${error.message}` });
+    }
+    try {
+      writeFileSync(COPILOT_TOKEN_FILE, JSON.stringify({
+        accessToken: poll.access_token,
+        scope: poll.scope || 'copilot',
+        loggedInAt: new Date().toISOString(),
+      }, null, 2), 'utf-8');
+    } catch { /* token file is best-effort */ }
+    return res.json({ ok: true });
+  }
+  const error = poll.error || '';
+  if (error === 'access_denied') {
+    sessions.delete(sessionId);
+    appendCopilotLog(`qr-poll session=${sessionId} ACCESS_DENIED`);
+    return res.json({ ok: false, error: 'Login denied on GitHub' });
+  }
+  if (error === 'expired_token') {
+    sessions.delete(sessionId);
+    appendCopilotLog(`qr-poll session=${sessionId} EXPIRED_TOKEN`);
+    return res.json({ ok: false, error: 'Verification code expired, please try again' });
+  }
+  if (error === 'slow_down') {
+    // GitHub spec: extend the polling interval by 5 seconds.
+    state.interval += 5;
+    appendCopilotLog(`qr-poll session=${sessionId} SLOW_DOWN interval=${state.interval}`);
+  } else if (error) {
+    appendCopilotLog(`qr-poll session=${sessionId} GITHUB_ERROR ${error}`);
+  }
+  return res.json({ pending: true });
 });
 
 router.post('/copilot/qr-cancel', (req, res) => {
   const sessionId = String(req.body?.sessionId || req.query.sessionId || '');
   const sessions = req.app.locals._copilotQrSessions;
-  if (sessionId && sessions) sessions.delete(sessionId);
+  if (sessionId && sessions) {
+    sessions.delete(sessionId);
+    appendCopilotLog(`qr-cancel session=${sessionId}`);
+  }
   // Best-effort: drop the stored token copy so a cancelled login leaves
   // nothing usable on disk.
   try { if (existsSync(COPILOT_TOKEN_FILE)) unlinkSync(COPILOT_TOKEN_FILE); } catch { /* best-effort */ }

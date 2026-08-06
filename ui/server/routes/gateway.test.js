@@ -350,6 +350,41 @@ describe('gateway Copilot routes', () => {
     expect(res.error).toContain('denied');
   });
 
+  it('copilot/qr-poll surfaces a GitHub network failure instead of endless pending', async () => {
+    let calls = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1;
+      // begin succeeds; the token poll then hits a network failure.
+      if (calls === 1) return { ok: true, json: async () => ({ device_code: 'dc-1', user_code: 'X', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 }) };
+      throw new Error('ECONNRESET: socket hang up');
+    }));
+    const { request } = await createGatewayApp({});
+    const begin = await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
+    expect(begin.ok).toBe(true);
+    const res = await request(`/api/gateway/copilot/qr-poll?sessionId=${begin.sessionId}`);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('连接 GitHub 失败');
+    expect(res.pending).toBeUndefined();
+  });
+
+  it('copilot/qr-poll expired_token clears the session', async () => {
+    let calls = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) return { ok: true, json: async () => ({ device_code: 'dc-x', user_code: 'X', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 }) };
+      return { ok: true, json: async () => ({ error: 'expired_token' }) };
+    }));
+    const { request } = await createGatewayApp({});
+    const begin = await request('/api/gateway/copilot/qr-begin', { method: 'POST' });
+    const res = await request(`/api/gateway/copilot/qr-poll?sessionId=${begin.sessionId}`);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('expired');
+    // The session must actually be removed so a follow-up poll fails fast.
+    const after = await request(`/api/gateway/copilot/qr-poll?sessionId=${begin.sessionId}`);
+    expect(after.ok).toBe(false);
+    expect(after.error).toContain('No Copilot login session');
+  });
+
   it('copilot/disable clears the vision api key', async () => {
     const { request, configPath } = await createGatewayApp({
       vision: { enabled: true, baseUrl: 'https://api.githubcopilot.com', apiKey: 'ghu-x', model: 'gpt-4o' },

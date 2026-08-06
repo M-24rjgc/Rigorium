@@ -1199,6 +1199,7 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
   // exact device code that was issued here — a second login in another tab
   // must not invalidate the first (the backend now keys sessions by id).
   const [loginSessionId, setLoginSessionId] = useState('');
+  const [pendingHint, setPendingHint] = useState('');
   // Manual endpoint form state.
   const [manualBaseUrl, setManualBaseUrl] = useState('');
   const [manualApiKey, setManualApiKey] = useState('');
@@ -1265,6 +1266,7 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
     // Never stack a second poll on top of a live one: two intervals would
     // fight over pollRef and one could overwrite the other's success.
     if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
+    setPendingHint('');
     setPhase('connecting');
     setError('');
     try {
@@ -1277,11 +1279,23 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
       }
       setUserCode(data.userCode);
       setLoginSessionId(data.sessionId || '');
-      setVerifyUrl(data.verificationUriComplete || data.verificationUri || 'https://github.com/login/device');
+      // GitHub may not return `verification_uri_complete` for this client,
+      // which would open a BLANK device page and force the user to type the
+      // code by hand — a common source of mismatch. When absent, build the
+      // pre-filled URL ourselves so the code is already entered and the user
+      // only has to click authorize.
+      const openUrl = data.verificationUriComplete
+        || (data.verificationUri && data.userCode
+          ? `${data.verificationUri}?user_code=${encodeURIComponent(data.userCode)}`
+          : data.verificationUri || 'https://github.com/login/device');
+      setVerifyUrl(openUrl);
       setPhase('waiting');
-      if (data.verificationUriComplete || data.verificationUri) {
-        window.open(data.verificationUriComplete || data.verificationUri, '_blank');
+      if (openUrl) {
+        window.open(openUrl, '_blank');
       }
+      // Count consecutive pending polls so the UI can surface "still
+      // waiting" instead of silently spinning forever.
+      let pendingCount = 0;
       pollRef.current = window.setInterval(async () => {
         try {
           // Poll the QR session AND the config status in parallel: the
@@ -1300,9 +1314,18 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
           const statusData = await statusRes.json();
           const alreadyConfigured = statusData.ok && statusData.configured === true
             && /githubcopilot\.com/i.test(statusData.baseUrl || '');
-          if (pollData.pending && !alreadyConfigured) return;
+          if (pollData.pending && !alreadyConfigured) {
+            pendingCount += 1;
+            // Surface repeated waiting — a code mismatch or a stalled
+            // network would otherwise look identical to "still waiting".
+            setPendingHint(pendingCount >= 4
+              ? t('gateway.copilot.stillWaitingHint', { count: pendingCount })
+              : '');
+            return;
+          }
           if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
           if (pollData.ok || alreadyConfigured) {
+            setPendingHint('');
             setPhase('success');
             setConfigured(true);
             if (statusData.ok && statusData.model) setModel(statusData.model);
@@ -1311,10 +1334,21 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
             refreshCopilotStatus();
             onSaved();
           } else {
+            setPendingHint('');
             setPhase('error');
             setError(pollData.error || t('gateway.copilot.failed'));
           }
-        } catch { /* network error, keep polling */ }
+        } catch (err) {
+          // A fetch/network failure inside the poll is different from "still
+          // pending": surface it so the user knows the server is unreachable.
+          pendingCount += 1;
+          if (pendingCount >= 2) {
+            if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
+            setPendingHint('');
+            setPhase('error');
+            setError(err instanceof Error ? err.message : t('gateway.copilot.failed'));
+          }
+        }
       }, 3000);
     } catch (err) {
       setPhase('error');
@@ -1329,6 +1363,7 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
       body: JSON.stringify({ sessionId: loginSessionId }),
     });
     setLoginSessionId('');
+    setPendingHint('');
     setPhase('idle');
   };
 
@@ -1546,6 +1581,11 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         {t('gateway.copilot.waiting')}
                       </div>
+                      {pendingHint && (
+                        <div className="text-xs text-amber-600 dark:text-amber-400">
+                          {pendingHint}
+                        </div>
+                      )}
                       <Button size="sm" variant="ghost" onClick={cancelLogin}>
                         {t('gateway.copilot.cancel')}
                       </Button>
