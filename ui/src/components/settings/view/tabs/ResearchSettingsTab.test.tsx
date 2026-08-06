@@ -57,7 +57,14 @@ describe('ResearchSettingsTab Zotero collections', () => {
 
   afterEach(() => cleanup());
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // This test asserts English copy; force English regardless of the app
+    // default language.
+    localStorage.setItem('userLanguage', 'en');
+    // i18n's languageChanged hook calls authenticatedFetch('/api/config');
+    // give the mock a default implementation before switching language.
+    vi.mocked(authenticatedFetch).mockResolvedValue(new Response('{}', { status: 200 }));
+    await i18n.changeLanguage('en');
     credentialSave = vi.fn().mockResolvedValue({ encryptionAvailable: true, configured: true });
     credentialClear = vi.fn().mockResolvedValue({ encryptionAvailable: true, configured: false });
     Object.defineProperty(window, 'rigoriumZoteroCredentials', {

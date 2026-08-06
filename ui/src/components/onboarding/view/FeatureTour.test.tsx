@@ -10,6 +10,13 @@ import FeatureTour, {
   startFeatureTour,
 } from './FeatureTour';
 
+beforeEach(async () => {
+  // These tests assert English copy; force English regardless of the app
+  // default language.
+  localStorage.setItem('userLanguage', 'en');
+  await i18n.changeLanguage('en');
+});
+
 afterEach(() => {
   cleanup();
   localStorage.clear();

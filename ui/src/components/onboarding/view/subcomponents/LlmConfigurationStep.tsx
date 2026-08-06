@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Check, ChevronDown, Loader2, Plus } from 'lucide-react';
 import { authenticatedFetch } from '../../../../utils/api';
 import {
@@ -47,6 +48,7 @@ function hasUsableApiKey(value: unknown) {
 }
 
 export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepProps) {
+  const { t } = useTranslation('onboarding');
   const [selectedProvider, setSelectedProvider] = useState<CatalogProvider | null>(DEFAULT_PROVIDER);
   const [selectedModelId, setSelectedModelId] = useState(() => defaultModelForProvider(DEFAULT_PROVIDER));
   const [customModelId, setCustomModelId] = useState('');
@@ -136,7 +138,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
         setApiModels(catalogModels);
         setModelListStatus('idle');
         const message = error instanceof Error ? error.message : String(error);
-        setModelListMessage(`Using bundled model list. Remote model list unavailable: ${message}`);
+        setModelListMessage(t('bundledModelsFallback', { message }));
       });
     return () => controller.abort();
   }, [apiKey, isCustomMode, selectedProvider]);
@@ -320,7 +322,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
       await onSaved();
     } catch (err) {
       setTestStatus('error');
-      setTestMessage(err instanceof Error ? err.message : 'Failed to save.');
+      setTestMessage(err instanceof Error ? err.message : t('saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -329,9 +331,9 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
   return (
     <div className="mx-auto w-full max-w-xl space-y-8">
       <div>
-        <h2 className="text-lg font-semibold text-foreground">LLM Provider Setup</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t('title')}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Select your provider and enter your API key. Model capabilities are auto-configured.
+          {t('description')}
         </p>
       </div>
 
@@ -340,7 +342,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
       {/* Provider grid */}
       <div>
         <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Provider
+          {t('provider')}
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {CATALOG_PROVIDERS.map((provider) => (
@@ -371,8 +373,8 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
           >
             <Plus className="h-4 w-4" />
             <div>
-              <div className="font-medium">Custom</div>
-              <div className="mt-0.5 text-[11px] opacity-60">OpenAI / Anthropic / Google</div>
+              <div className="font-medium">{t('custom')}</div>
+              <div className="mt-0.5 text-[11px] opacity-60">{t('customSub')}</div>
             </div>
             {isCustomMode && (
               <Check className="absolute right-2 top-2 h-4 w-4 text-foreground" strokeWidth={2.5} />
@@ -385,26 +387,26 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
             <div className="space-y-3 rounded-lg border border-dashed border-border/60 bg-muted/20 p-4">
               <div>
                 <label htmlFor="custom-provider-id" className="mb-1 block text-sm font-medium text-foreground">
-                  Provider ID
+                  {t('providerId')}
                 </label>
                 <input
                   id="custom-provider-id"
                   type="text"
                   value={customProviderId}
                   onChange={(e) => { setCustomProviderId(e.target.value); setTestStatus('idle'); setTestMessage(''); }}
-                  placeholder="e.g. my-llm"
+                  placeholder={t('providerIdPlaceholder')}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-foreground/40 focus:outline-none"
                   autoComplete="off"
                   spellCheck={false}
                 />
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Used as the YAML key. Lowercase, no spaces.
+                  {t('providerIdHint')}
                 </p>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-1">
                   <label htmlFor="custom-protocol" className="mb-1 block text-sm font-medium text-foreground">
-                    Protocol
+                    {t('protocol')}
                   </label>
                   <div className="relative">
                     <select
@@ -423,7 +425,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
                 </div>
                 <div className="col-span-2">
                   <label htmlFor="custom-base-url" className="mb-1 block text-sm font-medium text-foreground">
-                    Base URL
+                    {t('baseUrl')}
                   </label>
                   <input
                     id="custom-base-url"
@@ -437,7 +439,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
                   />
                 {customProtocol === 'openai' && (
                   <p className="mt-1 text-[11px] text-muted-foreground">
-                    OpenAI-compatible base URLs should include the API version path, for example ending in <span className="font-mono">/v1</span>.
+                    {t('openaiUrlHint')} <span className="font-mono">/v1</span>.
                   </p>
                 )}
                 {customProtocol === 'openai-responses' && (
@@ -447,7 +449,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
                 )}
                 {customProtocol === 'google' && (
                   <p className="mt-1 text-[11px] text-muted-foreground">
-                    Native Google Gemini uses <span className="font-mono">https://generativelanguage.googleapis.com</span> unless you need a custom endpoint.
+                    {t('geminiPrefix')} <span className="font-mono">https://generativelanguage.googleapis.com</span> {t('geminiSuffix')}
                   </p>
                 )}
                 </div>
@@ -458,7 +460,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
           {/* API Key */}
           <div>
             <label htmlFor="llm-api-key" className="mb-1 block text-sm font-medium text-foreground">
-              API Key
+              {t('apiKey')}
             </label>
             <input
               id="llm-api-key"
@@ -475,7 +477,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
           {/* Model picker */}
           <div>
             <label htmlFor="llm-model" className="mb-1 block text-sm font-medium text-foreground">
-              Model
+              {t('model')}
             </label>
             {selectedModels.length > 0 ? (
               <div className="relative">
@@ -497,7 +499,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
                 type="text"
                 value={customModelId}
                 onChange={(e) => { setCustomModelId(e.target.value); setTestStatus('idle'); setTestMessage(''); }}
-                placeholder="Enter model ID..."
+                placeholder={t('modelIdPlaceholder')}
                 className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-foreground/40 focus:outline-none"
                 autoComplete="off"
                 spellCheck={false}
@@ -505,7 +507,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
             )}
             {modelListStatus === 'loading' && (
               <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" /> Fetching remote model list...
+                <Loader2 className="h-3 w-3 animate-spin" /> {t('fetchingModels')}
               </p>
             )}
             {selectedProvider && (
@@ -515,7 +517,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
                 disabled={!canFetchModels || modelListStatus === 'loading'}
                 className="mt-2 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Fetch model list
+                {t('fetchModels')}
               </button>
             )}
             {modelListStatus === 'error' && modelListMessage && (
@@ -530,7 +532,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
                   type="text"
                   value={customModelId}
                   onChange={(e) => { setCustomModelId(e.target.value); setTestStatus('idle'); setTestMessage(''); }}
-                  placeholder="Or type a custom model ID..."
+                  placeholder={t('customModelPlaceholder')}
                   className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-foreground/40 focus:outline-none"
                   autoComplete="off"
                   spellCheck={false}
@@ -553,7 +555,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
               <div className="mt-3 space-y-3 rounded-lg border border-border/60 bg-muted/30 p-3">
                 <div>
                   <label htmlFor="llm-url" className="mb-1 block text-xs font-medium text-muted-foreground">
-                    API Base URL
+                    {t('apiBaseUrl')}
                   </label>
                   <input
                     id="llm-url"
@@ -577,12 +579,12 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
                   )}
                   {(selectedProvider?.protocol ?? customProtocol) === 'google' && (
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      Native Google Gemini uses <span className="font-mono">https://generativelanguage.googleapis.com</span>.
+                      {t('geminiPrefix')} <span className="font-mono">https://generativelanguage.googleapis.com</span>.
                     </p>
                   )}
                 </div>
                 <div className="text-[11px] text-muted-foreground">
-                  Protocol: <span className="font-mono">{selectedProvider?.protocol ?? customProtocol}</span> &middot; Default URL: <span className="font-mono">{selectedDefaultUrl}</span>
+                  Protocol: <span className="font-mono">{selectedProvider?.protocol ?? customProtocol}</span> · Default URL: <span className="font-mono">{selectedDefaultUrl}</span>
                 </div>
               </div>
             )}
@@ -592,7 +594,7 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
           {/* Actions */}
           <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border pt-6">
             {testStatus !== 'success' && (
-              <span className="mr-auto text-xs text-muted-foreground">Test connection first.</span>
+              <span className="mr-auto text-xs text-muted-foreground">{t('testFirst')}</span>
             )}
             <button
               type="button"
@@ -603,10 +605,10 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
               {testStatus === 'testing' ? (
                 <span className="flex items-center gap-2">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Testing...
+                  {t('testing')}
                 </span>
               ) : (
-                'Test Connection'
+                t('testConnection')
               )}
             </button>
             <button
@@ -618,10 +620,10 @@ export default function LlmConfigurationStep({ onSaved }: LlmConfigurationStepPr
               {saving ? (
                 <span className="flex items-center gap-2">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Saving...
+                  {t('saving')}
                 </span>
               ) : (
-                'Save'
+                t('save')
               )}
             </button>
           </div>

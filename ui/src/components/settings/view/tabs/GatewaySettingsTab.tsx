@@ -1279,13 +1279,27 @@ function CopilotSection({ onSaved }: { onSaved: () => void }) {
       }
       pollRef.current = window.setInterval(async () => {
         try {
-          const pollRes = await authenticatedFetch('/api/gateway/copilot/qr-poll');
+          // Poll the QR session AND the config status in parallel: the
+          // desktop app and the browser dev server run separate server
+          // processes with separate in-memory QR sessions, but both write
+          // the same rigorium.yaml. If the user completed the device flow
+          // elsewhere (e.g. in the browser), the config is already saved
+          // and this poll should finish as "success" instead of waiting
+          // forever on a device code nobody authorized here.
+          const [pollRes, statusRes] = await Promise.all([
+            authenticatedFetch('/api/gateway/copilot/qr-poll'),
+            authenticatedFetch('/api/gateway/copilot/status'),
+          ]);
           const pollData = await pollRes.json();
-          if (pollData.pending) return;
+          const statusData = await statusRes.json();
+          const alreadyConfigured = statusData.ok && statusData.configured === true
+            && /githubcopilot\.com/i.test(statusData.baseUrl || '');
+          if (pollData.pending && !alreadyConfigured) return;
           if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
-          if (pollData.ok) {
+          if (pollData.ok || alreadyConfigured) {
             setPhase('success');
             setConfigured(true);
+            if (statusData.ok && statusData.model) setModel(statusData.model);
             // The default model only exists server-side; pull it back so the
             // model picker shows the real value instead of a stale one.
             refreshCopilotStatus();

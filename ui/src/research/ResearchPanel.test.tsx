@@ -715,7 +715,13 @@ function installLiteratureMapMocks() {
 describe('ResearchPanel', () => {
   afterEach(() => cleanup());
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // This test asserts English copy; force English regardless of the app
+    // default language, and give the fetch mock a default before i18n's
+    // languageChanged hook calls /api/config.
+    localStorage.setItem('userLanguage', 'en');
+    vi.mocked(authenticatedFetch).mockResolvedValue(new Response('{}', { status: 200 }));
+    await i18n.changeLanguage('en');
     vi.mocked(authenticatedFetch).mockReset();
     literatureMapApiMocks.loadProjectLiteratureMap.mockReset();
     literatureMapApiMocks.updateProjectLiteratureMap.mockReset();

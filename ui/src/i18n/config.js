@@ -30,6 +30,7 @@ import enRouting from './locales/en/routing.json';
 // eslint-disable-next-line import-x/order
 import enTasks from './locales/en/tasks.json';
 import enFeatureTour from './locales/en/featureTour.json';
+import enOnboarding from './locales/en/onboarding.json';
 
 import zhCommon from './locales/zh-CN/common.json';
 import zhSettings from './locales/zh-CN/settings.json';
@@ -41,6 +42,7 @@ import zhRouting from './locales/zh-CN/routing.json';
 // eslint-disable-next-line import-x/order
 import zhCodeEditor from './locales/zh-CN/codeEditor.json';
 import zhFeatureTour from './locales/zh-CN/featureTour.json';
+import zhOnboarding from './locales/zh-CN/onboarding.json';
 
 import { languages } from './languages.js';
 
@@ -50,9 +52,10 @@ const getSavedLanguage = () => {
     if (saved && languages.some(lang => lang.value === saved)) {
       return saved;
     }
-    return 'en';
+    // Default to Simplified Chinese for first-run (no saved preference).
+    return 'zh-CN';
   } catch {
-    return 'en';
+    return 'zh-CN';
   }
 };
 
@@ -72,6 +75,7 @@ i18n
         alwaysOn: enAlwaysOn,
         routing: enRouting,
         featureTour: enFeatureTour,
+        onboarding: enOnboarding,
       },
       'zh-CN': {
         common: zhCommon,
@@ -83,6 +87,7 @@ i18n
         alwaysOn: zhAlwaysOn,
         routing: zhRouting,
         featureTour: zhFeatureTour,
+        onboarding: zhOnboarding,
       },
     },
 
@@ -90,7 +95,7 @@ i18n
     fallbackLng: 'en',
     debug: import.meta.env.DEV,
 
-    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'alwaysOn', 'routing'],
+    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'alwaysOn', 'routing', 'featureTour', 'onboarding'],
     defaultNS: 'common',
     keySeparator: '.',
     nsSeparator: ':',
